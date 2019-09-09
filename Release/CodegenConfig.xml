@@ -2,11 +2,14 @@
 <codegen>
   <folders>
     <folder path="..\Source" />
+    <folder path="..\Import" />
   </folders>
   <categories>
-    <category name="vlpp" pattern="\Source\"/>
+    <category name="vlpp" pattern="\Import\"/>
+    <category name="vlppos" pattern="\Source\"/>
   </categories>
   <output path=".">
-    <codepair category="vlpp" filename="Vlpp" generate="true"/>
+    <codepair category="vlpp" filename="Vlpp" generate="false"/>
+    <codepair category="vlppos" filename="VlppOS" generate="true"/>
   </output>
 </codegen>
