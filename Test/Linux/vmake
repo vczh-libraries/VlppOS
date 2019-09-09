@@ -1,0 +1,9 @@
+<#
+CPP_TARGET=./Bin/UnitTest
+CPP_VCXPROJ=../UnitTest/UnitTest/UnitTest.vcxproj
+CPP_REMOVES=("../Source/TestLocale.cpp" "../UnitTest/UnitTest/Main.cpp")
+CPP_ADDS=("Main.cpp")
+FOLDERS=("../Output")
+TARGETS=("${CPP_TARGET}")
+#>
+<#@ include "${VCPROOT}/vl/vmake-cpp" #>
