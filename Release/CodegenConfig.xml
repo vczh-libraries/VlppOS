@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<codegen>
+  <folders>
+    <folder path="..\Source" />
+    <folder path="..\Import" />
+  </folders>
+  <categories>
+    <category name="vlpp" pattern="\Import\Vlpp."/>
+    <category name="vlppos" pattern="\Source\"/>
+  </categories>
+  <output path=".">
+    <codepair category="vlpp" filename="Vlpp" generate="false"/>
+    <codepair category="vlppos" filename="VlppOS" generate="true"/>
+  </output>
+</codegen>
