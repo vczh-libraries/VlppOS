@@ -5,7 +5,7 @@
     <folder path="..\Import" />
   </folders>
   <categories>
-    <category name="vlpp" pattern="\Import\Vlpp.h"/>
+    <category name="vlpp" pattern="\Import\Vlpp."/>
     <category name="vlppos" pattern="\Source\"/>
   </categories>
   <output path=".">
