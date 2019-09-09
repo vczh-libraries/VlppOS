@@ -1,7 +1,6 @@
 #include "CompressionStream.h"
 #include "Accessor.h"
 #include "MemoryWrapperStream.h"
-#include "../Collections/List.h"
 
 namespace vl
 {

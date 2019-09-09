@@ -1,7 +1,5 @@
-﻿#include "../../Source/UnitTest/UnitTest.h"
-#include "../../Source/FileSystem.h"
+﻿#include "../../Source/FileSystem.h"
 #include "../../Source/Locale.h"
-#include "../../Source/Exception.h"
 #include "../../Source/Stream/FileStream.h"
 #include "../../Source/Stream/CharFormat.h"
 #include "../../Source/Stream/Accessor.h"

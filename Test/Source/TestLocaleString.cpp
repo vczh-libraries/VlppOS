@@ -1,9 +1,7 @@
-#include "../../Source/UnitTest/UnitTest.h"
 #include "../../Source/Locale.h"
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/CharFormat.h"
 #include "../../Source/Stream/FileStream.h"
-#include "../../Source/Collections/OperationForEach.h"
 
 using namespace vl;
 using namespace vl::collections;

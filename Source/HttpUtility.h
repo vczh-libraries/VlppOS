@@ -1,8 +1,7 @@
 #ifndef VCZH_HTTPUTILITY
 #define VCZH_HTTPUTILITY
 
-#include "String.h"
-#include "Collections/Dictionary.h"
+#include "../Import/Vlpp.h"
 
 #ifdef VCZH_MSVC
 

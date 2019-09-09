@@ -2,7 +2,6 @@
 #if defined VCZH_MSVC
 #include <windows.h>
 #elif defined VCZH_GCC
-#include "../String.h"
 #include <string.h>
 #endif
 

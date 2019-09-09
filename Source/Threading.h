@@ -14,9 +14,7 @@ Classes:
 #ifndef VCZH_THREADING
 #define VCZH_THREADING
 
-#include "Basic.h"
-#include "String.h"
-#include "Function.h"
+#include "../Import/Vlpp.h"
 
 namespace vl
 {

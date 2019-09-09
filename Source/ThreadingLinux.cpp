@@ -1,5 +1,4 @@
 #include "Threading.h"
-#include "Collections/List.h"
 #ifdef VCZH_GCC
 #include <pthread.h>
 #include <unistd.h>

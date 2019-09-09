@@ -18,8 +18,6 @@ Classes:
 
 #include "Interfaces.h"
 #include "MemoryStream.h"
-#include "../Collections/List.h"
-#include "../String.h"
 
 namespace vl
 {

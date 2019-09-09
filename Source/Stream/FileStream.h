@@ -12,7 +12,6 @@ Interfaces:
 
 #include <stdio.h>
 #include "Interfaces.h"
-#include "../String.h"
 
 namespace vl
 {

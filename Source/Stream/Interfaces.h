@@ -10,10 +10,7 @@ Interfaces:
 #ifndef VCZH_STREAM_INTERFACES
 #define VCZH_STREAM_INTERFACES
 
-#include "../Basic.h"
-#include "../String.h"
-#include "../Collections/List.h"
-#include "../Collections/Dictionary.h"
+#include "../../Import/Vlpp.h"
 
 namespace vl
 {

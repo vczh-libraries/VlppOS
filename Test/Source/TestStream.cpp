@@ -1,6 +1,4 @@
 ﻿#include <string.h>
-#include "../../Source/UnitTest/UnitTest.h"
-#include "../../Source/Console.h"
 #include "../../Source/Stream/Interfaces.h"
 #include "../../Source/Stream/MemoryWrapperStream.h"
 #include "../../Source/Stream/MemoryStream.h"
@@ -11,7 +9,6 @@
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/CharFormat.h"
 #include "../../Source/Stream/CompressionStream.h"
-#include "../../Source/Pointer.h"
 #include "../../Source/Locale.h"
 
 using namespace vl;

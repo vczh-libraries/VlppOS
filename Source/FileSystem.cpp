@@ -1,9 +1,7 @@
 #include "FileSystem.h"
 #include "Locale.h"
-#include "Collections/OperationForEach.h"
 #include "Stream/FileStream.h"
 #include "Stream/Accessor.h"
-#include "Exception.h"
 #if defined VCZH_MSVC
 #include <Windows.h>
 #include <Shlwapi.h>
