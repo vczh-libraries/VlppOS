@@ -10,7 +10,6 @@ using namespace vl::filesystem;
 using namespace vl::collections;
 using namespace vl::stream;
 
-extern WString GetTestResourcePath();
 extern WString GetTestOutputPath();
 
 void ClearTestFolders()

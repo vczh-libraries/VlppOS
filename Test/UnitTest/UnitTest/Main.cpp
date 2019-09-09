@@ -21,15 +21,6 @@ WString GetExePath()
 	return WString(buffer, pos + 1);
 }
 
-WString GetTestResourcePath()
-{
-#ifdef _WIN64
-	return GetExePath() + L"../../../Resources/";
-#else
-	return GetExePath() + L"../../Resources/";
-#endif
-}
-
 WString GetTestOutputPath()
 {
 #ifdef _WIN64

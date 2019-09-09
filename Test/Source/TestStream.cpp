@@ -15,7 +15,6 @@ using namespace vl;
 using namespace vl::stream;
 using namespace vl::collections;
 
-extern WString GetTestResourcePath();
 extern WString GetTestOutputPath();
 const vint BUFFER_SIZE = 1024;
 
