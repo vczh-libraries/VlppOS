@@ -10,8 +10,6 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-#include "Console.h"
-
 namespace vl
 {
 	using namespace threading_internal;
