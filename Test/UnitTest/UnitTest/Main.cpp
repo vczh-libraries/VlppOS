@@ -30,7 +30,7 @@ WString GetTestOutputPath()
 #endif
 }
 
-int wmain(vint argc , wchar_t* args[])
+int wmain(vint argc , wchar_t* argv[])
 {
 	{
 		Folder folder(GetTestOutputPath());
@@ -39,10 +39,10 @@ int wmain(vint argc , wchar_t* args[])
 			TEST_ASSERT(folder.Create(false) == true);
 		}
 	}
-	unittest::UnitTest::RunAndDisposeTests();
+	int result = unittest::UnitTest::RunAndDisposeTests(argc, argv);
 	FinalizeGlobalStorage();
 #ifdef VCZH_CHECK_MEMORY_LEAKS
 	_CrtDumpMemoryLeaks();
 #endif
-	return 0;
+	return result;
 }
