@@ -12,8 +12,7 @@ WString GetTestOutputPath()
 	return L"../Output/";
 }
 
-int main()
+int main(int argc, char* argv[])
 {
-	unittest::UnitTest::RunAndDisposeTests();
-	return 0;
+	return unittest::UnitTest::RunAndDisposeTests(argc, argv);
 }

@@ -193,7 +193,7 @@ TEST_FILE
 		});
 		TEST_CASE(L"Throws on /../../bin")
 		{
-			TEST_EXCEPTION({ FilePath p = L"/../../bin" }, ArgumentException, [](const ArgumentException&) {});
+			TEST_EXCEPTION({ FilePath p = L"/../../bin"; }, ArgumentException, [](const ArgumentException&) {});
 		});
 	#endif
 	});
