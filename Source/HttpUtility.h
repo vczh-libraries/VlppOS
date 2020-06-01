@@ -1,7 +1,7 @@
 #ifndef VCZH_HTTPUTILITY
 #define VCZH_HTTPUTILITY
 
-#include "../Import/Vlpp.h"
+#include <Vlpp.h>
 
 #ifdef VCZH_MSVC
 

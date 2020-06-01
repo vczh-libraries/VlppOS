@@ -8,7 +8,7 @@ Framework::FileSystem
 #ifndef VCZH_FILESYSTEM
 #define VCZH_FILESYSTEM
 
-#include "../Import/Vlpp.h"
+#include <Vlpp.h>
 #include "Stream/CharFormat.h"
 
 namespace vl

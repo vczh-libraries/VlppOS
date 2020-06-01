@@ -14,7 +14,7 @@ Classes:
 #ifndef VCZH_THREADING
 #define VCZH_THREADING
 
-#include "../Import/Vlpp.h"
+#include <Vlpp.h>
 
 namespace vl
 {

@@ -9,7 +9,7 @@ Interfaces:
 #ifndef VCZH_LOCALE
 #define VCZH_LOCALE
 
-#include "../Import/Vlpp.h"
+#include <Vlpp.h>
 
 namespace vl
 {
