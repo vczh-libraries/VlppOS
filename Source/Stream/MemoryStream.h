@@ -12,7 +12,7 @@ namespace vl
 {
 	namespace stream
 	{
-		/// <summary>A readable, writable, seekable and peekable stream that stores everything in memory.</summary>
+		/// <summary>A <b>readable</b>, <b>peekable</b>, <b>writable</b> and <b>seekable</b> stream that creates on a buffer.</summary>
 		class MemoryStream : public Object, public virtual IStream
 		{
 		protected:
@@ -24,8 +24,12 @@ namespace vl
 
 			void					PrepareSpace(vint totalSpace);
 		public:
-			/// <summary>Create a stream.</summary>
-			/// <param name="_block">Size for each allocation. The stream will only allocate new memory of size "_block" when it reaches the end and has to extend.</param>
+			/// <summary>Create a memory stream.</summary>
+			/// <param name="_block">
+			/// Size for each allocation.
+			/// When the allocated buffer is not big enough for writing,
+			/// the buffer will be rebuilt with an extension of "_block" in bytes.
+			/// </param>
 			MemoryStream(vint _block=65536);
 			~MemoryStream();
 

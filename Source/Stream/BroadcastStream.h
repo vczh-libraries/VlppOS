@@ -12,7 +12,10 @@ namespace vl
 {
 	namespace stream
 	{
-		/// <summary>A writable stream that copy written content to multiple target streams.</summary>
+		/// <summary>A <b>writable</b> stream that copy the written content to multiple output streams.</summary>
+		/// <remarks>
+		/// When writing happens, the boreadcast stream will only performance one write attempt to each output stream.
+		/// </remarks>
 		class BroadcastStream : public Object, public virtual IStream
 		{
 			typedef collections::List<IStream*>		StreamList;
@@ -21,12 +24,15 @@ namespace vl
 			pos_t					position;
 			StreamList				streams;
 		public:
-			/// <summary>Create a strema.</summary>
+			/// <summary>Create a boradcast stream.</summary>
 			BroadcastStream();
 			~BroadcastStream();
 
-			/// <summary>Get the list of target streams. You can add streams to this list, or remove streams from this list.</summary>
-			/// <returns>The list of target streams.</returns>
+			/// <summary>
+			/// Get the list of output streams.
+			/// You can change this list to subscribe or unsubscribe.
+			/// </summary>
+			/// <returns>The list of output streams.</returns>
 			StreamList&				Targets();
 			bool					CanRead()const;
 			bool					CanWrite()const;

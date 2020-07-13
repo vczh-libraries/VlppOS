@@ -12,7 +12,7 @@ namespace vl
 {
 	namespace stream
 	{
-		/// <summary>A readable, writable, seekable and peekable stream that operates a buffer.</summary>
+		/// <summary>A <b>readable</b>, <b>peekable</b>, <b>writable</b>, <b>seekable</b> and <b>finite</b> stream that creates on a buffer.</summary>
 		class MemoryWrapperStream : public Object, public virtual IStream
 		{
 		protected:
@@ -20,9 +20,9 @@ namespace vl
 			vint						size;
 			vint						position;
 		public:
-			/// <summary>Create a stream.</summary>
+			/// <summary>Create a memory wrapper stream.</summary>
 			/// <param name="_buffer">The buffer to operate.</param>
-			/// <param name="_size">Size of the buffer.</param>
+			/// <param name="_size">Size of the buffer in bytes.</param>
 			MemoryWrapperStream(void* _buffer, vint _size);
 			~MemoryWrapperStream();
 

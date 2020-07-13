@@ -13,27 +13,27 @@ namespace vl
 {
 	namespace stream
 	{
-		/// <summary>A file stream. It is readable when you use [F:vl.stream.FileStream.AccessRight.ReadOnly] or [F:vl.stream.FileStream.AccessRight.ReadWrite] to create the stream. It is writable when you use [F:vl.stream.FileStream.AccessRight.WriteOnly] or [F:vl.stream.FileStream.AccessRight.ReadWrite] to create the stream.</summary>
+		/// <summary>A file stream. If the given file name is not working, the stream could be <b>unavailable</b>.</summary>
 		class FileStream : public Object, public virtual IStream
 		{
 		public:
 			/// <summary>Access to the file.</summary>
 			enum AccessRight
 			{
-				/// <summary>The file is opened to read.</summary>
+				/// <summary>The file is opened to read, making this stream <b>readable</b>,  <b>seekable</b> and <b>finite</b>.</summary>
 				ReadOnly,
-				/// <summary>The file is opened to write.</summary>
+				/// <summary>The file is opened to write, making this stream <b>writable</b>.</summary>
 				WriteOnly,
-				/// <summary>The file is opened to both read and write.</summary>
+				/// <summary>The file is opened to both read and write, making this stream <b>readable</b>, <b>seekable</b> and <b>writable</b>.</summary>
 				ReadWrite
 			};
 		protected:
 			AccessRight				accessRight;
 			FILE*					file;
 		public:
-			/// <summary>Create a stream.</summary>
-			/// <param name="fileName">File to operate.</param>
-			/// <param name="_accessRight">Operations want to perform on the file.</param>
+			/// <summary>Create a file stream from a given file name.</summary>
+			/// <param name="fileName">The file to operate.</param>
+			/// <param name="_accessRight">Expected operations on the file.</param>
 			FileStream(const WString& fileName, AccessRight _accessRight);
 			~FileStream();
 

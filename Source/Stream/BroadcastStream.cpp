@@ -99,7 +99,8 @@ BroadcastStream
 		{
 			for(vint i=0;i<streams.Count();i++)
 			{
-				streams[i]->Write(_buffer, _size);
+				vint written = streams[i]->Write(_buffer, _size);
+				CHECK_ERROR(written == _size, L"BroadcastStream::Write(void*, vint)#Failed to copy data to the output stream.");
 			}
 			position+=_size;
 			return _size;

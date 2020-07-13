@@ -10,13 +10,13 @@ namespace vl
 {
 	namespace stream
 	{
-/***********************************************************************
-RecorderStream
-***********************************************************************/
+		/***********************************************************************
+		RecorderStream
+		***********************************************************************/
 
 		RecorderStream::RecorderStream(IStream& _in, IStream& _out)
 			:in(&_in)
-			,out(&_out)
+			, out(&_out)
 		{
 		}
 
@@ -51,23 +51,23 @@ RecorderStream
 
 		bool RecorderStream::IsAvailable()const
 		{
-			return in!=0 && out!=0 && in->IsAvailable() && out->IsAvailable();
+			return in != 0 && out != 0 && in->IsAvailable() && out->IsAvailable();
 		}
 
 		void RecorderStream::Close()
 		{
-			in=0;
-			out=0;
+			in = nullptr;
+			out = nullptr;
 		}
 
 		pos_t RecorderStream::Position()const
 		{
-			return IsAvailable()?in->Position():-1;
+			return IsAvailable() ? in->Position() : -1;
 		}
 
 		pos_t RecorderStream::Size()const
 		{
-			return IsAvailable()?in->Size():-1;
+			return IsAvailable() ? in->Size() : -1;
 		}
 
 		void RecorderStream::Seek(pos_t _size)
@@ -87,8 +87,9 @@ RecorderStream
 
 		vint RecorderStream::Read(void* _buffer, vint _size)
 		{
-			_size=in->Read(_buffer, _size);
-			out->Write(_buffer, _size);
+			_size = in->Read(_buffer, _size);
+			vint written = out->Write(_buffer, _size);
+			CHECK_ERROR(written == _size, L"RecorderStream::Read(void*, vint)#Failed to copy data to the output stream.");
 			return _size;
 		}
 

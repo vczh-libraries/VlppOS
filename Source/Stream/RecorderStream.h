@@ -12,16 +12,29 @@ namespace vl
 {
 	namespace stream
 	{
-		/// <summary>A readable stream that, read from an stream, and write everything that is read to another stream.</summary>
+		/// <summary>
+		/// A readable stream that, reads from one stream, and copy everything that is read to another stream.
+		/// The stream is <b>unavailable</b> if one of the input stream or the output stream is <b>unavailable</b>.
+		/// The stream is <b>readable</b>, and potentially <b>finite</b>.
+		/// </summary>
+		/// <remarks>
+		/// When reading happens, the recorder stream will only performance one write attempt to the output stream.
+		/// </remarks>
 		class RecorderStream : public Object, public virtual IStream
 		{
 		protected:
 			IStream*				in;
 			IStream*				out;
 		public:
-			/// <summary>Create a stream.</summary>
-			/// <param name="_in">The stream to read.</param>
-			/// <param name="_out">The stream to write what is read from "_in".</param>
+			/// <summary>Create a recorder stream.</summary>
+			/// <param name="_in">
+			/// The input stream.
+			/// This recorder stream is <b>readable</b> only when the input stream is <b>readable</b>
+			/// This recorder stream is <b>finite</b> only when the input stream is <b>finite</b>
+			/// </param>
+			/// <param name="_out">
+			/// The output stream.
+			/// </param>
 			RecorderStream(IStream& _in, IStream& _out);
 			~RecorderStream();
 

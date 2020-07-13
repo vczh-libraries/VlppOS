@@ -13,9 +13,21 @@ namespace vl
 	namespace stream
 	{
 		/// <summary>
-		/// A cache stream. Features (readable, writable, seekable, peekable) are enabled according to the target stream.
-		/// When you read from the cache strema, it will read a specified size of content from the target stream first and cache, reducing the numbers of operations on the target stream.
-		/// When you write to the cache strema, it will save them to a buffer, and write to the target stream until the buffer reaches a specified size, reducing the numbers of operations on the target stream.
+		/// <p>
+		/// A potentially <b>readable</b>, <b>peekable</b>, <b>writable</b>, <b>seekable</b> and <b>finite</b> stream that creates on another stream.
+		/// Each feature is available if the target stream has the same feature.
+		/// </p>
+		/// <p>
+		/// When you read from the cache strema,
+		/// it will read a specified size of content from the target stream at once and cache,
+		/// reducing the number of operations on the target stream.
+		/// </p>
+		/// <p>
+		/// When you write to the cache stream,
+		/// it will cache all the data to write,
+		/// and write to the target stream after the cache is full,
+		/// reducing the number of operations on the target stream.
+		/// </p>
 		/// </summary>
 		class CacheStream : public Object, public virtual IStream
 		{
@@ -36,7 +48,7 @@ namespace vl
 			vint					InternalRead(void* _buffer, vint _size);
 			vint					InternalWrite(void* _buffer, vint _size);
 		public:
-			/// <summary>Create a cache stream using a target stream.</summary>
+			/// <summary>Create a cache stream from a target stream.</summary>
 			/// <param name="_target">The target stream.</param>
 			/// <param name="_block">Size of the cache.</param>
 			CacheStream(IStream& _target, vint _block=65536);
