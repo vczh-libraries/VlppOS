@@ -53,7 +53,11 @@ Compression
 			~LzwBase();
 		};
 
-		/// <summary>An encoder to compress using Lzw algorithm.</summary>
+		/// <summary>An encoder to compress data using the Lzw algorithm.</summary>
+		/// <remark>
+		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
+		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
+		/// </remark>
 		class LzwEncoder : public LzwBase, public IEncoder
 		{
 		protected:
@@ -68,8 +72,15 @@ Compression
 		public:
 			/// <summary>Create an encoder.</summary>
 			LzwEncoder();
-			/// <summary>Create an encoder and tell it which byte will never appear in the data before compression.</summary>
-			/// <param name="existingBytes">An array to tell the encoder which byte will never appear in the data before compression.</param>
+			/// <summary>Create an encoder, specifying what bytes will never appear in the data to compress.</summary>
+			/// <param name="existingBytes">
+			/// A filter array
+			/// If existingBytes[x] == true, it means x will possibly appear.
+			/// If existingBytes[x] == false, it means x will never appear.
+			/// </param>
+			/// <remark>
+			/// The behavior is undefined, if existingBytes[x] == false, but byte x is actually in the data to compress.
+			/// </remark>
 			LzwEncoder(bool (&existingBytes)[256]);
 			~LzwEncoder();
 
@@ -78,7 +89,11 @@ Compression
 			vint									Write(void* _buffer, vint _size)override;
 		};
 		
-		/// <summary>An decoder to decompress using Lzw algorithm.</summary>
+		/// <summary>An decoder to decompress data using the Lzw algorithm.</summary>
+		/// <remark>
+		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
+		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
+		/// </remark>
 		class LzwDecoder :public LzwBase, public IDecoder
 		{
 		protected:
@@ -98,10 +113,17 @@ Compression
 			void									PrepareOutputBuffer(vint size);
 			void									ExpandCodeToOutputBuffer(lzw::Code* code);
 		public:
-			/// <summary>Create an decoder.</summary>
+			/// <summary>Create a decoder.</summary>
 			LzwDecoder();
-			/// <summary>Create an decoder and tell it which byte will never appear in the data before compression.</summary>
-			/// <param name="existingBytes">An array to tell the encoder which byte will never appear in the data before compression.</param>
+			/// <summary>Create an encoder, specifying what bytes will never appear in the decompressed data.</summary>
+			/// <param name="existingBytes">
+			/// A filter array
+			/// If existingBytes[x] == true, it means x will possibly appear.
+			/// If existingBytes[x] == false, it means x will never appear.
+			/// </param>
+			/// <remark>
+			/// The array "existingBytes" should exactly match the one given to <see cref="LzwEncoder"/>.
+			/// </remark>
 			LzwDecoder(bool (&existingBytes)[256]);
 			~LzwDecoder();
 
@@ -114,8 +136,34 @@ Compression
 Helper Functions
 ***********************************************************************/
 
+		/// <summary>Copy data from a <b>readable</b> input stream (with uncompressed data) to a <b>writable</b> output stream (with compressed data).</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
+		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
 		extern vint						CopyStream(stream::IStream& inputStream, stream::IStream& outputStream);
+
+		/// <summary>Compress data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
+		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
+		/// <remarks>
+		/// Data is compressed in multiple batches,
+		/// the is expected output stream to have data in multiple parts.
+		/// In each part, the first 4 bytes is the data before compression in bytes.
+		/// the rest is the compressed data.
+		/// </remarks>
 		extern void						CompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
+
+		/// <summary>Decompress data from a <b>readable</b> input stream (with compressed data) to a <b>writable</b> output stream (with uncompressed data).</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
+		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
+		/// <remarks>
+		/// Data is compressed in multiple batches,
+		/// the is expected input stream to have data in multiple parts.
+		/// In each part, the first 4 bytes is the data before compression in bytes.
+		/// the rest is the compressed data.
+		/// </remarks>
 		extern void						DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
 	}
 }
