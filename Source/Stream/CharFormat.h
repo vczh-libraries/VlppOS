@@ -1,7 +1,6 @@
 /***********************************************************************
-Vczh Library++ 3.0
-Developer: Zihan Chen(vczh)
-Stream::CharFormat
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
 
 Classes:
 	CharEncoder									: Encoder to translate from wchar_t to some specified format

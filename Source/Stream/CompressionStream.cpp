@@ -1,3 +1,8 @@
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
 #include "CompressionStream.h"
 #include "Accessor.h"
 #include "MemoryWrapperStream.h"

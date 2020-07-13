@@ -1,7 +1,6 @@
 /***********************************************************************
-Vczh Library++ 3.0
-Developer: Zihan Chen(vczh)
-Stream::Accessor
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
 
 Classes:
 	TextReader						: Text reader base class
