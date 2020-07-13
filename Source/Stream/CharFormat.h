@@ -1,20 +1,6 @@
 /***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
-
-Classes:
-	CharEncoder									: Encoder to translate from wchar_t to some specified format
-	CharDecoder									: Decoder to transate from some specified format to wchar_t
-	MbcsEncoder									: Mbcs encoder (using the code page of the current locale)
-	MbcsDecoder									: Mbcs decoder (using the code page of the current locale)
-	Utf16Encoder								: UTF-16 encoder
-	Utf16Decoder								: UTF-16 decoder
-	Utf16BEEncoder								: UTF-16 encoder with big endian
-	Utf16BEDecoder								: UTF-16 decoder with big endian
-	Utf8Encoder									: UTF-8 encoder
-	Utf8Decoder									: UTF-8 decoder
-	BomEncoder									: Character encoder which writes a BOM before the text
-	BomDecoder									: Character decoder which reads a BOM from the data to know the encoding
 ***********************************************************************/
 
 #ifndef VCZH_STREAM_CHARFORMAT
@@ -30,18 +16,18 @@ namespace vl
 	{
 
 		/*
-		How UCS-4 translate to UTF-8
-		U-00000000 - U-0000007F:  0xxxxxxx
-		U-00000080 - U-000007FF:  110xxxxx 10xxxxxx
-		U-00000800 - U-0000FFFF:  1110xxxx 10xxxxxx 10xxxxxx
-		U-00010000 - U-001FFFFF:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-		U-00200000 - U-03FFFFFF:  111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
-		U-04000000 - U-7FFFFFFF:  1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+		How UCS-4 translates to UTF-8
+			U-00000000 - U-0000007F:  0xxxxxxx
+			U-00000080 - U-000007FF:  110xxxxx 10xxxxxx
+			U-00000800 - U-0000FFFF:  1110xxxx 10xxxxxx 10xxxxxx
+			U-00010000 - U-001FFFFF:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+			U-00200000 - U-03FFFFFF:  111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+			U-04000000 - U-7FFFFFFF:  1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
 		BOM:
-		FFFE	=Unicode			(vceUtf16)
-		FEFF	=Unicode Big Endian	(vceUtf16_be)
-		EFBBBF	=UTF-8				(vceUtf8)
-		other	=MBCS(GBK)			(vceMbcs)
+			FFFE	=Unicode
+			FEFF	=Unicode Big Endian
+			EFBBBF	=UTF-8
+			other	=MBCS(GBK)
 		*/
 
 /***********************************************************************
@@ -86,14 +72,14 @@ Char Encoder and Decoder
 Mbcs
 ***********************************************************************/
 		
-		/// <summary>Encoder to transform text in a local code page from wchar_t.</summary>
+		/// <summary>Encoder to write text in the local code page.</summary>
 		class MbcsEncoder : public CharEncoder
 		{
 		protected:
 			vint							WriteString(wchar_t* _buffer, vint chars);
 		};
 		
-		/// <summary>Encoder to transform text in a local code page to wchar_t.</summary>
+		/// <summary>Decoder to read text in the local code page.</summary>
 		class MbcsDecoder : public CharDecoder
 		{
 		protected:
@@ -104,14 +90,14 @@ Mbcs
 Utf-16
 ***********************************************************************/
 		
-		/// <summary>Encoder to transform UTF-16 text from wchar_t.</summary>
+		/// <summary>Encoder to write UTF-16 text.</summary>
 		class Utf16Encoder : public CharEncoder
 		{
 		protected:
 			vint							WriteString(wchar_t* _buffer, vint chars);
 		};
 		
-		/// <summary>Decoder to transform UTF-16 text to wchar_t.</summary>
+		/// <summary>Decoder to read UTF-16 text.</summary>
 		class Utf16Decoder : public CharDecoder
 		{
 		protected:
@@ -122,14 +108,14 @@ Utf-16
 Utf-16-be
 ***********************************************************************/
 		
-		/// <summary>Encoder to transform big endian UTF-16 text from wchar_t.</summary>
+		/// <summary>Encoder to write big endian UTF-16 to.</summary>
 		class Utf16BEEncoder : public CharEncoder
 		{
 		protected:
 			vint							WriteString(wchar_t* _buffer, vint chars);
 		};
 		
-		/// <summary>Decoder to transform big endian UTF-16 text to wchar_t.</summary>
+		/// <summary>Decoder to read big endian UTF-16 text.</summary>
 		class Utf16BEDecoder : public CharDecoder
 		{
 		protected:
@@ -140,14 +126,14 @@ Utf-16-be
 Utf-8
 ***********************************************************************/
 		
-		/// <summary>Encoder to transform UTF-8 text from wchar_t.</summary>
+		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf8Encoder : public CharEncoder
 		{
 		protected:
 			vint							WriteString(wchar_t* _buffer, vint chars);
 		};
 		
-		/// <summary>Decoder to transform UTF-8 text to wchar_t.</summary>
+		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf8Decoder : public CharDecoder
 		{
 		protected:
@@ -164,7 +150,7 @@ Utf-8
 Bom
 ***********************************************************************/
 		
-		/// <summary>Encoder to transform text from wchar_t. A BOM will be added at the beginning.</summary>
+		/// <summary>Encoder to write text in a specified encoding. A BOM will be added at the beginning.</summary>
 		class BomEncoder : public Object, public IEncoder
 		{
 		public:
@@ -173,19 +159,19 @@ Bom
 			{
 				/// <summary>Multi-bytes character string.</summary>
 				Mbcs,
-				/// <summary>UTF-8.</summary>
+				/// <summary>UTF-8. EF, BB, BF will be written before writing any text.</summary>
 				Utf8,
-				/// <summary>UTF-16.</summary>
+				/// <summary>UTF-16. FF FE will be written before writing any text.</summary>
 				Utf16,
-				/// <summary>Big endian UTF-16.</summary>
+				/// <summary>Big endian UTF-16. FE FF, BF will be written before writing any text.</summary>
 				Utf16BE
 			};
 		protected:
 			Encoding						encoding;
 			IEncoder*						encoder;
 		public:
-			/// <summary>Create an encoder.</summary>
-			/// <param name="_encoding">Specified encoding.</param>
+			/// <summary>Create an encoder with a specified encoding.</summary>
+			/// <param name="_encoding">The specified encoding.</param>
 			BomEncoder(Encoding _encoding);
 			~BomEncoder();
 
@@ -194,7 +180,7 @@ Bom
 			vint							Write(void* _buffer, vint _size);
 		};
 		
-		/// <summary>Decoder to transform text to wchar_t. This decoder depends on the BOM information at the beginning to decide the format of the input.</summary>
+		/// <summary>Decoder to read text. This decoder depends on BOM at the beginning to decide the format of the input.</summary>
 		class BomDecoder : public Object, public IDecoder
 		{
 		private:
@@ -229,7 +215,7 @@ Bom
 			IStream*						stream;
 
 		public:
-			/// <summary>Create an decoder.</summary>
+			/// <summary>Create an decoder, BOM will be consumed before reading any text.</summary>
 			BomDecoder();
 			~BomDecoder();
 

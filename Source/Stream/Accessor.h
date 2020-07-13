@@ -1,15 +1,6 @@
 /***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
-
-Classes:
-	TextReader						: Text reader base class
-	TextWriter						: Text writer base class
-	StringReader					: Text reader from a string
-	StreamReader					: Text reader from a stream
-	StreamWriter					: Text writer to a stream
-	EncoderStream					: Stream that takes an encoder to translate another stream
-	DecoderStream					: Stream that takes a decoder to translate another stream
 ***********************************************************************/
 
 #ifndef VCZH_STREAM_ACCESSOR
@@ -27,7 +18,7 @@ namespace vl
 Text Related
 ***********************************************************************/
 
-		/// <summary>Text reader. All line breaks are normalized to CRLF regardless the format in the source.</summary>
+		/// <summary>Text reader. All line breaks are normalized to CRLF regardless whatever in the input stream.</summary>
 		class TextReader : public Object, private NotCopyable
 		{
 		public:
@@ -37,15 +28,15 @@ Text Related
 			/// <summary>Read a single character.</summary>
 			/// <returns>The character.</returns>
 			virtual wchar_t				ReadChar()=0;
-			/// <summary>Read a string of a specified size.</summary>
-			/// <returns>The string.</returns>
+			/// <summary>Read a string of a specified size in characters.</summary>
+			/// <returns>The read string.</returns>
 			/// <param name="length">Expected length of the string to read.</param>
 			virtual WString				ReadString(vint length);
 			/// <summary>Read a string until a line breaks is reached.</summary>
 			/// <returns>The string. It does not contain the line break.</returns>
 			virtual WString				ReadLine();
 			/// <summary>Read everying remain.</summary>
-			/// <returns>The string.</returns>
+			/// <returns>The read string.</returns>
 			virtual WString				ReadToEnd();
 		};
 		
@@ -57,18 +48,18 @@ Text Related
 			/// <param name="c">The character to write.</param>
 			virtual void				WriteChar(wchar_t c)=0;
 			/// <summary>Write a string.</summary>
-			/// <param name="string">Buffer to the string to write.</param>
-			/// <param name="charCount">Size of the string in characters not including the zero terminator.</param>
+			/// <param name="string">Buffer of the string to write.</param>
+			/// <param name="charCount">Size of the string in characters, not including the zero terminator.</param>
 			virtual void				WriteString(const wchar_t* string, vint charCount);
 			/// <summary>Write a string.</summary>
-			/// <param name="string">Buffer to the zero terminated string to write.</param>
+			/// <param name="string">Buffer of the zero terminated string to write.</param>
 			virtual void				WriteString(const wchar_t* string);
 			/// <summary>Write a string.</summary>
 			/// <param name="string">The string to write.</param>
 			virtual void				WriteString(const WString& string);
 			/// <summary>Write a string with a CRLF.</summary>
 			/// <param name="string">Buffer to the string to write.</param>
-			/// <param name="charCount">Size of the string in characters not including the zero terminator.</param>
+			/// <param name="charCount">Size of the string in characters, not including the zero terminator.</param>
 			virtual void				WriteLine(const wchar_t* string, vint charCount);
 			/// <summary>Write a string with a CRLF.</summary>
 			/// <param name="string">Buffer to the zero terminated string to write.</param>
@@ -101,7 +92,14 @@ Text Related
 			WString						ReadToEnd();
 		};
 		
-		/// <summary>Text reader from a stream.</summary>
+		/// <summary>
+		/// Text reader from a stream storing characters in wchar_t.
+		/// </summary>
+		/// <remarks>
+		/// To specify the encoding in the input stream,
+		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="CharDecoder"/>,
+		/// like <see cref="BomDecoder"/>, <see cref="MbcsDecoder"/>, <see cref="Utf16Decoder"/>, <see cref="Utf16BEDecoder"/> or <see cref="Utf8Decoder"/>.
+		/// </remarks>
 		class StreamReader : public TextReader
 		{
 		protected:
@@ -114,8 +112,15 @@ Text Related
 			bool						IsEnd();
 			wchar_t						ReadChar();
 		};
-		
-		/// <summary>Text writer to a stream.</summary>
+
+		/// <summary>
+		/// Text reader from a stream storing characters in wchar_t.
+		/// </summary>
+		/// <remarks>
+		/// To specify the encoding in the input stream,
+		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="CharEncoder"/>,
+		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEbcoder"/> or <see cref="Utf8Encoder"/>.
+		/// </remarks>
 		class StreamWriter : public TextWriter
 		{
 		protected:
@@ -134,7 +139,7 @@ Text Related
 Encoding Related
 ***********************************************************************/
 
-		/// <summary>Encoder stream, a writable stream using an [T:vl.stream.IEncoder] to transform content.</summary>
+		/// <summary>Encoder stream, a <b>writable<b> and potentially <b>finite</b> stream using [T:vl.stream.IEncoder] to transform content.</summary>
 		class EncoderStream : public virtual IStream
 		{
 		protected:
@@ -143,8 +148,8 @@ Encoding Related
 			pos_t						position;
 
 		public:
-			/// <summary>Create a stream.</summary>
-			/// <param name="_stream">The target stream to write.</param>
+			/// <summary>Create en encoder stream.</summary>
+			/// <param name="_stream">The output stream to write.</param>
 			/// <param name="_encoder">The encoder to transform content.</param>
 			EncoderStream(IStream& _stream, IEncoder& _encoder);
 			~EncoderStream();
@@ -166,7 +171,7 @@ Encoding Related
 			vint						Peek(void* _buffer, vint _size);
 		};
 		
-		/// <summary>Decoder stream, a readable stream using an [T:vl.stream.IDecoder] to transform content.</summary>
+		/// <summary>Decoder stream, a <b>readable<b> and potentially <b>finite</b> stream using [T:vl.stream.IDecoder] to transform content.</summary>
 		class DecoderStream : public virtual IStream
 		{
 		protected:
@@ -175,8 +180,8 @@ Encoding Related
 			pos_t						position;
 
 		public:
-			/// <summary>Create a stream.</summary>
-			/// <param name="_stream">The target stream to read.</param>
+			/// <summary>Create a decoder stream.</summary>
+			/// <param name="_stream">The input stream to read.</param>
 			/// <param name="_decoder">The decoder to transform content.</param>
 			DecoderStream(IStream& _stream, IDecoder& _decoder);
 			~DecoderStream();
@@ -202,6 +207,17 @@ Encoding Related
 Helper Functions
 ***********************************************************************/
 
+		/// <summary>
+		/// Build a big string using <see cref="StreamWriter"/>.
+		/// </summary>
+		/// <typeparam name="TCallback">The type of the callback.</typeparam>
+		/// <returns>The built big string.</returns>
+		/// <param name="callback">
+		/// The callback to receive a big string.
+		/// The argument is a reference to a <see cref="StreamWriter"/>.
+		/// After the callback is executed, everything written to the writer will be returned from "GenerateToStream".
+		/// </param>
+		/// <param name="callback">Size of the cache in bytes.</param>
 		template<typename TCallback>
 		WString GenerateToStream(const TCallback& callback, vint block = 65536)
 		{
