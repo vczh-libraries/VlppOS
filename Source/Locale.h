@@ -11,12 +11,31 @@ Licensed under https://github.com/vczh-libraries/License
 namespace vl
 {
 	/// <summary>Locale awared operations. Macro "INVLOC" is a shortcut to get a invariant locale.</summary>
+	/// <remarks>
+	/// <p>
+	/// For all string operations that the normalization does not set to <b>None</b>,
+	/// and all non-string operations,
+	/// the result is platform-dependent.
+	/// This class is designed to process human-readable text,
+	/// do not rely on the result.
+	/// </p>
+	/// <p>
+	/// In Linux and macOS, only en-US is supported, with a hard-coded set of date and time formats,
+	/// and string operations only support <b>None<b> and <b>IgnoreCase</b> for normalization.
+	/// </p>
+	/// </remarks>
 	class Locale : public Object
 	{
 	protected:
 		WString						localeName;
 
 	public:
+		/// <summary>Create a locale with a specified local name.</summary>
+		/// <param name="_localeName">The name of the locale. If it is not provided, it becomes the invariant locale.</param>
+		/// <remarks>
+		/// In Windows, the specified locale need to be installed in order to take effect.
+		/// In Linux and macOS, only en-US is supported.
+		/// </remarks>
 		Locale(const WString& _localeName=WString::Empty);
 		~Locale();
 
@@ -27,72 +46,89 @@ namespace vl
 		bool operator>(const Locale& value)const { return localeName>value.localeName; }
 		bool operator>=(const Locale& value)const { return localeName>=value.localeName; }
 
-		/// <summary>Get the invariant locale.</summary>
+		/// <summary>Get the invariant locale. An invariant locale is neutral, it is not awared of any language specified thing.</summary>
 		/// <returns>The invariant locale.</returns>
 		static Locale				Invariant();
 		/// <summary>Get the system default locale. This locale controls the code page that used by the the system to interpret ANSI string buffers.</summary>
 		/// <returns>The system default locale.</returns>
 		static Locale				SystemDefault();
-		/// <summary>Get the user default locale. This locale reflect the user's setting.</summary>
+		/// <summary>Get the user default locale. This locale reflect the user's settings and UI language.</summary>
 		/// <returns>The user default locale.</returns>
 		static Locale				UserDefault();
 		/// <summary>Get all supported locales.</summary>
 		/// <param name="locales">All supported locales.</param>
 		static void					Enumerate(collections::List<Locale>& locales);
 
-		/// <summary>Get the name of the locale.</summary>
-		/// <returns>The name of the locale.</returns>
+		/// <summary>Get the name of this locale.</summary>
+		/// <returns>The name of this locale.</returns>
 		const WString&				GetName()const;
 
-		/// <summary>Get all short date formats for the locale.</summary>
-		/// <param name="formats">The formats.</param>
+		/// <summary>Get all short date formats for this locale.</summary>
+		/// <param name="formats">Returns all formats.</param>
 		void						GetShortDateFormats(collections::List<WString>& formats)const;
-		/// <summary>Get all long date formats for the locale.</summary>
-		/// <param name="formats">The formats.</param>
+		/// <summary>Get all long date formats for this locale.</summary>
+		/// <param name="formats">Returns all formats.</param>
 		void						GetLongDateFormats(collections::List<WString>& formats)const;
-		/// <summary>Get all Year-Month date formats for the locale.</summary>
-		/// <param name="formats">The formats.</param>
+		/// <summary>Get all Year-Month date formats for this locale.</summary>
+		/// <param name="formats">Returns all formats.</param>
 		void						GetYearMonthDateFormats(collections::List<WString>& formats)const;
-		/// <summary>Get all long time formats for the locale.</summary>
-		/// <param name="formats">The formats.</param>
+		/// <summary>Get all long time formats for this locale.</summary>
+		/// <param name="formats">Returns all formats.</param>
 		void						GetLongTimeFormats(collections::List<WString>& formats)const;
-		/// <summary>Get all short time formats for the locale.</summary>
-		/// <param name="formats">The formats.</param>
+		/// <summary>Get all short time formats for this locale.</summary>
+		/// <param name="formats">Returns all formats.</param>
 		void						GetShortTimeFormats(collections::List<WString>& formats)const;
 
 		/// <summary>Convert a date to a formatted string.</summary>
 		/// <returns>The formatted string.</returns>
 		/// <param name="format">The format to use.</param>
 		/// <param name="date">The date to convert.</param>
+		/// <remarks>
+		/// The value of the "format" argument must come from any of the following functions.
+		/// Otherwise the behavior is undefined.
+		/// <ul>
+		///   <li><see cref="GetShortDateFormats"/>
+		///   <li><see cref="GetLongDateFormats"/>
+		///   <li><see cref="GetYearMonthDateFormats"/>
+		/// </ul>
+		/// </remarks>
 		WString						FormatDate(const WString& format, DateTime date)const;
 		/// <summary>Convert a time to a formatted string.</summary>
 		/// <returns>The formatted string.</returns>
 		/// <param name="format">The format to use.</param>
 		/// <param name="time">The time to convert.</param>
+		/// <remarks>
+		/// The value of the "format" argument must come from any of the following functions.
+		/// Otherwise the behavior is undefined.
+		/// <ul>
+		///   <li><see cref="GetLongTimeFormats"/>
+		///   <li><see cref="GetShortTimeFormats"/>
+		/// </ul>
+		/// </remarks>
 		WString						FormatTime(const WString& format, DateTime time)const;
 
-		/// <summary>Convert a number to a formatted string.</summary>
+		/// <summary>Convert a number to a formatted string according to the locale.</summary>
 		/// <returns>The formatted string.</returns>
 		/// <param name="number">The number to convert.</param>
 		WString						FormatNumber(const WString& number)const;
-		/// <summary>Convert a currency (money) to a formatted string.</summary>
+		/// <summary>Convert a currency (money) to a formatted string according to the locale.</summary>
 		/// <returns>The formatted string.</returns>
 		/// <param name="currency">The currency to convert.</param>
 		WString						FormatCurrency(const WString& currency)const;
 
-		/// <summary>Get the short display string of a day of week.</summary>
+		/// <summary>Get the short display string of a day of week according to the locale.</summary>
 		/// <returns>The display string.</returns>
 		/// <param name="dayOfWeek">Day of week, begins from 0 as Sunday.</param>
 		WString						GetShortDayOfWeekName(vint dayOfWeek)const;
-		/// <summary>Get the long display string of a day of week.</summary>
+		/// <summary>Get the long display string of a day of week according to the locale.</summary>
 		/// <returns>The display string.</returns>
 		/// <param name="dayOfWeek">Day of week, begins from 0 as Sunday.</param>
 		WString						GetLongDayOfWeekName(vint dayOfWeek)const;
-		/// <summary>Get the short display string of a month.</summary>
+		/// <summary>Get the short display string of a month according to the locale.</summary>
 		/// <returns>The display string.</returns>
 		/// <param name="month">Month, begins from 1 as January.</param>
 		WString						GetShortMonthName(vint month)const;
-		/// <summary>Get the long display string of a month.</summary>
+		/// <summary>Get the long display string of a month according to the locale.</summary>
 		/// <returns>The display string.</returns>
 		/// <param name="month">Month, begins from 1 as January.</param>
 		WString						GetLongMonthName(vint month)const;
@@ -190,28 +226,32 @@ namespace vl
 		/// <param name="s2">The second string to compare.</param>
 		vint									CompareOrdinalIgnoreCase(const WString& s1, const WString& s2)const;
 		/// <summary>Find the first position that the sub string appears in a text.</summary>
-		/// <returns>Returns a pair of numbers, the first number indicating the position in the text, the second number indicating the size of the equivalence sub string in the text. For some normalization, the found sub string may be binary different to the string you want to find.</returns>
+		/// <returns>Returns a pair of numbers, the first number indicating the position in the text, the second number indicating the size of the equivalence sub string in the text.</returns>
 		/// <param name="text">The text to find the sub string.</param>
 		/// <param name="find">The sub string to match.</param>
 		/// <param name="normalization">Flags controlling how to normalize a string.</param>
+		/// <remarks>For any normalization that is not <b>None</b>, the found sub string could be different to the string you want to find.</remarks>
 		collections::Pair<vint, vint>			FindFirst(const WString& text, const WString& find, Normalization normalization)const;
 		/// <summary>Find the last position that the sub string appears in a text.</summary>
-		/// <returns>Returns a pair of numbers, the first number indicating the position in the text, the second number indicating the size of the equivalence sub string in the text. For some normalization, the found sub string may be binary different to the string you want to find.</returns>
+		/// <returns>Returns a pair of numbers, the first number indicating the position in the text, the second number indicating the size of the equivalence sub string in the text.</returns>
 		/// <param name="text">The text to find the sub string.</param>
 		/// <param name="find">The sub string to match.</param>
 		/// <param name="normalization">Flags controlling how to normalize a string.</param>
+		/// <remarks>For any normalization that is not <b>None</b>, the found sub string could be different to the string you want to find.</remarks>
 		collections::Pair<vint, vint>			FindLast(const WString& text, const WString& find, Normalization normalization)const;
 		/// <summary>Test is the prefix of the text equivalence to the provided sub string.</summary>
 		/// <returns>Returns true if the prefix of the text equivalence to the provided sub string.</returns>
 		/// <param name="text">The text to test the prefix.</param>
 		/// <param name="find">The sub string to match.</param>
 		/// <param name="normalization">Flags controlling how to normalize a string.</param>
+		/// <remarks>For any normalization that is not <b>None</b>, the found prefix could be different to the string you want to find.</remarks>
 		bool									StartsWith(const WString& text, const WString& find, Normalization normalization)const;
 		/// <summary>Test is the postfix of the text equivalence to the provided sub string.</summary>
 		/// <returns>Returns true if the postfix of the text equivalence to the provided sub string.</returns>
 		/// <param name="text">The text to test the postfix.</param>
 		/// <param name="find">The sub string to match.</param>
 		/// <param name="normalization">Flags controlling how to normalize a string.</param>
+		/// <remarks>For any normalization that is not <b>None</b>, the postfix could be different to the string you want to find.</remarks>
 		bool									EndsWith(const WString& text, const WString& find, Normalization normalization)const;
 	};
 
