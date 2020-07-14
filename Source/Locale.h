@@ -137,18 +137,22 @@ namespace vl
 		/// <summary>Convert characters to the full width.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToFullWidth(const WString& str)const;
 		/// <summary>Convert characters to the half width.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToHalfWidth(const WString& str)const;
 		/// <summary>Convert characters to the Hiragana.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToHiragana(const WString& str)const;
 		/// <summary>Convert characters to the Katagana.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToKatagana(const WString& str)const;
 #endif
 		
@@ -173,14 +177,17 @@ namespace vl
 		/// <summary>Convert characters to Simplified Chinese.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToSimplifiedChinese(const WString& str)const;
 		/// <summary>Convert characters to the Traditional Chinese.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToTraditionalChinese(const WString& str)const;
 		/// <summary>Convert characters to the tile case, in which the first letter of each major word is capitalized.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		WString						ToTileCase(const WString& str)const;
 #endif
 
@@ -192,19 +199,19 @@ namespace vl
 			/// <summary>Ignore case using the file system rule.</summary>
 			IgnoreCase=1,
 #ifdef VCZH_MSVC
-			/// <summary>Ignore case using the linguistic rule.</summary>
+			/// <summary>Ignore case using the linguistic rule. This value is only available in Windows.</summary>
 			IgnoreCaseLinguistic=2,
-			/// <summary>Ignore the difference between between hiragana and katakana characters.</summary>
+			/// <summary>Ignore the difference between between hiragana and katakana characters. This value is only available in Windows.</summary>
 			IgnoreKanaType=4,
-			/// <summary>Ignore nonspacing characters.</summary>
+			/// <summary>Ignore nonspacing characters. This value is only available in Windows.</summary>
 			IgnoreNonSpace=8,
-			/// <summary>Ignore symbols and punctuation.</summary>
+			/// <summary>Ignore symbols and punctuation. This value is only available in Windows.</summary>
 			IgnoreSymbol=16,
-			/// <summary>Ignore the difference between half-width and full-width characters.</summary>
+			/// <summary>Ignore the difference between half-width and full-width characters. This value is only available in Windows.</summary>
 			IgnoreWidth=32,
-			/// <summary>Treat digits as numbers during sorting.</summary>
+			/// <summary>Treat digits as numbers during sorting. This value is only available in Windows.</summary>
 			DigitsAsNumbers=64,
-			/// <summary>Treat punctuation the same as symbols.</summary>
+			/// <summary>Treat punctuation the same as symbols. This value is only available in Windows.</summary>
 			StringSoft=128,
 #endif
 		};

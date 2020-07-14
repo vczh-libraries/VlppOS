@@ -38,47 +38,53 @@ Kernel Mode Objects
 		WaitableObject();
 		void										SetData(threading_internal::WaitableData* data);
 	public:
-		/// <summary>Test if the object has already been created. Some of the synchronization objects should initialize itself after the constructor. This function is only available in Windows.</summary>
+		/// <summary>Test if the object has already been created. Some of the synchronization objects should initialize itself after the constructor.</summary>
 		/// <returns>Returns true if the object has already been created.</returns>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										IsCreated();
 		/// <summary>Wait for this object to signal.</summary>
 		/// <returns>Returns true if the object is signaled. Returns false if this operation failed.</returns>
 		bool										Wait();
-		/// <summary>Wait for this object to signal for a period of time. This function is only available in Windows.</summary>
+		/// <summary>Wait for this object to signal for a period of time.</summary>
 		/// <returns>Returns true if the object is signaled. Returns false if this operation failed, including time out.</returns>
 		/// <param name="ms">Time in milliseconds.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										WaitForTime(vint ms);
 		
-		/// <summary>Wait for multiple objects. This function is only available in Windows.</summary>
+		/// <summary>Wait for multiple objects.</summary>
 		/// <returns>Returns true if all objects are signaled. Returns false if this operation failed.</returns>
 		/// <param name="objects">A pointer to an array to <see cref="WaitableObject"/> pointers.</param>
 		/// <param name="count">The number of <see cref="WaitableObject"/> objects in the array.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		static bool									WaitAll(WaitableObject** objects, vint count);
-		/// <summary>Wait for multiple objects for a period of time. This function is only available in Windows.</summary>
+		/// <summary>Wait for multiple objects for a period of time.</summary>
 		/// <returns>Returns true if all objects are signaled. Returns false if this operation failed, including time out.</returns>
 		/// <param name="objects">A pointer to an array to <see cref="WaitableObject"/> pointers.</param>
 		/// <param name="count">The number of <see cref="WaitableObject"/> objects in the array.</param>
 		/// <param name="ms">Time in milliseconds.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		static bool									WaitAllForTime(WaitableObject** objects, vint count, vint ms);
-		/// <summary>Wait for one of the objects. This function is only available in Windows.</summary>
+		/// <summary>Wait for one of the objects.</summary>
 		/// <returns>Returns the index of the first signaled or abandoned object, according to the "abandoned" parameter. Returns -1 if this operation failed.</returns>
 		/// <param name="objects">A pointer to an array to <see cref="WaitableObject"/> pointers.</param>
 		/// <param name="count">The number of <see cref="WaitableObject"/> objects in the array.</param>
 		/// <param name="abandoned">Returns true if the waiting is canceled by an abandoned object. An abandoned object is caused by it's owner thread existing without releasing it.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		static vint									WaitAny(WaitableObject** objects, vint count, bool* abandoned);
-		/// <summary>Wait for one of the objects for a period of time. This function is only available in Windows.</summary>
+		/// <summary>Wait for one of the objects for a period of time.</summary>
 		/// <returns>Returns the index of the first signaled or abandoned object, according to the "abandoned" parameter. Returns -1 if this operation failed, including time out.</returns>
 		/// <param name="objects">A pointer to an array to <see cref="WaitableObject"/> pointers.</param>
 		/// <param name="count">The number of <see cref="WaitableObject"/> objects in the array.</param>
 		/// <param name="ms">Time in milliseconds.</param>
 		/// <param name="abandoned">Returns true if the waiting is canceled by an abandoned object. An abandoned object is caused by it's owner thread existing without releasing it.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		static vint									WaitAnyForTime(WaitableObject** objects, vint count, vint ms, bool* abandoned);
 #elif defined VCZH_GCC
 		virtual bool								Wait() = 0;
 #endif
 	};
 
-	/// <summary>Representing a thread. [M:vl.Thread.CreateAndStart] is the suggested way to create threads.</summary>
+	/// <summary>Thread. [M:vl.Thread.CreateAndStart] is the suggested way to create threads.</summary>
 	class Thread : public WaitableObject
 	{
 		friend void InternalThreadProc(Thread* thread);
@@ -109,12 +115,12 @@ Kernel Mode Objects
 		/// <returns>Returns the created thread.</returns>
 		/// <param name="procedure">The function pointer.</param>
 		/// <param name="argument">The argument to call the function pointer.</param>
-		/// <param name="deleteAfterStopped">Set to true (by default) to make the thread delete itself after the job is done. If you set this argument to true, you are not suggested to touch the returned thread pointer in any way.</param>
+		/// <param name="deleteAfterStopped">Set to true (by default) to make the thread delete itself after the job is done. If you set this argument to true, you are not recommended to touch the returned thread pointer in any way.</param>
 		static Thread*								CreateAndStart(ThreadProcedure procedure, void* argument=0, bool deleteAfterStopped=true);
 		/// <summary>Create a thread using a function object or a lambda expression.</summary>
 		/// <returns>Returns the created thread.</returns>
 		/// <param name="procedure">The function object or the lambda expression.</param>
-		/// <param name="deleteAfterStopped">Set to true (by default) to make the thread delete itself after the job is done. If you set this argument to true, you are not suggested to touch the returned thread pointer in any way.</param>
+		/// <param name="deleteAfterStopped">Set to true (by default) to make the thread delete itself after the job is done. If you set this argument to true, you are not recommended to touch the returned thread pointer in any way.</param>
 		static Thread*								CreateAndStart(const Func<void()>& procedure, bool deleteAfterStopped=true);
 		/// <summary>Pause the caller thread for a period of time.</summary>
 		/// <param name="ms">Time in milliseconds.</param>
@@ -165,7 +171,7 @@ Kernel Mode Objects
 
 		/// <summary>
 		/// Release the mutex.
-		/// In the implementation for Linux, calling Release() more than once between two Wait(), or calling Wait() more than once between two Release(), will results in an undefined behavior.
+		/// In Linux, calling Release() more than once between two Wait(), or calling Wait() more than once between two Release(), will results in an undefined behavior.
 		/// </summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		bool										Release();
@@ -282,14 +288,20 @@ Thread Pool
 Kernel Mode Objects in Process
 ***********************************************************************/
 
-	/// <summary><![CDATA[
-	/// Critical section. It is similar to mutex, but in Windows, enter a owned critical section will not cause dead lock.
-	/// The macro "CS_LOCK" is encouraged to use instead of calling [M:vl.CriticalSection.Enter] and [M:vl.CriticalSection.Leave] like this:
+	/// <summary>
+	/// Critical section.
+	/// The macro "CS_LOCK" is recommended instead of calling [M:vl.CriticalSection.Enter] and [M:vl.CriticalSection.Leave] like this:
+	/// <program><code><![CDATA[
 	/// CS_LOCK(yourCriticalSection)
 	/// {
-	///		<code>
+	///     // do something
 	/// }
-	/// ]]></summary>
+	/// ]]></code></program>
+	/// </summary>
+	/// <remarks>
+	/// In Windows, enter a owned critical section will not result in dead lock.
+	/// In Linux and macOS, it works like a mutex.
+	/// </remarks>
 	class CriticalSection : public Object, public NotCopyable
 	{
 	private:
@@ -319,19 +331,24 @@ Kernel Mode Objects in Process
 		};
 	};
 	
-	/// <summary><![CDATA[
+	/// <summary>
 	/// Reader writer lock.
-	/// The macro "READER_LOCK" and "WRITER_LOCK" are encouraged to use instead of calling [M:vl.ReaderWriterLock.EnterReader], [M:vl.ReaderWriterLock.LeaveReader], [M:vl.ReaderWriterLock.EnterWriter] and [M:vl.ReaderWriterLock.LeaveWriter] like this:
+	/// The macro "READER_LOCK" and "WRITER_LOCK" are recommended instead of calling [M:vl.ReaderWriterLock.EnterReader], [M:vl.ReaderWriterLock.LeaveReader], [M:vl.ReaderWriterLock.EnterWriter] and [M:vl.ReaderWriterLock.LeaveWriter] like this:
+	/// <program><code><![CDATA[
 	/// READER_LOCK(yourLock)
 	/// {
-	///		<code>
+	///     // do something
 	/// }
+	/// ]]></code></program>
+	/// </summary>
 	/// or
+	/// <program><code><![CDATA[
 	/// WRITER_LOCK(yourLock)
 	/// {
-	///		<code>
+	///     // do something
 	/// }
-	/// ]]></summary>
+	/// ]]></code></program>
+	/// </summary>
 	class ReaderWriterLock : public Object, public NotCopyable
 	{
 	private:
@@ -391,28 +408,33 @@ Kernel Mode Objects in Process
 		/// <param name="cs">The critical section.</param>
 		bool										SleepWith(CriticalSection& cs);
 #ifdef VCZH_MSVC
-		/// <summary>Bind a conditional variable with a owned critical section and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the critical section again. This function is only available in Windows.</summary>
+		/// <summary>Bind a conditional variable with a owned critical section and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the critical section again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="cs">The critical section.</param>
 		/// <param name="ms">Time in milliseconds.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithForTime(CriticalSection& cs, vint ms);
-		/// <summary>Bind a conditional variable with a owned reader lock and release it. When the function returns, the condition variable is activated, and the current thread owned the reader lock again. This function is only available in Windows.</summary>
+		/// <summary>Bind a conditional variable with a owned reader lock and release it. When the function returns, the condition variable is activated, and the current thread owned the reader lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The reader lock.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithReader(ReaderWriterLock& lock);
-		/// <summary>Bind a conditional variable with a owned reader lock and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the reader lock again. This function is only available in Windows.</summary>
+		/// <summary>Bind a conditional variable with a owned reader lock and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the reader lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The reader lock.</param>
 		/// <param name="ms">Time in milliseconds.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithReaderForTime(ReaderWriterLock& lock, vint ms);
-		/// <summary>Bind a conditional variable with a owned writer lock and release it. When the function returns, the condition variable is activated, and the current thread owned the writer lock again. This function is only available in Windows.</summary>
+		/// <summary>Bind a conditional variable with a owned writer lock and release it. When the function returns, the condition variable is activated, and the current thread owned the writer lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The writer lock.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithWriter(ReaderWriterLock& lock);
-		/// <summary>Bind a conditional variable with a owned writer lock and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the writer lock again. This function is only available in Windows.</summary>
+		/// <summary>Bind a conditional variable with a owned writer lock and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the writer lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The writer lock.</param>
 		/// <param name="ms">Time in milliseconds.</param>
+		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithWriterForTime(ReaderWriterLock& lock, vint ms);
 #endif
 		/// <summary>Wake one thread that pending on this condition variable.</summary>
@@ -427,14 +449,16 @@ User Mode Objects
 
 	typedef long LockedInt;
 	
-	/// <summary><![CDATA[
-	/// Spin lock. It is similar to mutex.
-	/// The macro "SPIN_LOCK" is encouraged to use instead of calling [M:vl.SpinLock.Enter] and [M:vl.SpinLock.Leave] like this:
+	/// <summary>
+	/// Spin lock. It is similar to mutex, but it does not occupy resource in the system.
+	/// The macro "SPIN_LOCK" is recommended instead of calling [M:vl.SpinLock.Enter] and [M:vl.SpinLock.Leave] like this:
+	/// <program><code><![CDATA[
 	/// SPIN_LOCK(yourLock)
 	/// {
-	///		<code>
+	///     // do something
 	/// }
-	/// ]]></summary>
+	/// ]]></code></program>
+	/// </summary>
 	class SpinLock : public Object, public NotCopyable
 	{
 	protected:
@@ -470,12 +494,13 @@ User Mode Objects
 
 /***********************************************************************
 Thread Local Storage
-
-ThreadLocalStorage and ThreadVariable<T> are designed to be used as global value types only.
-Dynamically create instances of them are undefined behavior.
 ***********************************************************************/
 
 	/// <summary>Thread local storage operations.</summary>
+	/// <remarks>
+	/// This class is designed to define global variables.
+	/// Dynamically allocation will result in undefined behavior.
+	/// </remarks>
 	class ThreadLocalStorage : public Object, private NotCopyable
 	{
 		typedef void(*Destructor)(void*);
@@ -498,12 +523,16 @@ Dynamically create instances of them are undefined behavior.
 		static void								FixStorages();
 		/// <summary>Clear all storages for the current thread. For threads that are created using [T:vl.Thread], this function will be automatically called when before the thread exit.</summary>
 		static void								ClearStorages();
-		/// <summary>Clear all storages for the current thread (should be the main thread) and clear all records. This function can only be called by the main thread when all other threads are exited. It will reduce noices when you want to detect memory leaks.</summary>
+		/// <summary>Clear all storages for the current thread (should be the main thread) and clear all records. This function can only be called by the main thread when all other threads are exited. It will reduce noices for detecting memory leaks.</summary>
 		static void								DisposeStorages();
 	};
 
-	/// <summary>Thread local variable. This type can only be used to define global variables. Different threads can store different values to and obtain differnt values from a thread local variable.</summary>
+	/// <summary>Thread local variable. Different threads can store different values to and obtain differnt values from a thread local variable.</summary>
 	/// <typeparam name="T">Type of the storage.</typeparam>
+	/// <remarks>
+	/// This class is designed to define global variables.
+	/// Dynamically allocation will result in undefined behavior.
+	/// </remarks>
 	template<typename T>
 	class ThreadVariable : public Object, private NotCopyable
 	{
@@ -598,7 +627,13 @@ Dynamically create instances of them are undefined behavior.
 RepeatingTaskExecutor
 ***********************************************************************/
 
-	/// <summary>Queued task executor. It is different from a thread pool by: 1) Task execution is single threaded, 2) If you queue a task, it will override the the unexecuted queued task.</summary>
+	/// <summary>
+	/// Queued task executor. It is different from a thread because:
+	/// <ul>
+	///   <li>Task execution is single threaded.</li>
+	///   <li>If you queue a task, it will override all unexecuted queued tasks.</li>
+	/// </ul>
+	/// </summary>
 	/// <typeparam name="T">The type of the argument to run a task.</typeparam>
 	template<typename T>
 	class RepeatingTaskExecutor : public Object
@@ -664,8 +699,14 @@ RepeatingTaskExecutor
 			executingEvent.Leave();
 		}
 
-		/// <summary>Queue a task. If there is a queued task that has not been executied yet, those tasks will be canceled. Only one task can be queued at the same moment.</summary>
+		/// <summary>Queue a task.</summary>
 		/// <param name="input">The argument to run a task.</param>
+		/// <remarks>
+		/// <p>
+		/// When there is a running task, queuing a new task will cancel all unexecuted queued tasks.
+		/// When there is no running task, queuing a task will execute this task immediately.
+		/// </p>
+		/// </remarks>
 		void SubmitTask(const T& input)
 		{
 			SPIN_LOCK(inputLock)

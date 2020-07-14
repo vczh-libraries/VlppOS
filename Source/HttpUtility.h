@@ -85,16 +85,28 @@ HTTP Utility
 	/// <returns>Returns true if this operation succeeded, even when the server returns 404.</returns>
 	/// <param name="request">The request to send.</param>
 	/// <param name="response">Returns the response.</param>
-	/// <remarks>This function will block the calling thread until the respons is returned.</remarks>
+	/// <remarks>
+	/// <p>
+	/// This function will block the calling thread until the respons is returned.
+	/// </p>
+	/// <p>
+	/// This function is only available in Windows.
+	/// </p>
+	/// </remarks>
 	extern bool				HttpQuery(const HttpRequest& request, HttpResponse& response);
 
 	/// <summary>Encode a text as part of the url. This function can be used to create arguments in an URL.</summary>
 	/// <returns>The encoded text.</returns>
 	/// <param name="query">The text to encode.</param>
 	/// <remarks>
+	/// <p>
 	/// When a character is not a digit or a letter,
 	/// it is first encoded to UTF-8,
 	/// then each byte is written as "%" with two hex digits.
+	/// </p>
+	/// <p>
+	/// This function is only available in Windows.
+	/// </p>
 	///</remarks>
 	extern WString			UrlEncodeQuery(const WString& query);
 }
