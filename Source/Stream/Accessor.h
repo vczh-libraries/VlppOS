@@ -29,11 +29,11 @@ Text Related
 			/// <returns>The character.</returns>
 			virtual wchar_t				ReadChar()=0;
 			/// <summary>Read a string of a specified size in characters.</summary>
-			/// <returns>The read string.</returns>
+			/// <returns>The read string. It could be shorter than the expected length if the reader reaches the end.</returns>
 			/// <param name="length">Expected length of the string to read.</param>
 			virtual WString				ReadString(vint length);
 			/// <summary>Read a string until a line breaks is reached.</summary>
-			/// <returns>The string. It does not contain the line break.</returns>
+			/// <returns>The string without the line break. If the reader reaches the end, it returns an empty string.</returns>
 			virtual WString				ReadLine();
 			/// <summary>Read everying remain.</summary>
 			/// <returns>The read string.</returns>
