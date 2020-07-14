@@ -340,7 +340,6 @@ Kernel Mode Objects in Process
 	///     // do something
 	/// }
 	/// ]]></code></program>
-	/// </summary>
 	/// or
 	/// <program><code><![CDATA[
 	/// WRITER_LOCK(yourLock)

@@ -21,7 +21,7 @@ namespace vl
 	/// </p>
 	/// <p>
 	/// In Linux and macOS, only en-US is supported, with a hard-coded set of date and time formats,
-	/// and string operations only support <b>None<b> and <b>IgnoreCase</b> for normalization.
+	/// and string operations only support <b>None</b> and <b>IgnoreCase</b> for normalization.
 	/// </p>
 	/// </remarks>
 	class Locale : public Object
@@ -87,9 +87,9 @@ namespace vl
 		/// The value of the "format" argument must come from any of the following functions.
 		/// Otherwise the behavior is undefined.
 		/// <ul>
-		///   <li><see cref="GetShortDateFormats"/>
-		///   <li><see cref="GetLongDateFormats"/>
-		///   <li><see cref="GetYearMonthDateFormats"/>
+		///   <li><see cref="GetShortDateFormats"/></li>
+		///   <li><see cref="GetLongDateFormats"/></li>
+		///   <li><see cref="GetYearMonthDateFormats"/></li>
 		/// </ul>
 		/// </remarks>
 		WString						FormatDate(const WString& format, DateTime date)const;
@@ -101,8 +101,8 @@ namespace vl
 		/// The value of the "format" argument must come from any of the following functions.
 		/// Otherwise the behavior is undefined.
 		/// <ul>
-		///   <li><see cref="GetLongTimeFormats"/>
-		///   <li><see cref="GetShortTimeFormats"/>
+		///   <li><see cref="GetLongTimeFormats"/></li>
+		///   <li><see cref="GetShortTimeFormats"/></li>
 		/// </ul>
 		/// </remarks>
 		WString						FormatTime(const WString& format, DateTime time)const;

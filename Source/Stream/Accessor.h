@@ -119,7 +119,7 @@ Text Related
 		/// <remarks>
 		/// To specify the encoding in the input stream,
 		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="CharEncoder"/>,
-		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEbcoder"/> or <see cref="Utf8Encoder"/>.
+		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEncoder"/> or <see cref="Utf8Encoder"/>.
 		/// </remarks>
 		class StreamWriter : public TextWriter
 		{
@@ -139,7 +139,7 @@ Text Related
 Encoding Related
 ***********************************************************************/
 
-		/// <summary>Encoder stream, a <b>writable<b> and potentially <b>finite</b> stream using [T:vl.stream.IEncoder] to transform content.</summary>
+		/// <summary>Encoder stream, a <b>writable</b> and potentially <b>finite</b> stream using [T:vl.stream.IEncoder] to transform content.</summary>
 		class EncoderStream : public virtual IStream
 		{
 		protected:
@@ -171,7 +171,7 @@ Encoding Related
 			vint						Peek(void* _buffer, vint _size);
 		};
 		
-		/// <summary>Decoder stream, a <b>readable<b> and potentially <b>finite</b> stream using [T:vl.stream.IDecoder] to transform content.</summary>
+		/// <summary>Decoder stream, a <b>readable</b> and potentially <b>finite</b> stream using [T:vl.stream.IDecoder] to transform content.</summary>
 		class DecoderStream : public virtual IStream
 		{
 		protected:
@@ -217,7 +217,7 @@ Helper Functions
 		/// The argument is a reference to a <see cref="StreamWriter"/>.
 		/// After the callback is executed, everything written to the writer will be returned from "GenerateToStream".
 		/// </param>
-		/// <param name="callback">Size of the cache in bytes.</param>
+		/// <param name="block">Size of the cache in bytes.</param>
 		template<typename TCallback>
 		WString GenerateToStream(const TCallback& callback, vint block = 65536)
 		{

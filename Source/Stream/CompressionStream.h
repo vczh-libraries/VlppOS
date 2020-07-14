@@ -136,16 +136,16 @@ Compression
 Helper Functions
 ***********************************************************************/
 
-		/// <summary>Copy data from a <b>readable</b> input stream (with uncompressed data) to a <b>writable</b> output stream (with compressed data).</summary>
+		/// <summary>Copy data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
 		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
-		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
 		extern vint						CopyStream(stream::IStream& inputStream, stream::IStream& outputStream);
 
 		/// <summary>Compress data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
 		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
-		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
 		/// <remarks>
 		/// Data is compressed in multiple batches,
 		/// the is expected output stream to have data in multiple parts.
@@ -156,8 +156,8 @@ Helper Functions
 
 		/// <summary>Decompress data from a <b>readable</b> input stream (with compressed data) to a <b>writable</b> output stream (with uncompressed data).</summary>
 		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream"/>The <b>readable</b> input stream.</param>
-		/// <param name="outputStream"/>The <b>writable</b> output stream.</param>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
 		/// <remarks>
 		/// Data is compressed in multiple batches,
 		/// the is expected input stream to have data in multiple parts.
