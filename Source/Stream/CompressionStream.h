@@ -54,10 +54,10 @@ Compression
 		};
 
 		/// <summary>An encoder to compress data using the Lzw algorithm.</summary>
-		/// <remark>
+		/// <remarks>
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
-		/// </remark>
+		/// </remarks>
 		class LzwEncoder : public LzwBase, public IEncoder
 		{
 		protected:
@@ -78,9 +78,9 @@ Compression
 			/// If existingBytes[x] == true, it means x will possibly appear.
 			/// If existingBytes[x] == false, it means x will never appear.
 			/// </param>
-			/// <remark>
+			/// <remarks>
 			/// The behavior is undefined, if existingBytes[x] == false, but byte x is actually in the data to compress.
-			/// </remark>
+			/// </remarks>
 			LzwEncoder(bool (&existingBytes)[256]);
 			~LzwEncoder();
 
@@ -90,10 +90,10 @@ Compression
 		};
 		
 		/// <summary>An decoder to decompress data using the Lzw algorithm.</summary>
-		/// <remark>
+		/// <remarks>
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
-		/// </remark>
+		/// </remarks>
 		class LzwDecoder :public LzwBase, public IDecoder
 		{
 		protected:
@@ -121,9 +121,9 @@ Compression
 			/// If existingBytes[x] == true, it means x will possibly appear.
 			/// If existingBytes[x] == false, it means x will never appear.
 			/// </param>
-			/// <remark>
+			/// <remarks>
 			/// The array "existingBytes" should exactly match the one given to <see cref="LzwEncoder"/>.
-			/// </remark>
+			/// </remarks>
 			LzwDecoder(bool (&existingBytes)[256]);
 			~LzwDecoder();
 
