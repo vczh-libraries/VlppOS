@@ -245,7 +245,7 @@ Helper Functions
 		///     {
 		///         writer.WriteLine(L"Hello, world!");
 		///         writer.WriteLine(L"Welcome to Gaclib!");
-		///     });
+		///     }));
 		/// }
 		/// ]]></example>
 		template<typename TCallback>

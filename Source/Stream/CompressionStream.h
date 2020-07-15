@@ -160,7 +160,7 @@ Helper Functions
 		///         Utf8Encoder encoder;
 		///         EncoderStream encoderStream(textStream, encoder);
 		///         StreamWriter writer(encoderStream);
-		///         writer.Write(L"Some text to compress.");
+		///         writer.WriteString(L"Some text to compress.");
 		///     }
 		///     textStream.SeekFromBegin(0);
 		///
@@ -195,7 +195,7 @@ Helper Functions
 		///         Utf8Encoder encoder;
 		///         EncoderStream encoderStream(textStream, encoder);
 		///         StreamWriter writer(encoderStream);
-		///         writer.Write(L"Some text to compress.");
+		///         writer.WriteString(L"Some text to compress.");
 		///     }
 		///     textStream.SeekFromBegin(0);
 		///
