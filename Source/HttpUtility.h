@@ -93,6 +93,17 @@ HTTP Utility
 	/// This function is only available in Windows.
 	/// </p>
 	/// </remarks>
+	/// <example><![CDATA[
+	/// int main()
+	/// {
+	///     HttpRequest request;
+	///     HttpResponse response;
+	///     request.SetHost(L"http://www.msftncsi.com/ncsi.txt");
+	///     HttpQuery(request, response);
+	///     Console::WriteLine(L"Status:" + itow(response.statusCode));
+	///     Console::WriteLine(L"Body:" + response.GetBodyUtf8());
+	/// }
+	/// ]]></example>
 	extern bool				HttpQuery(const HttpRequest& request, HttpResponse& response);
 
 	/// <summary>Encode a text as part of the url. This function can be used to create arguments in an URL.</summary>

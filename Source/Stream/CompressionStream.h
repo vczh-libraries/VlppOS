@@ -152,6 +152,29 @@ Helper Functions
 		/// In each part, the first 4 bytes is the data before compression in bytes.
 		/// the rest is the compressed data.
 		/// </remarks>
+		/// <example><![CDATA[
+		/// int main()
+		/// {
+		///     MemoryStream textStream, compressedStream, decompressedStream;
+		///     {
+		///         Utf8Encoder encoder;
+		///         EncoderStream encoderStream(textStream, encoder);
+		///         StreamWriter writer(encoderStream);
+		///         writer.Write(L"Some text to compress.");
+		///     }
+		///     textStream.SeekFromBegin(0);
+		///
+		///     CompressStream(textStream, compressedStream);
+		///     compressedStream.SeekFromBegin(0);
+		///     DecompressStream(compressedStream, decompressedStream);
+		///     decompressedStream.SeekFromBegin(0);
+		///
+		///     Utf8Decoder decoder;
+		///     DecoderStream decoderStream(decompressedStream, decoder);
+		///     StreamReader reader(decoderStream);
+		///     Console::WriteLine(reader.ReadToEnd());
+		/// }
+		/// ]]></example>
 		extern void						CompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
 
 		/// <summary>Decompress data from a <b>readable</b> input stream (with compressed data) to a <b>writable</b> output stream (with uncompressed data).</summary>
@@ -164,6 +187,29 @@ Helper Functions
 		/// In each part, the first 4 bytes is the data before compression in bytes.
 		/// the rest is the compressed data.
 		/// </remarks>
+		/// <example><![CDATA[
+		/// int main()
+		/// {
+		///     MemoryStream textStream, compressedStream, decompressedStream;
+		///     {
+		///         Utf8Encoder encoder;
+		///         EncoderStream encoderStream(textStream, encoder);
+		///         StreamWriter writer(encoderStream);
+		///         writer.Write(L"Some text to compress.");
+		///     }
+		///     textStream.SeekFromBegin(0);
+		///
+		///     CompressStream(textStream, compressedStream);
+		///     compressedStream.SeekFromBegin(0);
+		///     DecompressStream(compressedStream, decompressedStream);
+		///     decompressedStream.SeekFromBegin(0);
+		///
+		///     Utf8Decoder decoder;
+		///     DecoderStream decoderStream(decompressedStream, decoder);
+		///     StreamReader reader(decoderStream);
+		///     Console::WriteLine(reader.ReadToEnd());
+		/// }
+		/// ]]></example>
 		extern void						DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
 	}
 }

@@ -100,6 +100,16 @@ Text Related
 		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="CharDecoder"/>,
 		/// like <see cref="BomDecoder"/>, <see cref="MbcsDecoder"/>, <see cref="Utf16Decoder"/>, <see cref="Utf16BEDecoder"/> or <see cref="Utf8Decoder"/>.
 		/// </remarks>
+		/// <example output="false"><![CDATA[
+		/// int main()
+		/// {
+		///     FileStream fileStream(L"C:/a.txt", FileStream::ReadOnly);
+		///     Utf8Decoder decoder;
+		///     DecoderStream decoderStream(fileStream, decoder);
+		///     StreamReader reader(decoderStream);
+		///     Console::WriteLine(reader.ReadToEnd());
+		/// }
+		/// ]]></example>
 		class StreamReader : public TextReader
 		{
 		protected:
@@ -121,6 +131,16 @@ Text Related
 		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="CharEncoder"/>,
 		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEncoder"/> or <see cref="Utf8Encoder"/>.
 		/// </remarks>
+		/// <example output="false"><![CDATA[
+		/// int main()
+		/// {
+		///     FileStream fileStream(L"C:/a.txt", FileStream::WriteOnly);
+		///     Utf8Encoder encoder;
+		///     EncoderStream encoderStream(fileStream, encoder);
+		///     StreamWriter writer(encoderStream);
+		///     writer.Write(L"Hello, world!");
+		/// }
+		/// ]]></example>
 		class StreamWriter : public TextWriter
 		{
 		protected:
@@ -218,6 +238,16 @@ Helper Functions
 		/// After the callback is executed, everything written to the writer will be returned from "GenerateToStream".
 		/// </param>
 		/// <param name="block">Size of the cache in bytes.</param>
+		/// <example><![CDATA[
+		/// int main()
+		/// {
+		///     Console::Write(GenerateToStream([](StreamWriter& writer)
+		///     {
+		///         writer.WriteLine(L"Hello, world!");
+		///         writer.WriteLine(L"Welcome to Gaclib!");
+		///     });
+		/// }
+		/// ]]></example>
 		template<typename TCallback>
 		WString GenerateToStream(const TCallback& callback, vint block = 65536)
 		{
