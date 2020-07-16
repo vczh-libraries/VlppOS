@@ -149,7 +149,7 @@ Kernel Mode Objects
 #endif
 	};
 
-	/// <summary>Mutex.</summary>
+	/// <summary>Mutex. <see cref="Create"/> or <see cref="Open"/> is required to initialize a mutex.</summary>
 	class Mutex : public WaitableObject
 	{
 	private:
@@ -180,7 +180,7 @@ Kernel Mode Objects
 #endif
 	};
 	
-	/// <summary>Semaphore.</summary>
+	/// <summary>Semaphore. <see cref="Create"/> or <see cref="Open"/> is required to initialize a semaphore.</summary>
 	class Semaphore : public WaitableObject
 	{
 	private:
@@ -213,7 +213,7 @@ Kernel Mode Objects
 #endif
 	};
 
-	/// <summary>Event.</summary>
+	/// <summary>Event. <see cref="CreateAutoUnsignal"/> or <see cref="CreateManualUnsignal"/> is required to initialize an event.</summary>
 	class EventObject : public WaitableObject
 	{
 	private:
