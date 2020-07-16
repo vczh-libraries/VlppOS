@@ -166,7 +166,7 @@ Kernel Mode Objects
 		/// <summary>Open an existing global named mutex.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="inheritable">Set to true make the mutex visible to all all child processes. This argument is only used in Windows.</param>
-		/// <param name="name">Name of the mutex..</param>
+		/// <param name="name">Name of the mutex.</param>
 		bool										Open(bool inheritable, const WString& name);
 
 		/// <summary>
@@ -198,7 +198,7 @@ Kernel Mode Objects
 		/// <summary>Open an existing global named semaphore.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="inheritable">Set to true make the semaphore visible to all all child processes. This argument is only used in Windows.</param>
-		/// <param name="name">Name of the semaphore..</param>
+		/// <param name="name">Name of the semaphore.</param>
 		bool										Open(bool inheritable, const WString& name);
 		
 		/// <summary> Release the semaphore once. </summary>
