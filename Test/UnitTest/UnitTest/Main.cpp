@@ -30,13 +30,18 @@ WString GetTestOutputPath()
 #endif
 }
 
+TEST_FILE
+{
+	TEST_CASE_ASSERT(Folder(GetTestOutputPath()).Exists());
+}
+
 int wmain(vint argc , wchar_t* argv[])
 {
 	{
 		Folder folder(GetTestOutputPath());
 		if (!folder.Exists())
 		{
-			TEST_ASSERT(folder.Create(false) == true);
+			folder.Create(false);
 		}
 	}
 	int result = unittest::UnitTest::RunAndDisposeTests(argc, argv);
