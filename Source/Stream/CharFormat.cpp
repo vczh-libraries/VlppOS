@@ -355,6 +355,7 @@ Utf-16-be
 				unsigned char t=unicode[0];
 				unicode[0]=unicode[1];
 				unicode[1]=t;
+				// +=2?
 				unicode++;
 			}
 			return chars;
