@@ -87,6 +87,9 @@
     <ClCompile Include="..\..\..\Import\Vlpp.cpp">
       <Filter>Import</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Source\TestSerialization.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
@@ -133,6 +136,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Import\Vlpp.h">
       <Filter>Import</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\Serialization.h">
+      <Filter>Common\Stream</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

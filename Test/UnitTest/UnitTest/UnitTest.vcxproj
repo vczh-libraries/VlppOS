@@ -183,6 +183,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\..\Source\TestSerialization.cpp" />
     <ClCompile Include="..\..\Source\TestStream.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
@@ -208,6 +209,7 @@
     <ClInclude Include="..\..\..\Source\Stream\MemoryStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\MemoryWrapperStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\RecorderStream.h" />
+    <ClInclude Include="..\..\..\Source\Stream\Serialization.h" />
     <ClInclude Include="..\..\..\Source\Threading.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
