@@ -185,53 +185,46 @@ Mbcs
 		}
 
 /***********************************************************************
-Pointer Consumer
+Consumer
 ***********************************************************************/
 
-		class StreamTo32Reader : public encoding::UtfTo32ReaderBase<wchar_t, StreamTo32Reader>
-		{
-			template<typename T2, typename TBase>
-			friend class encoding::UtfTo32ReaderBase;
-		protected:
-			const wchar_t* starting = nullptr;
-			const wchar_t* ending = nullptr;
-			const wchar_t* consuming = nullptr;
-
-			wchar_t Consume()
-			{
-				if (consuming == ending) return 0;
-				return *consuming++;
-			}
-		public:
-			StreamTo32Reader(const wchar_t* _starting, vint count)
-				: starting(_starting)
-				, ending(_starting + count)
-				, consuming(_starting)
-			{
-			}
-		};
-
 		template<typename TTo>
-		class StreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, StreamToStreamReader<TTo>>
+		class WCharToUtfReader : public encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>
 		{
 			template<typename T, typename TBase>
 			friend class encoding::UtfFrom32ReaderBase;
+
+			class InternalReader : public encoding::UtfTo32ReaderBase<wchar_t, InternalReader>
+			{
+			public:
+				const wchar_t* starting = nullptr;
+				const wchar_t* ending = nullptr;
+				const wchar_t* consuming = nullptr;
+
+				wchar_t Consume()
+				{
+					if (consuming == ending) return 0;
+					return *consuming++;
+				}
+			};
 		protected:
-			StreamTo32Reader internalReader;
+			InternalReader internalReader;
 
 			char32_t Consume()
 			{
 				return internalReader.Read();
 			}
 		public:
-			StreamToStreamReader(const wchar_t* _starting, vint count)
-				: internalReader(_starting, count)
+			WCharToUtfReader(const wchar_t* _starting, vint count)
 			{
+				internalReader.starting = _starting;
+				internalReader.ending = _starting + count;
+				internalReader.consuming = _starting;
 			}
 
 			bool HasIllegalChar() const
 			{
-				return encoding::UtfFrom32ReaderBase<TTo, StreamToStreamReader<TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
+				return encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
 			}
 		};
 
@@ -244,7 +237,7 @@ Utf-16
 //#if defined VCZH_WCHAR_UTF16
 //			return stream->Write(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
 //#elif defined VCZH_WCHAR_UTF32
-			StreamToStreamReader<char16_t> reader(_buffer, chars);
+			WCharToUtfReader<char16_t> reader(_buffer, chars);
 			vint counter = 0;
 			while (char16_t c = reader.Read())
 			{
