@@ -284,44 +284,17 @@ Utf-16
 
 		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_MSVC
+#if defined VCZH_WCHAR_UTF16
 			return stream->Write(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
-#elif defined VCZH_GCC
-			vint writed = 0;
-			vuint16_t utf16 = 0;
-			vuint8_t* utf16buf = (vuint8_t*)&utf16;
-			while (writed < chars)
+#elif defined VCZH_WCHAR_UTF32
+			StreamToStreamReader<wchar_t, char16_t> reader(_buffer, chars);
+			vint counter = 0;
+			while (char16_t c = reader.Read())
 			{
-				wchar_t w = *_buffer++;
-				if (w < 0x10000)
-				{
-					utf16 = (vuint16_t)w;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-				}
-				else if (w < 0x110000)
-				{
-					wchar_t inc = w - 0x10000;
-
-					utf16 = (vuint16_t)(inc / 0x400) + 0xD800;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-
-					utf16 = (vuint16_t)(inc % 0x400) + 0xDC00;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-				}
-				else
-				{
-					break;
-				}
-				writed++;
+				counter++;
+				stream->Write(&c, sizeof(c));
 			}
-			if (writed != chars)
-			{
-				Close();
-			}
-			return writed;
+			return counter;
 #endif
 		}
 
