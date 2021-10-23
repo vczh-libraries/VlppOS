@@ -7,40 +7,9 @@ using namespace vl;
 using namespace vl::stream;
 using namespace vl::collections;
 
-TEST_FILE
+namespace TestStreamEncoding_TestObjects
 {
-	/***********************************************************************
-	Encoding
-	***********************************************************************/
-
-	const wchar_t text1L[] = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-	const char8_t text1U8[] = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-	const char16_t text1U16[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-	const char16_t text1U16BE[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-
-	const wchar_t text2L[] = L"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char text2A[] = "ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char8_t text2U8[] = u8"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-
-	for (const char16_t& c : text1U16BE)
-	{
-		vuint8_t* bs = (vuint8_t*)&c;
-		vuint8_t t = bs[0];
-		bs[0] = bs[1];
-		bs[1] = t;
-	}
-
-	for (const char16_t& c : text2U16BE)
-	{
-		vuint8_t* bs = (vuint8_t*)&c;
-		vuint8_t t = bs[0];
-		bs[0] = bs[1];
-		bs[1] = t;
-	}
-
-	auto TestEncodingInternal = [](
+	void TestEncodingInternal(
 		IEncoder& encoder,
 		IDecoder& decoder,
 		BomEncoder::Encoding encoding,
@@ -100,6 +69,45 @@ TEST_FILE
 			TEST_ASSERT(read == text);
 		}
 	};
+}
+using namespace TestStreamEncoding_TestObjects;
+
+TEST_FILE
+{
+	/***********************************************************************
+	Baselines
+	***********************************************************************/
+
+	const wchar_t text1L[] = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+	const char8_t text1U8[] = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+	const char16_t text1U16[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+	const char16_t text1U16BE[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+
+	const wchar_t text2L[] = L"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char text2A[] = "ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char8_t text2U8[] = u8"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+
+	for (const char16_t& c : text1U16BE)
+	{
+		vuint8_t* bs = (vuint8_t*)&c;
+		vuint8_t t = bs[0];
+		bs[0] = bs[1];
+		bs[1] = t;
+	}
+
+	for (const char16_t& c : text2U16BE)
+	{
+		vuint8_t* bs = (vuint8_t*)&c;
+		vuint8_t t = bs[0];
+		bs[0] = bs[1];
+		bs[1] = t;
+	}
+
+	/***********************************************************************
+	Encoding
+	***********************************************************************/
 
 	TEST_CATEGORY(L"Encoding Unicode")
 	{
