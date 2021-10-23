@@ -50,7 +50,7 @@ CharEncoder
 				{
 					unicode = (wchar_t*)_buffer;
 				}
-				result = WriteString(unicode, chars, needToFree) * sizeof(wchar_t) - cacheSize;
+				result = WriteString(unicode, chars, needToFree) - cacheSize;
 				cacheSize = 0;
 			}
 
@@ -96,7 +96,7 @@ CharDecoder
 			}
 
 			const vint chars = _size / sizeof(wchar_t);
-			vint bytes = ReadString((wchar_t*)unicode, chars) * sizeof(wchar_t);
+			vint bytes = ReadString((wchar_t*)unicode, chars);
 			result += bytes;
 			_size -= bytes;
 			unicode += bytes;

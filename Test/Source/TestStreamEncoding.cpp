@@ -9,7 +9,7 @@ using namespace vl::collections;
 
 namespace TestStreamEncoding_TestObjects
 {
-	void TestEncodingInternal(
+	void TestEncodingWithStreamReaderWriter(
 		IEncoder& encoder,
 		IDecoder& decoder,
 		BomEncoder::Encoding encoding,
@@ -69,6 +69,83 @@ namespace TestStreamEncoding_TestObjects
 			TEST_ASSERT(read == text);
 		}
 	};
+
+	void TestEncodingWithEncoderDecoderStream(
+		IEncoder& encoder,
+		IDecoder& decoder,
+		const wchar_t* text,
+		const void* decodedBytes,
+		vint decodedByteLength
+	)
+	{
+		WString input = WString::Unmanaged(text);
+		// encode the text
+		MemoryStream memoryStream;
+		{
+			EncoderStream encoderStream(memoryStream, encoder);
+			vint size = encoderStream.Write((void*)input.Buffer(), input.Length() * sizeof(wchar_t));
+			TEST_ASSERT(size == decodedByteLength);
+		}
+		memoryStream.SeekFromBegin(0);
+
+		{
+			// read the encoded data
+			Array<vuint8_t> buffer;
+			buffer.Resize((vint)memoryStream.Size());
+			memoryStream.Read(&buffer[0], buffer.Count());
+			memoryStream.SeekFromBegin(0);
+
+			// compare the encoded data to the expected data
+			TEST_ASSERT(buffer.Count() == decodedByteLength);
+			TEST_ASSERT(memcmp(&buffer[0], decodedBytes, decodedByteLength) == 0);
+		}
+
+		// test the encoding and decode
+		{
+			DecoderStream decoderStream(memoryStream, decoder);
+			wchar_t* buffer = new wchar_t[input.Length() + 1];
+			vint size = decoderStream.Read(buffer, input.Length() * sizeof(wchar_t));
+			TEST_ASSERT(size == input.Length() * sizeof(wchar_t));
+			buffer[input.Length()] = 0;
+			WString read = WString::TakeOver(buffer, input.Length());
+			TEST_ASSERT(read == text);
+		}
+	};
+
+	template<typename TEncoder, typename TDecoder>
+	void TestEncodingWithoutBOM(
+		BomEncoder::Encoding encoding,
+		const wchar_t* text,
+		const void* decodedBytes,
+		vint decodedByteLength,
+		bool testEncoding
+	)
+	{
+		{
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithStreamReaderWriter(encoder, decoder, encoding, text, 0, decodedBytes, decodedByteLength, testEncoding);
+		}
+		{
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedBytes, decodedByteLength);
+		}
+	}
+
+	void TestEncodingWithBOM(
+		BomEncoder::Encoding encoding,
+		const wchar_t* text,
+		vint decodedBomOffset,
+		const void* decodedBytes,
+		vint decodedByteLength,
+		bool testEncoding
+	)
+	{
+		BomEncoder encoder(encoding);
+		BomDecoder decoder;
+		TestEncodingWithStreamReaderWriter(encoder, decoder, encoding, text, decodedBomOffset, decodedBytes, decodedByteLength, testEncoding);
+	}
 }
 using namespace TestStreamEncoding_TestObjects;
 
@@ -100,40 +177,67 @@ TEST_FILE
 	{
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
-			Utf8Encoder encoder;
-			Utf8Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 0, text1U8, (sizeof(text1U8) - sizeof(*text1U8)), true);
+			TestEncodingWithoutBOM<Utf8Encoder, Utf8Decoder>(
+				BomEncoder::Utf8,
+				text1L,
+				text1U8,
+				(sizeof(text1U8) - sizeof(*text1U8)),
+				true
+				);
 		});
 		TEST_CASE(L"<UTF16, NO-BOM>")
 		{
-			Utf16Encoder encoder;
-			Utf16Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 0, text1U16, (sizeof(text1U16) - sizeof(*text1U16)), true);
+			TestEncodingWithoutBOM<Utf16Encoder, Utf16Decoder>(
+				BomEncoder::Utf16,
+				text1L,
+				text1U16,
+				(sizeof(text1U16) - sizeof(*text1U16)),
+				true
+				);
 		});
 		TEST_CASE(L"<UTF16_BE, NO-BOM>")
 		{
-			Utf16BEEncoder encoder;
-			Utf16BEDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 0, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)), true);
+			TestEncodingWithoutBOM<Utf16BEEncoder, Utf16BEDecoder>(
+				BomEncoder::Utf16BE,
+				text1L,
+				text1U16BE,
+				(sizeof(text1U16BE) - sizeof(*text1U16BE)),
+				true
+				);
 		});
 
 		TEST_CASE(L"<UTF8, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf8);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 3, text1U8, (sizeof(text1U8) - sizeof(*text1U8)), true);
+			TestEncodingWithBOM(
+				BomEncoder::Utf8,
+				text1L,
+				3,
+				text1U8,
+				(sizeof(text1U8) - sizeof(*text1U8)),
+				true
+				);
 		});
 		TEST_CASE(L"<UTF16, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf16);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 2, text1U16, (sizeof(text1U16) - sizeof(*text1U16)), true);
+			TestEncodingWithBOM(
+				BomEncoder::Utf16,
+				text1L,
+				2,
+				text1U16,
+				(sizeof(text1U16) - sizeof(*text1U16)),
+				true
+				);
 		});
 		TEST_CASE(L"<UTF16_BE, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf16BE);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 2, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)), true);
+			TestEncodingWithBOM(
+				BomEncoder::Utf16BE,
+				text1L,
+				2,
+				text1U16BE,
+				(sizeof(text1U16BE) - sizeof(*text1U16BE)),
+				true
+				);
 		});
 	});
 
@@ -141,52 +245,88 @@ TEST_FILE
 	{
 		TEST_CASE(L"<MBCS, NO-BOM>")
 		{
-			MbcsEncoder encoder;
-			MbcsDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)), false);
+			TestEncodingWithoutBOM<MbcsEncoder, MbcsDecoder>(
+				BomEncoder::Mbcs,
+				text2L,
+				text2A,
+				(sizeof(text2A) - sizeof(*text2A)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
-			Utf8Encoder encoder;
-			Utf8Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 0, text2U8, (sizeof(text2U8) - sizeof(*text2U8)), false);
+			TestEncodingWithoutBOM<Utf8Encoder, Utf8Decoder>(
+				BomEncoder::Utf8,
+				text2L,
+				text2U8,
+				(sizeof(text2U8) - sizeof(*text2U8)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF16, NO-BOM>")
 		{
-			Utf16Encoder encoder;
-			Utf16Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 0, text2U16, (sizeof(text2U16) - sizeof(*text2U16)), false);
+			TestEncodingWithoutBOM<Utf16Encoder, Utf16Decoder>(
+				BomEncoder::Utf16,
+				text2L,
+				text2U16,
+				(sizeof(text2U16) - sizeof(*text2U16)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF16_BE, NO-BOM>")
 		{
-			Utf16BEEncoder encoder;
-			Utf16BEDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 0, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)), false);
+			TestEncodingWithoutBOM<Utf16BEEncoder, Utf16BEDecoder>(
+				BomEncoder::Utf16BE,
+				text2L,
+				text2U16BE,
+				(sizeof(text2U16BE) - sizeof(*text2U16BE)),
+				false
+				);
 		});
 
 		TEST_CASE(L"<MBCS, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Mbcs);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)), false);
+			TestEncodingWithBOM(
+				BomEncoder::Mbcs,
+				text2L,
+				0,
+				text2A,
+				(sizeof(text2A) - sizeof(*text2A)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF8, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf8);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 3, text2U8, (sizeof(text2U8) - sizeof(*text2U8)), false);
+			TestEncodingWithBOM(
+				BomEncoder::Utf8,
+				text2L,
+				3,
+				text2U8,
+				(sizeof(text2U8) - sizeof(*text2U8)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF16, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf16);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 2, text2U16, (sizeof(text2U16) - sizeof(*text2U16)), false);
+			TestEncodingWithBOM(
+				BomEncoder::Utf16,
+				text2L,
+				2,
+				text2U16,
+				(sizeof(text2U16) - sizeof(*text2U16)),
+				false
+				);
 		});
 		TEST_CASE(L"<UTF16_BE, BOM>")
 		{
-			BomEncoder encoder(BomEncoder::Utf16BE);
-			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 2, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)), false);
+			TestEncodingWithBOM(
+				BomEncoder::Utf16BE,
+				text2L,
+				2,
+				text2U16BE,
+				(sizeof(text2U16BE) - sizeof(*text2U16BE)),
+				false
+				);
 		});
 	});
 }
