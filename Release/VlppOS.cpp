@@ -5001,6 +5001,61 @@ Utf8
 			}
 			return counter;
 		}
+
+/***********************************************************************
+Utf-32
+***********************************************************************/
+
+		vint Utf32Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+#if defined VCZH_WCHAR_UTF16
+			WCharTo32Reader reader(_buffer, chars);
+			while (char32_t c = reader.Read())
+			{
+				vint written = stream->Write(&c, sizeof(c));
+				if (written != sizeof(c))
+				{
+					Close();
+					return 0;
+				}
+			}
+			if (reader.HasIllegalChar())
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+#elif defined VCZH_WCHAR_UTF32
+			vint size = chars * sizeof(wchar_t);
+			vint written = stream->Write(_buffer, size);
+			if (written != size)
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+#endif
+		}
+
+		vint Utf32Decoder::ReadString(wchar_t* _buffer, vint chars)
+		{
+#if defined VCZH_WCHAR_UTF16
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
+			{
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
+			}
+			return counter;
+#elif defined VCZH_WCHAR_UTF32
+			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
+			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
+			return read / sizeof(wchar_t);
+#endif
+		}
 	}
 }
 
