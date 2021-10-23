@@ -413,6 +413,22 @@ Utf8
 
 		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
+#if defined VCZH_MSVC
+			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
+			char* mbcs = new char[length];
+			WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
+			vint result = stream->Write(mbcs, length);
+			delete[] mbcs;
+			if (result == length)
+			{
+				return chars;
+			}
+			else
+			{
+				Close();
+				return 0;
+			}
+#elif defined VCZH_GCC
 			WCharToUtfReader<char8_t> reader(_buffer, chars);
 			vint counter = 0;
 			while (char8_t c = reader.Read())
@@ -425,20 +441,7 @@ Utf8
 				return 0;
 			}
 			return counter;
-			//vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			//char* mbcs = new char[length];
-			//WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			//vint result = stream->Write(mbcs, length);
-			//delete[] mbcs;
-			//if (result == length)
-			//{
-			//	return chars;
-			//}
-			//else
-			//{
-			//	Close();
-			//	return 0;
-			//}
+#endif
 		}
 
 		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
