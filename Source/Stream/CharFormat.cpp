@@ -383,100 +383,16 @@ Utf8
 
 		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-			vuint8_t source[4];
-#if defined VCZH_MSVC
-			wchar_t target[2];
-#endif
-			wchar_t* writing = _buffer;
-			vint readed = 0;
-			vint sourceCount = 0;
-
-			while (readed < chars)
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
 			{
-#if defined VCZH_MSVC
-				if (cacheAvailable)
-				{
-					*writing++ = cache;
-					cache = 0;
-					cacheAvailable = false;
-				}
-				else
-				{
-#endif
-					if (stream->Read(source, 1) != 1)
-					{
-						break;
-					}
-					if ((*source & 0xF0) == 0xF0)
-					{
-						if (stream->Read(source + 1, 3) != 3)
-						{
-							break;
-						}
-						sourceCount = 4;
-					}
-					else if ((*source & 0xE0) == 0xE0)
-					{
-						if (stream->Read(source + 1, 2) != 2)
-						{
-							break;
-						}
-						sourceCount = 3;
-					}
-					else if ((*source & 0xC0) == 0xC0)
-					{
-						if (stream->Read(source + 1, 1) != 1)
-						{
-							break;
-						}
-						sourceCount = 2;
-					}
-					else
-					{
-						sourceCount = 1;
-					}
-#if defined VCZH_MSVC	
-					int targetCount = MultiByteToWideChar(CP_UTF8, 0, (char*)source, (int)sourceCount, target, 2);
-					if (targetCount == 1)
-					{
-						*writing++ = target[0];
-					}
-					else if (targetCount == 2)
-					{
-						*writing++ = target[0];
-						cache = target[1];
-						cacheAvailable = true;
-					}
-					else
-					{
-						break;
-					}
-				}
-#elif defined VCZH_GCC
-					if (sourceCount == 1)
-					{
-						*writing++ = (wchar_t)source[0];
-					}
-					else if (sourceCount == 2)
-					{
-						*writing++ = (((wchar_t)source[0] & 0x1F) << 6) + ((wchar_t)source[1] & 0x3F);
-					}
-					else if (sourceCount == 3)
-					{
-						*writing++ = (((wchar_t)source[0] & 0xF) << 12) + (((wchar_t)source[1] & 0x3F) << 6) + ((wchar_t)source[2] & 0x3F);
-					}
-					else if (sourceCount == 4)
-					{
-						*writing++ = (((wchar_t)source[0] & 0x7) << 18) + (((wchar_t)source[1] & 0x3F) << 12) + (((wchar_t)source[2] & 0x3F) << 6) + ((wchar_t)source[3] & 0x3F);
-					}
-					else
-					{
-						break;
-					}
-#endif
-					readed++;
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
 			}
-				return readed;
+			return counter * sizeof(wchar_t);
 		}
 	}
 }

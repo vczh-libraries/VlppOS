@@ -17,7 +17,6 @@ namespace vl
 WCharToUtfReader
 ***********************************************************************/
 
-#if defined VCZH_WCHAR_UTF16 || defined VCZH_MSVC
 		template<typename TTo>
 		class WCharToUtfReader : public encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>
 		{
@@ -57,7 +56,6 @@ WCharToUtfReader
 				return encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
 			}
 		};
-#endif
 
 /***********************************************************************
 StreamToWCharReader
@@ -211,10 +209,8 @@ Utf-8
 		class Utf8Decoder : public CharDecoder
 		{
 		protected:
-#if defined VCZH_MSVC
-			wchar_t							cache = 0;
-			bool							cacheAvailable = false;
-#endif
+			StreamToWCharReader<char8_t>	reader;
+
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		public:
 		};
