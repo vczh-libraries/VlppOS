@@ -114,6 +114,7 @@ TEST_FILE
 		{
 			internal::ContextFreeReader reader(memoryStream);
 			reader << sa2 << sb2 << sc2 << sd2;
+			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
 		}
 		TEST_ASSERT(sa1 == sa2);
 		TEST_ASSERT(sb1 == sb2);
@@ -141,6 +142,7 @@ TEST_FILE
 		{
 			internal::ContextFreeReader reader(memoryStream);
 			reader << a2 << b2 << c2 << d2 << e2;
+			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
 		}
 		TEST_ASSERT(a1 == a2);
 		TEST_ASSERT(b1 == b2);
@@ -155,6 +157,33 @@ TEST_FILE
 
 	TEST_CASE(L"Serialize Generic Types")
 	{
+		MemoryStream memoryStream;
+		Ptr<Strings> a1 = MakePtr<Strings>(), a2;
+		a1->sa = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		a1->sb = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		a1->sc = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		a1->sd = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		Nullable<Strings> b1 = *a1.Obj(), b2;
+		{
+			internal::ContextFreeWriter writer(memoryStream);
+			writer << a1 << b1;
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			internal::ContextFreeReader reader(memoryStream);
+			reader << a2 << b2;
+			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
+		}
+		TEST_ASSERT(a2);
+		TEST_ASSERT(b2);
+		TEST_ASSERT(a1->sa == a2->sa);
+		TEST_ASSERT(a1->sb == a2->sb);
+		TEST_ASSERT(a1->sc == a2->sc);
+		TEST_ASSERT(a1->sd == a2->sd);
+		TEST_ASSERT(b1.Value().sa == b2.Value().sa);
+		TEST_ASSERT(b1.Value().sb == b2.Value().sb);
+		TEST_ASSERT(b1.Value().sc == b2.Value().sc);
+		TEST_ASSERT(b1.Value().sd == b2.Value().sd);
 	});
 
 	TEST_CASE(L"Serialize Collections")
