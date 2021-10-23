@@ -188,6 +188,50 @@ TEST_FILE
 
 	TEST_CASE(L"Serialize Collections")
 	{
+		MemoryStream memoryStream;
+		List<Seasons> a1, a2;
+		Array<Seasons> b1(4), b2;
+		Dictionary<vint, Seasons> c1, c2;
+		Group<vint, Seasons> d1, d2;
+
+		a1.Add(Seasons::Spring);
+		a1.Add(Seasons::Summer);
+		a1.Add(Seasons::Autumn);
+		a1.Add(Seasons::Winter);
+
+		b1[0] = Seasons::Spring;
+		b1[1] = Seasons::Summer;
+		b1[2] = Seasons::Autumn;
+		b1[3] = Seasons::Winter;
+
+		c1.Add(1, Seasons::Spring);
+		c1.Add(2, Seasons::Summer);
+		c1.Add(3, Seasons::Autumn);
+		c1.Add(4, Seasons::Winter);
+
+		d1.Add(1, Seasons::Spring);
+		d1.Add(1, Seasons::Summer);
+		d1.Add(2, Seasons::Autumn);
+		d1.Add(2, Seasons::Winter);
+		d1.Add(3, Seasons::Spring);
+		d1.Add(3, Seasons::Summer);
+		d1.Add(4, Seasons::Autumn);
+		d1.Add(4, Seasons::Winter);
+
+		{
+			internal::ContextFreeWriter writer(memoryStream);
+			writer << a1 << b1 << c1 << d1;
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			internal::ContextFreeReader reader(memoryStream);
+			reader << a2 << b2 << c2 << d2;
+			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
+		}
+		TEST_ASSERT(CompareEnumerable(a1, a2) == 0);
+		TEST_ASSERT(CompareEnumerable(b1, b2) == 0);
+		TEST_ASSERT(CompareEnumerable(c1, c2) == 0);
+		TEST_ASSERT(CompareEnumerable(d1, d2) == 0);
 	});
 
 	TEST_CASE(L"Serialize Others")
