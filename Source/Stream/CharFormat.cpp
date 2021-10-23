@@ -191,7 +191,7 @@ Utf-16
 		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_WCHAR_UTF16
-			return stream->Write(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
+			return stream->Write(_buffer, chars * sizeof(wchar_t));
 #elif defined VCZH_WCHAR_UTF32
 			WCharToUtfReader<char16_t> reader(_buffer, chars);
 			vint counter = 0;
@@ -211,7 +211,7 @@ Utf-16
 		vint Utf16Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_WCHAR_UTF16
-			return stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
+			return stream->Read(_buffer, chars * sizeof(wchar_t));
 #elif defined VCZH_WCHAR_UTF32
 			reader.Setup(stream);
 			vint counter = 0;
@@ -302,7 +302,7 @@ Utf8
 			delete[] mbcs;
 			if (result == length)
 			{
-				return chars;
+				return result;
 			}
 			else
 			{
