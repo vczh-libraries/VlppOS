@@ -14,6 +14,95 @@ namespace vl
 	{
 
 /***********************************************************************
+WCharToUtfReader
+***********************************************************************/
+
+#if defined VCZH_WCHAR_UTF16 || defined VCZH_MSVC
+		template<typename TTo>
+		class WCharToUtfReader : public encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>
+		{
+			template<typename T, typename TBase>
+			friend class encoding::UtfFrom32ReaderBase;
+
+			class InternalReader : public encoding::UtfTo32ReaderBase<wchar_t, InternalReader>
+			{
+			public:
+				const wchar_t* starting = nullptr;
+				const wchar_t* ending = nullptr;
+				const wchar_t* consuming = nullptr;
+
+				wchar_t Consume()
+				{
+					if (consuming == ending) return 0;
+					return *consuming++;
+				}
+			};
+		protected:
+			InternalReader internalReader;
+
+			char32_t Consume()
+			{
+				return internalReader.Read();
+			}
+		public:
+			WCharToUtfReader(const wchar_t* _starting, vint count)
+			{
+				internalReader.starting = _starting;
+				internalReader.ending = _starting + count;
+				internalReader.consuming = _starting;
+			}
+
+			bool HasIllegalChar() const
+			{
+				return encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
+			}
+		};
+#endif
+
+/***********************************************************************
+StreamToWCharReader
+***********************************************************************/
+
+		template<typename TFrom>
+		class StreamToWCharReader : public encoding::UtfFrom32ReaderBase<wchar_t, StreamToWCharReader<TFrom>>
+		{
+			template<typename T, typename TBase>
+			friend class encoding::UtfFrom32ReaderBase;
+
+			class InternalReader : public encoding::UtfTo32ReaderBase<TFrom, InternalReader>
+			{
+			public:
+				IStream* stream = nullptr;
+
+				TFrom Consume()
+				{
+					TFrom c;
+					vint size = stream->Read(&c, sizeof(c));
+					if (size != sizeof(c)) return 0;
+					return c;
+				}
+			};
+		protected:
+			InternalReader internalReader;
+
+			char32_t Consume()
+			{
+				return internalReader.Read();
+			}
+		public:
+
+			void Setup(IStream* _stream)
+			{
+				internalReader.stream = _stream;
+			}
+
+			bool HasIllegalChar() const
+			{
+				return encoding::UtfFrom32ReaderBase<wchar_t, StreamToWCharReader<TFrom>>::HasIllegalChar() || internalReader.HasIllegalChar();
+			}
+		};
+
+/***********************************************************************
 Char Encoder and Decoder
 ***********************************************************************/
 
@@ -82,6 +171,10 @@ Utf-16
 		class Utf16Decoder : public CharDecoder
 		{
 		protected:
+#if defined VCZH_WCHAR_UTF32
+			StreamToWCharReader<char16_t>	reader;
+#endif
+
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		};
 
