@@ -14,5 +14,7 @@ WString GetTestOutputPath()
 
 int main(int argc, char* argv[])
 {
-	return unittest::UnitTest::RunAndDisposeTests(argc, argv);
+	vint result = unittest::UnitTest::RunAndDisposeTests(argc, argv);
+	FinalizeGlobalStorage();
+	return result;
 }

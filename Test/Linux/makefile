@@ -18,13 +18,13 @@ clean:
 
 all:pre-build ./Bin/UnitTest
 
-./Bin/UnitTest:./Obj/Vlpp.o ./Obj/FileSystem.o ./Obj/HttpUtility.o ./Obj/Locale.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CompressionStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/ThreadingLinux.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestStream.o ./Obj/TestThread.o ./Obj/Main.o
+./Bin/UnitTest:./Obj/Vlpp.o ./Obj/FileSystem.o ./Obj/HttpUtility.o ./Obj/Locale.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat_Bom.o ./Obj/CharFormat_TestEncoding.o ./Obj/CompressionStream.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/ThreadingLinux.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../Import/Vlpp.cpp ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
-./Obj/FileSystem.o: ../../Source/FileSystem.cpp ../../Source/FileSystem.h ../../Import/Vlpp.h ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/MemoryWrapperStream.h ../../Source/Locale.h ../../Source/Stream/FileStream.h ../../Source/Stream/Accessor.h
+./Obj/FileSystem.o: ../../Source/FileSystem.cpp ../../Source/FileSystem.h ../../Import/Vlpp.h ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Source/Locale.h ../../Source/Stream/FileStream.h ../../Source/Stream/MemoryWrapperStream.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h
 	$(CPP_COMPILE)
 
 ./Obj/HttpUtility.o: ../../Source/HttpUtility.cpp ../../Source/HttpUtility.h ../../Import/Vlpp.h
@@ -42,10 +42,19 @@ all:pre-build ./Bin/UnitTest
 ./Obj/CacheStream.o: ../../Source/Stream/CacheStream.cpp ../../Source/Stream/CacheStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
-./Obj/CharFormat.o: ../../Source/Stream/CharFormat.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/MemoryWrapperStream.h
+./Obj/CharFormat.o: ../../Source/Stream/CharFormat.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
-./Obj/CompressionStream.o: ../../Source/Stream/CompressionStream.cpp ../../Source/Stream/CompressionStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/MemoryWrapperStream.h
+./Obj/CharFormat_Bom.o: ../../Source/Stream/CharFormat_Bom.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
+./Obj/CharFormat_TestEncoding.o: ../../Source/Stream/CharFormat_TestEncoding.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
+./Obj/CompressionStream.o: ../../Source/Stream/CompressionStream.cpp ../../Source/Stream/CompressionStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h ../../Source/Stream/MemoryWrapperStream.h
+	$(CPP_COMPILE)
+
+./Obj/EncodingStream.o: ../../Source/Stream/EncodingStream.cpp ../../Source/Stream/EncodingStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/FileStream.o: ../../Source/Stream/FileStream.cpp ../../Source/Stream/FileStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
@@ -66,13 +75,25 @@ all:pre-build ./Bin/UnitTest
 ./Obj/ThreadingLinux.o: ../../Source/ThreadingLinux.cpp ../../Source/Threading.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
-./Obj/TestFileSystem.o: ../Source/TestFileSystem.cpp ../Source/../../Source/FileSystem.h ../../Import/Vlpp.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/Interfaces.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Locale.h ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Threading.h
+./Obj/TestFileSystem.o: ../Source/TestFileSystem.cpp ../Source/../../Source/FileSystem.h ../../Import/Vlpp.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/Interfaces.h ../Source/../../Source/Locale.h ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Threading.h
 	$(CPP_COMPILE)
 
-./Obj/TestLocaleString.o: ../Source/TestLocaleString.cpp ../Source/../../Source/Locale.h ../../Import/Vlpp.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/Interfaces.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/FileStream.h
+./Obj/TestLocaleString.o: ../Source/TestLocaleString.cpp ../Source/../../Source/Locale.h ../../Import/Vlpp.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/Interfaces.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/FileStream.h
 	$(CPP_COMPILE)
 
-./Obj/TestStream.o: ../Source/TestStream.cpp ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/RecorderStream.h ../Source/../../Source/Stream/BroadcastStream.h ../Source/../../Source/Stream/CacheStream.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/CompressionStream.h ../Source/../../Source/Locale.h
+./Obj/TestSerialization.o: ../Source/TestSerialization.cpp ../Source/../../Source/Stream/Serialization.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/MemoryStream.h
+	$(CPP_COMPILE)
+
+./Obj/TestStream.o: ../Source/TestStream.cpp ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/RecorderStream.h ../Source/../../Source/Stream/BroadcastStream.h ../Source/../../Source/Stream/CacheStream.h
+	$(CPP_COMPILE)
+
+./Obj/TestStreamEncoding.o: ../Source/TestStreamEncoding.cpp ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Locale.h
+	$(CPP_COMPILE)
+
+./Obj/TestStreamLzw.o: ../Source/TestStreamLzw.cpp ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/CompressionStream.h
+	$(CPP_COMPILE)
+
+./Obj/TestStreamReaderWriter.o: ../Source/TestStreamReaderWriter.cpp ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/MemoryStream.h
 	$(CPP_COMPILE)
 
 ./Obj/TestThread.o: ../Source/TestThread.cpp ../Source/../../Source/Threading.h ../../Import/Vlpp.h

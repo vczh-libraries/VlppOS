@@ -46,7 +46,7 @@ namespace mynamespace
 		Mutex_ThreadData* data = (Mutex_ThreadData*)argument;
 		{
 			TEST_ASSERT(data->mutex.Wait());
-			data->counter++;
+			INCRC(&data->counter);
 			TEST_ASSERT(data->mutex.Release());
 		}
 	}
@@ -74,7 +74,7 @@ namespace mynamespace
 		TEST_ASSERT(data->semaphore.Wait());
 		{
 			CriticalSection::Scope lock(data->cs);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 
@@ -101,7 +101,7 @@ namespace mynamespace
 		TEST_ASSERT(data->eventObject.Wait());
 		{
 			CriticalSection::Scope lock(data->cs);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 
@@ -121,7 +121,7 @@ namespace mynamespace
 	{
 		AutoEvent_ThreadData* data = (AutoEvent_ThreadData*)argument;
 		TEST_ASSERT(data->eventObject.Wait());
-		data->counter++;
+		INCRC(&data->counter);
 	}
 
 	/***********************************************************************
@@ -144,7 +144,7 @@ namespace mynamespace
 		CS_ThreadData* data = (CS_ThreadData*)argument;
 		{
 			CriticalSection::Scope lock(data->cs);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 
@@ -174,7 +174,7 @@ namespace mynamespace
 		{
 			ReaderWriterLock::ReaderScope srw(data->lock);
 			SpinLock::Scope sl(data->sl);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 
@@ -186,7 +186,7 @@ namespace mynamespace
 		{
 			ReaderWriterLock::WriterScope srw(data->lock);
 			SpinLock::Scope sl(data->sl);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 
@@ -210,7 +210,7 @@ namespace mynamespace
 		SL_ThreadData* data = (SL_ThreadData*)argument;
 		{
 			SpinLock::Scope lock(data->lock);
-			data->counter++;
+			INCRC(&data->counter);
 		}
 	}
 

@@ -102,7 +102,7 @@ FilePath
 			{
 				char buffer[PATH_MAX] = { 0 };
 				getcwd(buffer, PATH_MAX);
-				fullPath = atow(AString(buffer)) + Delimiter + fullPath;
+				fullPath = atow(AString(buffer)) + WString::FromChar(Delimiter) + fullPath;
 			}
 
 			{

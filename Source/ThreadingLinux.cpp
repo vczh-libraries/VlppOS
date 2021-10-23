@@ -508,9 +508,9 @@ EventObject
 		}
 		else
 		{
-			internalData->counter++;
+			INCRC(&internalData->counter);
 			internalData->cond.SleepWith(internalData->mutex);
-			internalData->counter--;
+			DECRC(&internalData->counter);
 		}
 		internalData->mutex.Leave();
 		return true;

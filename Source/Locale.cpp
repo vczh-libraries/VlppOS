@@ -276,7 +276,7 @@ Locale
 			}
 			else
 			{
-				result += *reading;
+				result += WString::FromChar(*reading);
 				reading++;
 			}
 		}
