@@ -198,6 +198,32 @@ namespace TestStreamEncoding_TestObjects
 		}
 	}
 
+	template<typename TEncoder, typename TDecoder>
+	void TestEncodingWithoutBOMWithoutTestEncoding(
+		const wchar_t* text,
+		const void* decodedBytes,
+		vint decodedByteLength
+	)
+	{
+		{
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithStreamReaderWriter(encoder, decoder, BomEncoder::Mbcs, text, 0, decodedBytes, decodedByteLength, false);
+		}
+		{
+			TEST_PRINT(L"Encoder Decoder");
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedBytes, decodedByteLength);
+		}
+		{
+			TEST_PRINT(L"Per Byte");
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedBytes, decodedByteLength);
+		}
+	}
+
 	void TestEncodingWithBOM(
 		BomEncoder::Encoding encoding,
 		const wchar_t* text,
@@ -224,12 +250,14 @@ TEST_FILE
 	const char8_t text1U8[] = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char16_t text1U16[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char16_t text1U16BE[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+	const char32_t text1U32[] = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 
 	const wchar_t text2L[] = L"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char text2A[] = "ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char8_t text2U8[] = u8"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char32_t text2U32[] = U"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
 	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
 	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
@@ -268,6 +296,14 @@ TEST_FILE
 				text1U16BE,
 				(sizeof(text1U16BE) - sizeof(*text1U16BE)),
 				true
+				);
+		});
+		TEST_CASE(L"<UTF32, NO-BOM>")
+		{
+			TestEncodingWithoutBOMWithoutTestEncoding<Utf32Encoder, Utf32Decoder>(
+				text1L,
+				text1U32,
+				(sizeof(text1U32) - sizeof(*text1U32))
 				);
 		});
 
@@ -346,6 +382,14 @@ TEST_FILE
 				text2U16BE,
 				(sizeof(text2U16BE) - sizeof(*text2U16BE)),
 				false
+				);
+		});
+		TEST_CASE(L"<UTF32, NO-BOM>")
+		{
+			TestEncodingWithoutBOMWithoutTestEncoding<Utf32Encoder, Utf32Decoder>(
+				text2L,
+				text2U32,
+				(sizeof(text2U32) - sizeof(*text2U32))
 				);
 		});
 
