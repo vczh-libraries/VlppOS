@@ -63,6 +63,24 @@ TEST_FILE
 
 	TEST_CASE(L"Serialize Strings")
 	{
+		MemoryStream memoryStream;
+		WString sa1 = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才", sa2;
+		U8String sb1 = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才", sb2;
+		U16String sc1 = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才", sc2;
+		U32String sd1 = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才", sd2;
+		{
+			internal::ContextFreeWriter writer(memoryStream);
+			writer << sa1 << sb1 << sc1 << sd1;
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			internal::ContextFreeReader reader(memoryStream);
+			reader << sa2 << sb2 << sc2 << sd2;
+		}
+		TEST_ASSERT(sa1 == sa2);
+		TEST_ASSERT(sb1 == sb2);
+		TEST_ASSERT(sc1 == sc2);
+		TEST_ASSERT(sd1 == sd2);
 	});
 
 	TEST_CASE(L"Serialize Enums and Structs")

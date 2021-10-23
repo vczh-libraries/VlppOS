@@ -195,6 +195,87 @@ Serialization (floats)
 			};
 
 /***********************************************************************
+Serialization (strings)
+***********************************************************************/
+
+			template<>
+			struct Serialization<U8String>
+			{
+				template<typename TContext>
+				static void IO(Reader<TContext>& reader, U8String& value)
+				{
+					vint count = -1;
+					reader << count;
+					if (count > 0)
+					{
+						char8_t* buffer = new char8_t[count + 1];
+						MemoryWrapperStream stream(buffer, count);
+						reader << (IStream&)stream;
+						buffer[count] = 0;
+						value = U8String::TakeOver(buffer, count);
+					}
+					else
+					{
+						value = {};
+					}
+				}
+
+				template<typename TContext>
+				static void IO(Writer<TContext>& writer, U8String& value)
+				{
+					vint count = value.Length();
+					writer << count;
+					if (count > 0)
+					{
+						MemoryWrapperStream stream((void*)value.Buffer(), count);
+						writer << (IStream&)stream;
+					}
+				}
+			};
+
+			template<>
+			struct Serialization<WString> : Serialization_Conversion<WString, U8String, Serialization<WString>>
+			{
+				static WString ToValue(const U8String& data)
+				{
+					return u8tow(data);
+				}
+
+				static U8String FromValue(const WString& value)
+				{
+					return wtou8(value);
+				}
+			};
+
+			template<>
+			struct Serialization<U16String> : Serialization_Conversion<U16String, U8String, Serialization<U16String>>
+			{
+				static U16String ToValue(const U8String& data)
+				{
+					return u8tou16(data);
+				}
+
+				static U8String FromValue(const U16String& value)
+				{
+					return u16tou8(value);
+				}
+			};
+
+			template<>
+			struct Serialization<U32String> : Serialization_Conversion<U32String, U8String, Serialization<U32String>>
+			{
+				static U32String ToValue(const U8String& data)
+				{
+					return u8tou32(data);
+				}
+
+				static U8String FromValue(const U32String& value)
+				{
+					return u32tou8(value);
+				}
+			};
+
+/***********************************************************************
 Serialization (generic types)
 ***********************************************************************/
 
@@ -258,55 +339,6 @@ Serialization (generic types)
 					{
 						T data = value.Value();
 						Serialization<T>::IO(writer, data);
-					}
-				}
-			};
-
-/***********************************************************************
-Serialization (strings)
-***********************************************************************/
-
-			template<>
-			struct Serialization<WString>
-			{
-				template<typename TContext>
-				static void IO(Reader<TContext>& reader, WString& value)
-				{
-					vint count = -1;
-					reader << count;
-					if (count > 0)
-					{
-						MemoryStream stream;
-						reader << (IStream&)stream;
-						Utf8Decoder decoder;
-						decoder.Setup(&stream);
-
-						collections::Array<wchar_t> stringBuffer(count + 1);
-						vint stringSize = decoder.Read(&stringBuffer[0], count * sizeof(wchar_t));
-						stringBuffer[stringSize / sizeof(wchar_t)] = 0;
-
-						value = &stringBuffer[0];
-					}
-					else
-					{
-						value = L"";
-					}
-				}
-					
-				template<typename TContext>
-				static void IO(Writer<TContext>& writer, WString& value)
-				{
-					vint count = value.Length();
-					writer << count;
-					if (count > 0)
-					{
-						MemoryStream stream;
-						{
-							Utf8Encoder encoder;
-							encoder.Setup(&stream);
-							encoder.Write((void*)value.Buffer(), count * sizeof(wchar_t));
-						}
-						writer << (IStream&)stream;
 					}
 				}
 			};
