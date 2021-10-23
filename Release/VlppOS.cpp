@@ -105,7 +105,7 @@ FilePath
 			{
 				char buffer[PATH_MAX] = { 0 };
 				getcwd(buffer, PATH_MAX);
-				fullPath = atow(AString(buffer)) + Delimiter + fullPath;
+				fullPath = atow(AString(buffer)) + WString::FromChar(Delimiter) + fullPath;
 			}
 
 			{
@@ -1466,7 +1466,7 @@ Locale
 			}
 			else
 			{
-				result += *reading;
+				result += WString::FromChar(*reading);
 				reading++;
 			}
 		}
@@ -3367,9 +3367,9 @@ EventObject
 		}
 		else
 		{
-			internalData->counter++;
+			INCRC(&internalData->counter);
 			internalData->cond.SleepWith(internalData->mutex);
-			internalData->counter--;
+			DECRC(&internalData->counter);
 		}
 		internalData->mutex.Leave();
 		return true;
@@ -4731,7 +4731,7 @@ Mbcs
 			vint result = stream->Write(mbcs, length);
 			delete[] mbcs;
 #elif defined VCZH_GCC
-			WString w(_buffer, chars);
+			WString w = WString::CopyFrom(_buffer, chars);
 			AString a = wtoa(w);
 			vint length = a.Length();
 			vint result = stream->Write((void*)a.Buffer(), length);
@@ -4779,7 +4779,7 @@ Mbcs
 #if defined VCZH_MSVC
 			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading - source), _buffer, (int)chars);
 #elif defined VCZH_GCC
-			AString a(source, (vint)(reading - source));
+			AString a = AString::CopyFrom(source, (vint)(reading - source));
 			WString w = atow(a);
 			memcpy(_buffer, w.Buffer(), readed * sizeof(wchar_t));
 #endif
