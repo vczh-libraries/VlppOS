@@ -169,7 +169,7 @@ FilePath
 
 		vint FilePath::Compare(const FilePath& a, const FilePath& b)
 		{
-			return WString::Compare(a.fullPath, b.fullPath);
+			return (vint)WString::Compare(a.fullPath, b.fullPath);
 		}
 
 		FilePath FilePath::operator/(const WString& relativePath)const
@@ -227,7 +227,7 @@ FilePath
 
 		WString FilePath::GetName()const
 		{
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 			auto index = INVLOC.FindLast(fullPath, delimiter, Locale::None);
 			if (index.key == -1) return fullPath;
 			return fullPath.Right(fullPath.Length() - index.key - 1);
@@ -235,7 +235,7 @@ FilePath
 
 		FilePath FilePath::GetFolder()const
 		{
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 			auto index = INVLOC.FindLast(fullPath, delimiter, Locale::None);
 			if (index.key == -1) return FilePath();
 			return fullPath.Left(index.key);
@@ -296,7 +296,7 @@ FilePath
 		void FilePath::GetPathComponents(WString path, collections::List<WString>& components)
 		{
 			WString pathRemaining = path;
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 
 			components.Clear();
 
@@ -337,7 +337,7 @@ FilePath
 		WString FilePath::ComponentsToPath(const collections::List<WString>& components)
 		{
 			WString result;
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 
 			int i = 0;
 
@@ -891,12 +891,12 @@ HttpRequest
 						if (index2)
 						{
 							query = index2;
-							server = WString(reading, (index1 ? index1 : index2) - reading);
+							server = WString::CopyFrom(reading, (index1 ? index1 : index2) - reading);
 							port = INTERNET_DEFAULT_HTTPS_PORT;
 							secure = true;
 							if (index1)
 							{
-								WString portString(index1 + 1, index2 - index1 - 1);
+								auto portString = WString::CopyFrom(index1 + 1, index2 - index1 - 1);
 								port = _wtoi(portString.Buffer());
 							}
 							return true;
@@ -917,11 +917,11 @@ HttpRequest
 						if (index2)
 						{
 							query = index2;
-							server = WString(reading, (index1 ? index1 : index2) - reading);
+							server = WString::CopyFrom(reading, (index1 ? index1 : index2) - reading);
 							port = INTERNET_DEFAULT_HTTP_PORT;
 							if (index1)
 							{
-								WString portString(index1 + 1, index2 - index1 - 1);
+								auto portString = WString::CopyFrom(index1 + 1, index2 - index1 - 1);
 								port = _wtoi(portString.Buffer());
 							}
 							return true;
@@ -1084,7 +1084,7 @@ Utilities
 					const wchar_t* cookieEnd = wcsstr(cookieStart, L";");
 					if (cookieEnd)
 					{
-						response.cookie = WString(cookieStart + 7, cookieEnd - cookieStart - 7);
+						response.cookie = WString::CopyFrom(cookieStart + 7, cookieEnd - cookieStart - 7);
 					}
 				}
 				delete[] rawHeader;
@@ -4171,202 +4171,6 @@ StreamWriter
 		{
 			stream->Write((void*)string, charCount*sizeof(*string));
 		}
-
-/***********************************************************************
-EncoderStream
-***********************************************************************/
-
-		EncoderStream::EncoderStream(IStream& _stream, IEncoder& _encoder)
-			:stream(&_stream)
-			,encoder(&_encoder)
-			,position(0)
-		{
-			encoder->Setup(stream);
-		}
-
-		EncoderStream::~EncoderStream()
-		{
-			Close();
-		}
-
-		bool EncoderStream::CanRead()const
-		{
-			return false;
-		}
-
-		bool EncoderStream::CanWrite()const
-		{
-			return IsAvailable();
-		}
-
-		bool EncoderStream::CanSeek()const
-		{
-			return false;
-		}
-
-		bool EncoderStream::CanPeek()const
-		{
-			return false;
-		}
-
-		bool EncoderStream::IsLimited()const
-		{
-			return stream!=0 && stream->IsLimited();
-		}
-
-		bool EncoderStream::IsAvailable()const
-		{
-			return stream!=0 && stream->IsAvailable();
-		}
-
-		void EncoderStream::Close()
-		{
-			encoder->Close();
-			stream=0;
-		}
-
-		pos_t EncoderStream::Position()const
-		{
-			return IsAvailable()?position:-1;
-		}
-
-		pos_t EncoderStream::Size()const
-		{
-			return -1;
-		}
-
-		void EncoderStream::Seek(pos_t _size)
-		{
-			CHECK_FAIL(L"EncoderStream::Seek(pos_t)#Operation not supported.");
-		}
-
-		void EncoderStream::SeekFromBegin(pos_t _size)
-		{
-			CHECK_FAIL(L"EncoderStream::SeekFromBegin(pos_t)#Operation not supported.");
-		}
-
-		void EncoderStream::SeekFromEnd(pos_t _size)
-		{
-			CHECK_FAIL(L"EncoderStream::SeekFromEnd(pos_t)#Operation not supported.");
-		}
-
-		vint EncoderStream::Read(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"EncoderStream::Read(void*, vint)#Operation not supported.");
-		}
-
-		vint EncoderStream::Write(void* _buffer, vint _size)
-		{
-			vint result=encoder->Write(_buffer, _size);
-			if(result>=0)
-			{
-				position+=result;
-			}
-			return result;
-		}
-
-		vint EncoderStream::Peek(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"EncoderStream::Peek(void*, vint)#Operation not supported.");
-		}
-
-/***********************************************************************
-DecoderStream
-***********************************************************************/
-
-		DecoderStream::DecoderStream(IStream& _stream, IDecoder& _decoder)
-			:stream(&_stream)
-			,decoder(&_decoder)
-			,position(0)
-		{
-			decoder->Setup(stream);
-		}
-
-		DecoderStream::~DecoderStream()
-		{
-			Close();
-		}
-
-		bool DecoderStream::CanRead()const
-		{
-			return IsAvailable();
-		}
-
-		bool DecoderStream::CanWrite()const
-		{
-			return false;
-		}
-
-		bool DecoderStream::CanSeek()const
-		{
-			return false;
-		}
-
-		bool DecoderStream::CanPeek()const
-		{
-			return false;
-		}
-
-		bool DecoderStream::IsLimited()const
-		{
-			return stream!=0 && stream->IsLimited();
-		}
-
-		bool DecoderStream::IsAvailable()const
-		{
-			return stream!=0 && stream->IsAvailable();
-		}
-
-		void DecoderStream::Close()
-		{
-			decoder->Close();
-			stream=0;
-		}
-
-		pos_t DecoderStream::Position()const
-		{
-			return IsAvailable()?position:-1;
-		}
-
-		pos_t DecoderStream::Size()const
-		{
-			return -1;
-		}
-
-		void DecoderStream::Seek(pos_t _size)
-		{
-			CHECK_FAIL(L"DecoderStream::Seek(pos_t)#Operation not supported.");
-		}
-
-		void DecoderStream::SeekFromBegin(pos_t _size)
-		{
-			CHECK_FAIL(L"DecoderStream::SeekFromBegin(pos_t)#Operation not supported.");
-		}
-
-		void DecoderStream::SeekFromEnd(pos_t _size)
-		{
-			CHECK_FAIL(L"DecoderStream::SeekFromEnd(pos_t)#Operation not supported.");
-		}
-
-		vint DecoderStream::Read(void* _buffer, vint _size)
-		{
-			vint result=decoder->Read(_buffer, _size);
-			if(result>=0)
-			{
-				position+=result;
-			}
-			return result;
-		}
-
-		vint DecoderStream::Write(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"DecoderStream::Write(void*, vint)#Operation not supported.");
-		}
-
-		vint DecoderStream::Peek(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"DecoderStream::Peek(void*, vint)#Operation not supported.");
-		}
 	}
 }
 
@@ -4818,15 +4622,9 @@ namespace vl
 CharEncoder
 ***********************************************************************/
 
-		CharEncoder::CharEncoder()
-			:stream(0)
-			,cacheSize(0)
-		{
-		}
-
 		void CharEncoder::Setup(IStream* _stream)
 		{
-			stream=_stream;
+			stream = _stream;
 		}
 
 		void CharEncoder::Close()
@@ -4835,39 +4633,39 @@ CharEncoder
 
 		vint CharEncoder::Write(void* _buffer, vint _size)
 		{
-			const vint all=cacheSize+_size;
-			const vint chars=all/sizeof(wchar_t);
-			const vint bytes=chars*sizeof(wchar_t);
-			wchar_t* unicode=0;
-			bool needToFree=false;
-			vint result=0;
+			const vint all = cacheSize + _size;
+			const vint chars = all / sizeof(wchar_t);
+			const vint bytes = chars * sizeof(wchar_t);
+			wchar_t* unicode = 0;
+			bool needToFree = false;
+			vint result = 0;
 
-			if(chars)
+			if (chars)
 			{
-				if(cacheSize>0)
+				if (cacheSize > 0)
 				{
-					unicode=new wchar_t[chars];
+					unicode = new wchar_t[chars];
 					memcpy(unicode, cacheBuffer, cacheSize);
-					memcpy(((vuint8_t*)unicode)+cacheSize, _buffer, bytes-cacheSize);
-					needToFree=true;
+					memcpy(((vuint8_t*)unicode) + cacheSize, _buffer, bytes - cacheSize);
+					needToFree = true;
 				}
 				else
 				{
-					unicode=(wchar_t*)_buffer;
+					unicode = (wchar_t*)_buffer;
 				}
-				result=WriteString(unicode, chars)*sizeof(wchar_t)-cacheSize;
-				cacheSize=0;
+				result = WriteString(unicode, chars, needToFree) - cacheSize;
+				cacheSize = 0;
 			}
 
-			if(needToFree)
+			if (needToFree)
 			{
 				delete[] unicode;
 			}
-			if(all-bytes>0)
+			if (all - bytes > 0)
 			{
-				cacheSize=all-bytes;
-				memcpy(cacheBuffer, (vuint8_t*)_buffer+_size-cacheSize, cacheSize);
-				result+=cacheSize;
+				cacheSize = all - bytes;
+				memcpy(cacheBuffer, (vuint8_t*)_buffer + _size - cacheSize, cacheSize);
+				result += cacheSize;
 			}
 			return result;
 		}
@@ -4875,12 +4673,6 @@ CharEncoder
 /***********************************************************************
 CharDecoder
 ***********************************************************************/
-
-		CharDecoder::CharDecoder()
-			:stream(0)
-			,cacheSize(0)
-		{
-		}
 
 		void CharDecoder::Setup(IStream* _stream)
 		{
@@ -4893,34 +4685,34 @@ CharDecoder
 
 		vint CharDecoder::Read(void* _buffer, vint _size)
 		{
-			vuint8_t* unicode=(vuint8_t*)_buffer;
-			vint result=0;
+			vuint8_t* unicode = (vuint8_t*)_buffer;
+			vint result = 0;
 			{
-				vint index=0;
-				while(cacheSize>0 && _size>0)
+				vint index = 0;
+				while (cacheSize > 0 && _size > 0)
 				{
-					*unicode++=cacheBuffer[index]++;
+					*unicode++ = cacheBuffer[index]++;
 					cacheSize--;
 					_size--;
 					result++;
 				}
 			}
 
-			const vint chars=_size/sizeof(wchar_t);
-			vint bytes=ReadString((wchar_t*)unicode, chars)*sizeof(wchar_t);
-			result+=bytes;
-			_size-=bytes;
-			unicode+=bytes;
+			const vint chars = _size / sizeof(wchar_t);
+			vint bytes = ReadString((wchar_t*)unicode, chars);
+			result += bytes;
+			_size -= bytes;
+			unicode += bytes;
 
-			if(_size>0)
+			if (_size > 0)
 			{
 				wchar_t c;
-				if(ReadString(&c, 1)==1)
+				if (ReadString(&c, 1) == 1)
 				{
-					cacheSize=sizeof(wchar_t)-_size;
+					cacheSize = sizeof(wchar_t) - _size;
 					memcpy(unicode, &c, _size);
-					memcpy(cacheBuffer, (vuint8_t*)&c+_size, cacheSize);
-					result+=_size;
+					memcpy(cacheBuffer, (vuint8_t*)&c + _size, cacheSize);
+					result += _size;
 				}
 			}
 			return result;
@@ -4930,21 +4722,21 @@ CharDecoder
 Mbcs
 ***********************************************************************/
 
-		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
+		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_MSVC
-			vint length=WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs=new char[length];
+			vint length = WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
+			char* mbcs = new char[length];
 			WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result=stream->Write(mbcs, length);
+			vint result = stream->Write(mbcs, length);
 			delete[] mbcs;
 #elif defined VCZH_GCC
 			WString w(_buffer, chars);
-			AString a=wtoa(w);
-			vint length=a.Length();
-			vint result=stream->Write((void*)a.Buffer(), length);
+			AString a = wtoa(w);
+			vint length = a.Length();
+			vint result = stream->Write((void*)a.Buffer(), length);
 #endif
-			if(result==length)
+			if (result == length)
 			{
 				return chars;
 			}
@@ -4957,26 +4749,26 @@ Mbcs
 
 		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-			char* source=new char[chars*2];
-			char* reading=source;
-			vint readed=0;
-			while(readed<chars)
+			char* source = new char[chars * 2];
+			char* reading = source;
+			vint readed = 0;
+			while (readed < chars)
 			{
-				if(stream->Read(reading, 1)!=1)
+				if (stream->Read(reading, 1) != 1)
 				{
 					break;
 				}
 #if defined VCZH_MSVC
-				if(IsDBCSLeadByte(*reading))
+				if (IsDBCSLeadByte(*reading))
 #elif defined VCZH_GCC
-				if((vint8_t)*reading<0)
+				if ((vint8_t)*reading < 0)
 #endif
 				{
-					if(stream->Read(reading+1, 1)!=1)
+					if (stream->Read(reading + 1, 1) != 1)
 					{
 						break;
 					}
-					reading+=2;
+					reading += 2;
 				}
 				else
 				{
@@ -4985,97 +4777,55 @@ Mbcs
 				readed++;
 			}
 #if defined VCZH_MSVC
-			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading-source), _buffer, (int)chars);
+			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading - source), _buffer, (int)chars);
 #elif defined VCZH_GCC
-			AString a(source, (vint)(reading-source));
-			WString w=atow(a);
-			memcpy(_buffer, w.Buffer(), readed*sizeof(wchar_t));
+			AString a(source, (vint)(reading - source));
+			WString w = atow(a);
+			memcpy(_buffer, w.Buffer(), readed * sizeof(wchar_t));
 #endif
 			delete[] source;
-			return readed;
+			return readed * sizeof(wchar_t);
 		}
 
 /***********************************************************************
 Utf-16
 ***********************************************************************/
 
-		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars)
+		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-#if defined VCZH_MSVC
-			return stream->Write(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
-#elif defined VCZH_GCC
-			vint writed = 0;
-			vuint16_t utf16 = 0;
-			vuint8_t* utf16buf = (vuint8_t*)&utf16;
-			while (writed < chars)
+#if defined VCZH_WCHAR_UTF16
+			return stream->Write(_buffer, chars * sizeof(wchar_t));
+#elif defined VCZH_WCHAR_UTF32
+			WCharToUtfReader<char16_t> reader(_buffer, chars);
+			vint counter = 0;
+			while (char16_t c = reader.Read())
 			{
-				wchar_t w = *_buffer++;
-				if (w < 0x10000)
-				{
-					utf16 = (vuint16_t)w;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-				}
-				else if (w < 0x110000)
-				{
-					wchar_t inc = w - 0x10000;
-
-					utf16 = (vuint16_t)(inc / 0x400) + 0xD800;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-
-					utf16 = (vuint16_t)(inc % 0x400) + 0xDC00;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-				}
-				else
-				{
-					break;
-				}
-				writed++;
+				counter += stream->Write(&c, sizeof(c));
 			}
-			if(writed!=chars)
+			if (reader.HasIllegalChar())
 			{
 				Close();
+				return 0;
 			}
-			return writed;
+			return counter;
 #endif
 		}
 
 		vint Utf16Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_MSVC
-			return stream->Read(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
-#elif defined VCZH_GCC
-			wchar_t* writing = _buffer;
-			while (writing - _buffer < chars)
+#if defined VCZH_WCHAR_UTF16
+			return stream->Read(_buffer, chars * sizeof(wchar_t));
+#elif defined VCZH_WCHAR_UTF32
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
 			{
-				vuint16_t utf16_1 = 0;
-				vuint16_t utf16_2 = 0;
-
-				if (stream->Read(&utf16_1, 2) != 2) break;
-				if (utf16_1 < 0xD800 || utf16_1 > 0xDFFF)
-				{
-					*writing++ = (wchar_t)utf16_1;
-				}
-				else if (utf16_1 < 0xDC00)
-				{
-					if (stream->Read(&utf16_2, 2) != 2) break;
-					if (0xDC00 <= utf16_2 && utf16_2 <= 0xDFFF)
-					{
-						*writing++ = (wchar_t)(utf16_1 - 0xD800) * 0x400 + (wchar_t)(utf16_2 - 0xDC00) + 0x10000;
-					}
-					else
-					{
-						break;
-					}
-				}
-				else
-				{
-					break;
-				}
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
 			}
-			return writing - _buffer;
+			return counter * sizeof(wchar_t);
 #endif
 		}
 
@@ -5083,124 +4833,61 @@ Utf-16
 Utf-16-be
 ***********************************************************************/
 
-		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars)
+		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-#if defined VCZH_MSVC
-			vint writed=0;
-			while(writed<chars)
+#if defined VCZH_WCHAR_UTF16
+			if (freeToUpdate)
 			{
-				if(stream->Write(((unsigned char*)_buffer)+1, 1)!=1)
-				{
-					break;
-				}
-				if(stream->Write(_buffer, 1)!=1)
-				{
-					break;
-				}
-				_buffer++;
-				writed++;
+				SwapBytesForUtf16BE(_buffer, chars);
+				vint counter = stream->Write(_buffer, sizeof(wchar_t) * chars);
+				SwapBytesForUtf16BE(_buffer, chars);
+				return counter;
 			}
-			if(writed!=chars)
+			else
 			{
-				Close();
+				vint counter = 0;
+				for (vint i = 0; i < chars; i++)
+				{
+					wchar_t c = _buffer[i];
+					SwapByteForUtf16BE(c);
+					counter += stream->Write(&c, sizeof(c));
+				}
+				return counter;
 			}
-			return writed;
-#elif defined VCZH_GCC
-			vint writed = 0;
-			vuint16_t utf16 = 0;
-			vuint8_t* utf16buf = (vuint8_t*)&utf16;
-			while (writed < chars)
+#elif defined VCZH_WCHAR_UTF32
+			WCharToUtfReader<char16_t> reader(_buffer, chars);
+			vint counter = 0;
+			while (char16_t c = reader.Read())
 			{
-				wchar_t w = *_buffer++;
-				if (w < 0x10000)
-				{
-					utf16 = (vuint16_t)w;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-				}
-				else if (w < 0x110000)
-				{
-					wchar_t inc = w - 0x10000;
-
-					utf16 = (vuint16_t)(inc / 0x400) + 0xD800;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-
-					utf16 = (vuint16_t)(inc % 0x400) + 0xDC00;
-					if (stream->Write(&utf16buf[1], 1) != 1) break;
-					if (stream->Write(&utf16buf[0], 1) != 1) break;
-				}
-				else
-				{
-					break;
-				}
-				writed++;
+				SwapByteForUtf16BE(c);
+				counter += stream->Write(&c, sizeof(c));
 			}
-			if(writed!=chars)
+			if (reader.HasIllegalChar())
 			{
 				Close();
+				return 0;
 			}
-			return writed;
+			return counter;
 #endif
 		}
 
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_MSVC
-			chars=stream->Read(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
-			unsigned char* unicode=(unsigned char*)_buffer;
-			for(vint i=0;i<chars;i++)
+#if defined VCZH_WCHAR_UTF16
+			vint size = stream->Read(_buffer, chars * sizeof(wchar_t));
+			SwapBytesForUtf16BE(_buffer, size / sizeof(wchar_t));
+			return size;
+#elif defined VCZH_WCHAR_UTF32
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
 			{
-				unsigned char t=unicode[0];
-				unicode[0]=unicode[1];
-				unicode[1]=t;
-				unicode++;
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
 			}
-			return chars;
-#elif defined VCZH_GCC
-			wchar_t* writing = _buffer;
-			while (writing - _buffer < chars)
-			{
-				vuint16_t utf16_1 = 0;
-				vuint16_t utf16_2 = 0;
-				vuint8_t* utf16buf = 0;
-				vuint8_t utf16buf_temp = 0;
-
-				if (stream->Read(&utf16_1, 2) != 2) break;
-
-				utf16buf = (vuint8_t*)&utf16_1;
-				utf16buf_temp = utf16buf[0];
-				utf16buf[0] = utf16buf[1];
-				utf16buf[1] = utf16buf_temp;
-
-				if (utf16_1 < 0xD800 || utf16_1 > 0xDFFF)
-				{
-					*writing++ = (wchar_t)utf16_1;
-				}
-				else if (utf16_1 < 0xDC00)
-				{
-					if (stream->Read(&utf16_2, 2) != 2) break;
-
-					utf16buf = (vuint8_t*)&utf16_2;
-					utf16buf_temp = utf16buf[0];
-					utf16buf[0] = utf16buf[1];
-					utf16buf[1] = utf16buf_temp;
-
-					if (0xDC00 <= utf16_2 && utf16_2 <= 0xDFFF)
-					{
-						*writing++ = (wchar_t)(utf16_1 - 0xD800) * 0x400 + (wchar_t)(utf16_2 - 0xDC00) + 0x10000;
-					}
-					else
-					{
-						break;
-					}
-				}
-				else
-				{
-					break;
-				}
-			}
-			return writing - _buffer;
+			return counter * sizeof(wchar_t);
 #endif
 		}
 
@@ -5208,17 +4895,17 @@ Utf-16-be
 Utf8
 ***********************************************************************/
 
-		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
+		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_MSVC
-			vint length=WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs=new char[length];
+			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
+			char* mbcs = new char[length];
 			WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result=stream->Write(mbcs, length);
+			vint result = stream->Write(mbcs, length);
 			delete[] mbcs;
-			if(result==length)
+			if (result == length)
 			{
-				return chars;
+				return result;
 			}
 			else
 			{
@@ -5226,157 +4913,51 @@ Utf8
 				return 0;
 			}
 #elif defined VCZH_GCC
-			vint writed = 0;
-			while (writed < chars)
+			WCharToUtfReader<char8_t> reader(_buffer, chars);
+			vint counter = 0;
+			while (char8_t c = reader.Read())
 			{
-				wchar_t w = *_buffer++;
-				vuint8_t utf8[4];
-				if (w < 0x80)
-				{
-					utf8[0] = (vuint8_t)w;
-					if (stream->Write(utf8, 1) != 1) break;
-				}
-				else if (w < 0x800)
-				{
-					utf8[0] = 0xC0 + ((w & 0x7C0) >> 6);
-					utf8[1] = 0x80 + (w & 0x3F);
-					if (stream->Write(utf8, 2) != 2) break;
-				}
-				else if (w < 0x10000)
-				{
-					utf8[0] = 0xE0 + ((w & 0xF000) >> 12);
-					utf8[1] = 0x80 + ((w & 0xFC0) >> 6);
-					utf8[2] = 0x80 + (w & 0x3F);
-					if (stream->Write(utf8, 3) != 3) break;
-				}
-				else if (w < 0x110000) // only accept UTF-16 range
-				{
-					utf8[0] = 0xF0 + ((w & 0x1C0000) >> 18);
-					utf8[1] = 0x80 + ((w & 0x3F000) >> 12);
-					utf8[2] = 0x80 + ((w & 0xFC0) >> 6);
-					utf8[3] = 0x80 + (w & 0x3F);
-					if (stream->Write(utf8, 4) != 4) break;
-				}
-				else
-				{
-					break;
-				}
-				writed++;
+				counter += stream->Write(&c, sizeof(c));
 			}
-			if(writed!=chars)
+			if (reader.HasIllegalChar())
 			{
 				Close();
+				return 0;
 			}
-			return writed;
+			return counter;
 #endif
-		}
-
-		Utf8Decoder::Utf8Decoder()
-#if defined VCZH_MSVC
-			:cache(0)
-			,cacheAvailable(false)
-#endif
-		{
 		}
 
 		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-			vuint8_t source[4];
-#if defined VCZH_MSVC
-			wchar_t target[2];
-#endif
-			wchar_t* writing=_buffer;
-			vint readed=0;
-			vint sourceCount=0;
-
-			while(readed<chars)
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
 			{
-#if defined VCZH_MSVC
-				if(cacheAvailable)
-				{
-					*writing++=cache;
-					cache=0;
-					cacheAvailable=false;
-				}
-				else
-				{
-#endif
-					if(stream->Read(source, 1)!=1)
-					{
-						break;
-					}
-					if((*source & 0xF0) == 0xF0)
-					{
-						if(stream->Read(source+1, 3)!=3)
-						{
-							break;
-						}
-						sourceCount=4;
-					}
-					else if((*source & 0xE0) == 0xE0)
-					{
-						if(stream->Read(source+1, 2)!=2)
-						{
-							break;
-						}
-						sourceCount=3;
-					}
-					else if((*source & 0xC0) == 0xC0)
-					{
-						if(stream->Read(source+1, 1)!=1)
-						{
-							break;
-						}
-						sourceCount=2;
-					}
-					else
-					{
-						sourceCount=1;
-					}
-#if defined VCZH_MSVC	
-					int targetCount=MultiByteToWideChar(CP_UTF8, 0, (char*)source, (int)sourceCount, target, 2);
-					if(targetCount==1)
-					{
-						*writing++=target[0];
-					}
-					else if(targetCount==2)
-					{
-						*writing++=target[0];
-						cache=target[1];
-						cacheAvailable=true;
-					}
-					else
-					{
-						break;
-					}
-				}
-#elif defined VCZH_GCC
-					if (sourceCount == 1)
-					{
-						*writing++ = (wchar_t)source[0];
-					}
-					else if (sourceCount == 2)
-					{
-						*writing++ = (((wchar_t)source[0] & 0x1F) << 6) + ((wchar_t)source[1] & 0x3F);
-					}
-					else if (sourceCount == 3)
-					{
-						*writing++ = (((wchar_t)source[0] & 0xF) << 12) + (((wchar_t)source[1] & 0x3F) << 6) + ((wchar_t)source[2] & 0x3F);
-					}
-					else if (sourceCount == 4)
-					{
-						*writing++ = (((wchar_t)source[0] & 0x7) << 18) + (((wchar_t)source[1] & 0x3F) << 12) + (((wchar_t)source[2] & 0x3F) << 6) + ((wchar_t)source[3] & 0x3F);
-					}
-					else
-					{
-						break;
-					}
-#endif
-				readed++;
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
 			}
-			return readed;
+			return counter * sizeof(wchar_t);
 		}
+	}
+}
 
+
+/***********************************************************************
+.\STREAM\CHARFORMAT_BOM.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
 /***********************************************************************
 BomEncoder
 ***********************************************************************/
@@ -5597,9 +5178,28 @@ BomDecoder
 		{
 			return decoder->Read(_buffer, _size);
 		}
+	}
+}
+
 
 /***********************************************************************
-CharEncoder
+.\STREAM\CHARFORMAT_TESTENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#if defined VCZH_MSVC
+#elif defined VCZH_GCC
+#endif
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+Helper Functions
 ***********************************************************************/
 
 		bool CanBeMbcs(unsigned char* buffer, vint size)
@@ -5740,6 +5340,10 @@ CharEncoder
 			return false;
 		}
 #endif
+		
+/***********************************************************************
+TestEncoding
+***********************************************************************/
 
 		void TestEncoding(unsigned char* buffer, vint size, BomEncoder::Encoding& encoding, bool& containsBom)
 		{
@@ -6346,6 +5950,218 @@ Helper Functions
 		}
 	}
 }
+
+/***********************************************************************
+.\STREAM\ENCODINGSTREAM.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+EncoderStream
+***********************************************************************/
+
+		EncoderStream::EncoderStream(IStream& _stream, IEncoder& _encoder)
+			:stream(&_stream)
+			,encoder(&_encoder)
+			,position(0)
+		{
+			encoder->Setup(stream);
+		}
+
+		EncoderStream::~EncoderStream()
+		{
+			Close();
+		}
+
+		bool EncoderStream::CanRead()const
+		{
+			return false;
+		}
+
+		bool EncoderStream::CanWrite()const
+		{
+			return IsAvailable();
+		}
+
+		bool EncoderStream::CanSeek()const
+		{
+			return false;
+		}
+
+		bool EncoderStream::CanPeek()const
+		{
+			return false;
+		}
+
+		bool EncoderStream::IsLimited()const
+		{
+			return stream!=0 && stream->IsLimited();
+		}
+
+		bool EncoderStream::IsAvailable()const
+		{
+			return stream!=0 && stream->IsAvailable();
+		}
+
+		void EncoderStream::Close()
+		{
+			encoder->Close();
+			stream=0;
+		}
+
+		pos_t EncoderStream::Position()const
+		{
+			return IsAvailable()?position:-1;
+		}
+
+		pos_t EncoderStream::Size()const
+		{
+			return -1;
+		}
+
+		void EncoderStream::Seek(pos_t _size)
+		{
+			CHECK_FAIL(L"EncoderStream::Seek(pos_t)#Operation not supported.");
+		}
+
+		void EncoderStream::SeekFromBegin(pos_t _size)
+		{
+			CHECK_FAIL(L"EncoderStream::SeekFromBegin(pos_t)#Operation not supported.");
+		}
+
+		void EncoderStream::SeekFromEnd(pos_t _size)
+		{
+			CHECK_FAIL(L"EncoderStream::SeekFromEnd(pos_t)#Operation not supported.");
+		}
+
+		vint EncoderStream::Read(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"EncoderStream::Read(void*, vint)#Operation not supported.");
+		}
+
+		vint EncoderStream::Write(void* _buffer, vint _size)
+		{
+			vint result=encoder->Write(_buffer, _size);
+			if(result>=0)
+			{
+				position+=result;
+			}
+			return result;
+		}
+
+		vint EncoderStream::Peek(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"EncoderStream::Peek(void*, vint)#Operation not supported.");
+		}
+
+/***********************************************************************
+DecoderStream
+***********************************************************************/
+
+		DecoderStream::DecoderStream(IStream& _stream, IDecoder& _decoder)
+			:stream(&_stream)
+			,decoder(&_decoder)
+			,position(0)
+		{
+			decoder->Setup(stream);
+		}
+
+		DecoderStream::~DecoderStream()
+		{
+			Close();
+		}
+
+		bool DecoderStream::CanRead()const
+		{
+			return IsAvailable();
+		}
+
+		bool DecoderStream::CanWrite()const
+		{
+			return false;
+		}
+
+		bool DecoderStream::CanSeek()const
+		{
+			return false;
+		}
+
+		bool DecoderStream::CanPeek()const
+		{
+			return false;
+		}
+
+		bool DecoderStream::IsLimited()const
+		{
+			return stream!=0 && stream->IsLimited();
+		}
+
+		bool DecoderStream::IsAvailable()const
+		{
+			return stream!=0 && stream->IsAvailable();
+		}
+
+		void DecoderStream::Close()
+		{
+			decoder->Close();
+			stream=0;
+		}
+
+		pos_t DecoderStream::Position()const
+		{
+			return IsAvailable()?position:-1;
+		}
+
+		pos_t DecoderStream::Size()const
+		{
+			return -1;
+		}
+
+		void DecoderStream::Seek(pos_t _size)
+		{
+			CHECK_FAIL(L"DecoderStream::Seek(pos_t)#Operation not supported.");
+		}
+
+		void DecoderStream::SeekFromBegin(pos_t _size)
+		{
+			CHECK_FAIL(L"DecoderStream::SeekFromBegin(pos_t)#Operation not supported.");
+		}
+
+		void DecoderStream::SeekFromEnd(pos_t _size)
+		{
+			CHECK_FAIL(L"DecoderStream::SeekFromEnd(pos_t)#Operation not supported.");
+		}
+
+		vint DecoderStream::Read(void* _buffer, vint _size)
+		{
+			vint result=decoder->Read(_buffer, _size);
+			if(result>=0)
+			{
+				position+=result;
+			}
+			return result;
+		}
+
+		vint DecoderStream::Write(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"DecoderStream::Write(void*, vint)#Operation not supported.");
+		}
+
+		vint DecoderStream::Peek(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"DecoderStream::Peek(void*, vint)#Operation not supported.");
+		}
+	}
+}
+
 
 /***********************************************************************
 .\STREAM\FILESTREAM.CPP
