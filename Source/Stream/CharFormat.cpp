@@ -181,7 +181,7 @@ Mbcs
 			memcpy(_buffer, w.Buffer(), readed * sizeof(wchar_t));
 #endif
 			delete[] source;
-			return readed;
+			return readed * sizeof(wchar_t);
 		}
 
 /***********************************************************************
