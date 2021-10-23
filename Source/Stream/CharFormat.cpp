@@ -48,6 +48,7 @@ CharEncoder
 			}
 
 #if defined VCZH_WCHAR_UTF16
+			if (availableChars > 0)
 			{
 				// a surrogate pair must be written as a whole thing
 				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
@@ -60,8 +61,11 @@ CharEncoder
 #endif
 
 			// write the buffer
-			vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
-			CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			if (availableChars > 0)
+			{
+				vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
+				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			}
 
 			// cache the remaining
 			cacheSize = cacheSize + _size - availableBytes;
@@ -71,7 +75,7 @@ CharEncoder
 				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
 			}
 
-			return written;
+			return _size;
 		}
 
 /***********************************************************************
