@@ -61,7 +61,7 @@ CharEncoder
 
 			// write the buffer
 			vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
-			CHECK_ERROR(written != availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
 
 			// cache the remaining
 			cacheSize = cacheSize + _size - availableBytes;

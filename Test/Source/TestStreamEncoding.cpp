@@ -84,7 +84,7 @@ namespace TestStreamEncoding_TestObjects
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
 			vint size = encoderStream.Write((void*)input.Buffer(), input.Length() * sizeof(wchar_t));
-			TEST_ASSERT(size == decodedByteLength);
+			TEST_ASSERT(size == input.Length() * sizeof(wchar_t));
 		}
 		memoryStream.SeekFromBegin(0);
 
