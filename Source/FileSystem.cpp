@@ -6,6 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include "FileSystem.h"
 #include "Locale.h"
 #include "Stream/FileStream.h"
+#include "Stream/MemoryWrapperStream.h"
 #include "Stream/Accessor.h"
 #include "Stream/EncodingStream.h"
 #if defined VCZH_MSVC

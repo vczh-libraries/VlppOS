@@ -7,28 +7,11 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_STREAM_CHARFORMAT
 
 #include "Interfaces.h"
-#include "MemoryStream.h"
-#include "MemoryWrapperStream.h"
 
 namespace vl
 {
 	namespace stream
 	{
-
-		/*
-		How UCS-4 translates to UTF-8
-			U-00000000 - U-0000007F:  0xxxxxxx
-			U-00000080 - U-000007FF:  110xxxxx 10xxxxxx
-			U-00000800 - U-0000FFFF:  1110xxxx 10xxxxxx 10xxxxxx
-			U-00010000 - U-001FFFFF:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-			U-00200000 - U-03FFFFFF:  111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
-			U-04000000 - U-7FFFFFFF:  1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
-		BOM:
-			FFFE	=Unicode
-			FEFF	=Unicode Big Endian
-			EFBBBF	=UTF-8
-			other	=MBCS(GBK)
-		*/
 
 /***********************************************************************
 Char Encoder and Decoder
