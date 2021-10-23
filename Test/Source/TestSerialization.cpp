@@ -236,5 +236,21 @@ TEST_FILE
 
 	TEST_CASE(L"Serialize Others")
 	{
+		MemoryStream memoryStream;
+		wchar_t a1[] = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		wchar_t a2[sizeof(a1) / sizeof(*a1)];
+		{
+			internal::ContextFreeWriter writer(memoryStream);
+			MemoryWrapperStream s(a1, sizeof(a1));
+			writer << (IStream&)s;
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			internal::ContextFreeReader reader(memoryStream);
+			MemoryWrapperStream s(a2, sizeof(a2));
+			reader << (IStream&)s;
+			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
+		}
+		TEST_ASSERT(memcmp(a1, a2, sizeof(a1)) == 0);
 	});
 }
