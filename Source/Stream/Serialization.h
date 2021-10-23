@@ -115,19 +115,15 @@ Serialization (integers)
 				static void IO(Reader<TContext>& reader, TValue& value)
 				{
 					TData data;
-					Serialization<TData>::Read(reader, value);
-					value = ToValue(data);
-					if (reader.input.Read(&value, sizeof(value)) != sizeof(value))
-					{
-						CHECK_FAIL(L"Deserialization failed.");
-					}
+					Serialization<TData>::IO(reader, data);
+					value = TConversion::ToValue(data);
 				}
 
 				template<typename TContext>
 				static void IO(Writer<TContext>& writer, TValue& value)
 				{
-					TData data = FromValue(value);
-					Serialization<TData>::Write(writer, data);
+					TData data = TConversion::FromValue(value);
+					Serialization<TData>::IO(writer, data);
 				}
 			};
 
