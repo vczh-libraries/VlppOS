@@ -47,7 +47,8 @@ TEST_FILE
 		const wchar_t* text,
 		vint decodedBomOffset,
 		const void* decodedBytes,
-		vint decodedByteLength
+		vint decodedByteLength,
+		bool testEncoding
 		)
 	{
 		// encode the text
@@ -84,19 +85,19 @@ TEST_FILE
 
 		// test the encoding and decode
 		{
-			BomEncoder::Encoding resultEncoding;
-			bool resultContainsBom;
-			TestEncoding(&buffer[0], buffer.Count(), resultEncoding, resultContainsBom);
-			TEST_ASSERT(encoding == resultEncoding);
-			TEST_ASSERT((decodedBomOffset != 0) == resultContainsBom);
-
-			if (encoding != BomEncoder::Mbcs)
+			if (testEncoding)
 			{
-				DecoderStream decoderStream(memoryStream, decoder);
-				StreamReader reader(decoderStream);
-				WString read = reader.ReadToEnd();
-				TEST_ASSERT(read == text);
+				BomEncoder::Encoding resultEncoding;
+				bool resultContainsBom;
+				TestEncoding(&buffer[0], buffer.Count(), resultEncoding, resultContainsBom);
+				TEST_ASSERT(encoding == resultEncoding);
+				TEST_ASSERT((decodedBomOffset != 0) == resultContainsBom);
 			}
+
+			DecoderStream decoderStream(memoryStream, decoder);
+			StreamReader reader(decoderStream);
+			WString read = reader.ReadToEnd();
+			TEST_ASSERT(read == text);
 		}
 	};
 
@@ -106,38 +107,38 @@ TEST_FILE
 		{
 			Utf8Encoder encoder;
 			Utf8Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 0, text1U8, (sizeof(text1U8) - sizeof(*text1U8)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 0, text1U8, (sizeof(text1U8) - sizeof(*text1U8)), true);
 		});
 		TEST_CASE(L"<UTF16, NO-BOM>")
 		{
 			Utf16Encoder encoder;
 			Utf16Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 0, text1U16, (sizeof(text1U16) - sizeof(*text1U16)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 0, text1U16, (sizeof(text1U16) - sizeof(*text1U16)), true);
 		});
 		TEST_CASE(L"<UTF16_BE, NO-BOM>")
 		{
 			Utf16BEEncoder encoder;
 			Utf16BEDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 0, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 0, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)), true);
 		});
 
 		TEST_CASE(L"<UTF8, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf8);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 3, text1U8, (sizeof(text1U8) - sizeof(*text1U8)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text1L, 3, text1U8, (sizeof(text1U8) - sizeof(*text1U8)), true);
 		});
 		TEST_CASE(L"<UTF16, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf16);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 2, text1U16, (sizeof(text1U16) - sizeof(*text1U16)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text1L, 2, text1U16, (sizeof(text1U16) - sizeof(*text1U16)), true);
 		});
 		TEST_CASE(L"<UTF16_BE, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf16BE);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 2, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text1L, 2, text1U16BE, (sizeof(text1U16BE) - sizeof(*text1U16BE)), true);
 		});
 	});
 
@@ -147,50 +148,50 @@ TEST_FILE
 		{
 			MbcsEncoder encoder;
 			MbcsDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)), false);
 		});
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
 			Utf8Encoder encoder;
 			Utf8Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 0, text2U8, (sizeof(text2U8) - sizeof(*text2U8)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 0, text2U8, (sizeof(text2U8) - sizeof(*text2U8)), false);
 		});
 		TEST_CASE(L"<UTF16, NO-BOM>")
 		{
 			Utf16Encoder encoder;
 			Utf16Decoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 0, text2U16, (sizeof(text2U16) - sizeof(*text2U16)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 0, text2U16, (sizeof(text2U16) - sizeof(*text2U16)), false);
 		});
 		TEST_CASE(L"<UTF16_BE, NO-BOM>")
 		{
 			Utf16BEEncoder encoder;
 			Utf16BEDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 0, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 0, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)), false);
 		});
 
 		TEST_CASE(L"<MBCS, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Mbcs);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Mbcs, text2L, 0, text2A, (sizeof(text2A) - sizeof(*text2A)), false);
 		});
 		TEST_CASE(L"<UTF8, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf8);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 3, text2U8, (sizeof(text2U8) - sizeof(*text2U8)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf8, text2L, 3, text2U8, (sizeof(text2U8) - sizeof(*text2U8)), false);
 		});
 		TEST_CASE(L"<UTF16, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf16);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 2, text2U16, (sizeof(text2U16) - sizeof(*text2U16)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16, text2L, 2, text2U16, (sizeof(text2U16) - sizeof(*text2U16)), false);
 		});
 		TEST_CASE(L"<UTF16_BE, BOM>")
 		{
 			BomEncoder encoder(BomEncoder::Utf16BE);
 			BomDecoder decoder;
-			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 2, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)));
+			TestEncodingInternal(encoder, decoder, BomEncoder::Utf16BE, text2L, 2, text2U16BE, (sizeof(text2U16BE) - sizeof(*text2U16BE)), false);
 		});
 	});
 }
