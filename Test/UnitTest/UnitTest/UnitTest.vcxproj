@@ -165,6 +165,7 @@
     <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CharFormat.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CompressionStream.cpp" />
+    <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\MemoryStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\MemoryWrapperStream.cpp" />
@@ -207,6 +208,7 @@
     <ClInclude Include="..\..\..\Source\Stream\CacheStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\CharFormat.h" />
     <ClInclude Include="..\..\..\Source\Stream\CompressionStream.h" />
+    <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\FileStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\Interfaces.h" />
     <ClInclude Include="..\..\..\Source\Stream\MemoryStream.h" />

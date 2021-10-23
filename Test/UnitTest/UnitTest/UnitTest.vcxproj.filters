@@ -99,6 +99,9 @@
     <ClCompile Include="..\..\Source\TestStreamLzw.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
@@ -147,6 +150,9 @@
       <Filter>Import</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Stream\Serialization.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h">
       <Filter>Common\Stream</Filter>
     </ClInclude>
   </ItemGroup>

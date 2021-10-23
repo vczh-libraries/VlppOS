@@ -7,6 +7,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include "Locale.h"
 #include "Stream/FileStream.h"
 #include "Stream/Accessor.h"
+#include "Stream/EncodingStream.h"
 #if defined VCZH_MSVC
 #include <Windows.h>
 #include <Shlwapi.h>

@@ -5,6 +5,7 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "CompressionStream.h"
 #include "Accessor.h"
+#include "EncodingStream.h"
 #include "MemoryWrapperStream.h"
 
 namespace vl

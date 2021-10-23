@@ -3,6 +3,7 @@
 #include "../../Source/Stream/FileStream.h"
 #include "../../Source/Stream/CharFormat.h"
 #include "../../Source/Stream/Accessor.h"
+#include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Threading.h"
 
 using namespace vl;

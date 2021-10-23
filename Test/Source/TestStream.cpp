@@ -1,19 +1,13 @@
-﻿#include <string.h>
-#include "../../Source/Stream/Interfaces.h"
+﻿#include "../../Source/Stream/Interfaces.h"
 #include "../../Source/Stream/MemoryWrapperStream.h"
 #include "../../Source/Stream/MemoryStream.h"
 #include "../../Source/Stream/FileStream.h"
 #include "../../Source/Stream/RecorderStream.h"
 #include "../../Source/Stream/BroadcastStream.h"
 #include "../../Source/Stream/CacheStream.h"
-#include "../../Source/Stream/Accessor.h"
-#include "../../Source/Stream/CharFormat.h"
-#include "../../Source/Stream/CompressionStream.h"
-#include "../../Source/Locale.h"
 
 using namespace vl;
 using namespace vl::stream;
-using namespace vl::collections;
 
 extern WString GetTestOutputPath();
 const vint BUFFER_SIZE = 1024;
