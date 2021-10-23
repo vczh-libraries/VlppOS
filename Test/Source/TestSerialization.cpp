@@ -5,6 +5,44 @@ using namespace vl;
 using namespace vl::stream;
 using namespace vl::collections;
 
+namespace TestSerialization_TestObjects
+{
+	enum class Seasons
+	{
+		Spring,
+		Summer,
+		Autumn,
+		Winter,
+	};
+
+	struct Strings
+	{
+		WString sa;
+		U8String sb;
+		U16String sc;
+		U32String sd;
+	};
+}
+using namespace TestSerialization_TestObjects;
+
+namespace vl
+{
+	namespace stream
+	{
+		namespace internal
+		{
+			SERIALIZE_ENUM(Seasons)
+
+			BEGIN_SERIALIZATION(Strings)
+				SERIALIZE(sa)
+				SERIALIZE(sb)
+				SERIALIZE(sc)
+				SERIALIZE(sd)
+			END_SERIALIZATION
+		}
+	}
+}
+
 TEST_FILE
 {
 	TEST_CASE(L"Serialize PODs")
@@ -85,6 +123,34 @@ TEST_FILE
 
 	TEST_CASE(L"Serialize Enums and Structs")
 	{
+		MemoryStream memoryStream;
+		Seasons a1 = Seasons::Spring, a2;
+		Seasons b1 = Seasons::Summer, b2;
+		Seasons c1 = Seasons::Autumn, c2;
+		Seasons d1 = Seasons::Winter, d2;
+		Strings e1, e2;
+		e1.sa = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		e1.sb = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		e1.sc = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		e1.sd = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+		{
+			internal::ContextFreeWriter writer(memoryStream);
+			writer << a1 << b1 << c1 << d1 << e1;
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			internal::ContextFreeReader reader(memoryStream);
+			reader << a2 << b2 << c2 << d2 << e2;
+		}
+		TEST_ASSERT(a1 == a2);
+		TEST_ASSERT(b1 == b2);
+		TEST_ASSERT(c1 == c2);
+		TEST_ASSERT(d1 == d2);
+
+		TEST_ASSERT(e1.sa == e2.sa);
+		TEST_ASSERT(e1.sb == e2.sb);
+		TEST_ASSERT(e1.sc == e2.sc);
+		TEST_ASSERT(e1.sd == e2.sd);
 	});
 
 	TEST_CASE(L"Serialize Generic Types")
