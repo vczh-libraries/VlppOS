@@ -25,7 +25,7 @@ Char Encoder and Decoder
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					WriteString(wchar_t* _buffer, vint chars)=0;
+			virtual vint					WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) = 0;
 		public:
 
 			void							Setup(IStream* _stream);
@@ -41,7 +41,7 @@ Char Encoder and Decoder
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					ReadString(wchar_t* _buffer, vint chars)=0;
+			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
 			void							Setup(IStream* _stream);
@@ -57,7 +57,7 @@ Mbcs
 		class MbcsEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
 		};
 		
 		/// <summary>Decoder to read text in the local code page.</summary>
@@ -75,7 +75,7 @@ Utf-16
 		class Utf16Encoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
 		};
 		
 		/// <summary>Decoder to read UTF-16 text.</summary>
@@ -93,7 +93,7 @@ Utf-16-be
 		class Utf16BEEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
 		};
 		
 		/// <summary>Decoder to read big endian UTF-16 text.</summary>
@@ -111,7 +111,7 @@ Utf-8
 		class Utf8Encoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
 		};
 		
 		/// <summary>Decoder to read UTF-8 text.</summary>

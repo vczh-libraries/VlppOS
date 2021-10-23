@@ -50,7 +50,7 @@ CharEncoder
 				{
 					unicode = (wchar_t*)_buffer;
 				}
-				result = WriteString(unicode, chars) * sizeof(wchar_t) - cacheSize;
+				result = WriteString(unicode, chars, needToFree) * sizeof(wchar_t) - cacheSize;
 				cacheSize = 0;
 			}
 
@@ -119,7 +119,7 @@ CharDecoder
 Mbcs
 ***********************************************************************/
 
-		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
+		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_MSVC
 			vint length = WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
@@ -232,7 +232,7 @@ Consumer
 Utf-16
 ***********************************************************************/
 
-		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars)
+		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_WCHAR_UTF16
 			return stream->Write(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
@@ -288,8 +288,42 @@ Utf-16
 Utf-16-be
 ***********************************************************************/
 
-		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars)
+		template<typename T>
+		void SwapBytesForUtf16BE(T* _buffer, vint chars)
 		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			for (vint i = 0; i < chars; i++)
+			{
+				vuint8_t* bytes = (vuint8_t*)(_buffer + i);
+				vuint8_t t = bytes[0];
+				bytes[0] = bytes[1];
+				bytes[1] = t;
+			}
+		}
+
+		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+#if defined VCZH_WCHAR_UTF16
+			if (freeToUpdate)
+			{
+				SwapBytesForUtf16BE(_buffer, chars);
+				vint counter = stream->Write(_buffer, sizeof(wchar_t) * chars);
+				SwapBytesForUtf16BE(_buffer, chars);
+				return counter;
+			}
+			else
+			{
+				vint counter = 0;
+				for (vint i = 0; i < chars; i++)
+				{
+					wchar_t c = _buffer[i];
+					vuint8_t* bytes = (vuint8_t*)&c;
+					counter += stream->Write(&bytes[1], 1);
+					counter += stream->Write(&bytes[0], 1);
+				}
+				return counter;
+			}
+#elif defined VCZH_WCHAR_UTF32
 			WCharToUtfReader<char16_t> reader(_buffer, chars);
 			vint counter = 0;
 			while (char16_t c = reader.Read())
@@ -299,25 +333,7 @@ Utf-16-be
 				counter += stream->Write(&bytes[0], 1);
 			}
 			return counter;
-			//vint writed = 0;
-			//while (writed < chars)
-			//{
-			//	if (stream->Write(((unsigned char*)_buffer) + 1, 1) != 1)
-			//	{
-			//		break;
-			//	}
-			//	if (stream->Write(_buffer, 1) != 1)
-			//	{
-			//		break;
-			//	}
-			//	_buffer++;
-			//	writed++;
-			//}
-			//if (writed != chars)
-			//{
-			//	Close();
-			//}
-			//return writed;
+#endif
 		}
 
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
@@ -385,7 +401,7 @@ Utf-16-be
 Utf8
 ***********************************************************************/
 
-		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
+		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_MSVC
 			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
