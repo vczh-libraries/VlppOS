@@ -106,6 +106,64 @@ namespace TestStreamEncoding_TestObjects
 			wchar_t* buffer = new wchar_t[input.Length() + 1];
 			vint size = decoderStream.Read(buffer, input.Length() * sizeof(wchar_t));
 			TEST_ASSERT(size == input.Length() * sizeof(wchar_t));
+			vint zero = decoderStream.Read(buffer, 1);
+			TEST_ASSERT(zero == 0);
+			buffer[input.Length()] = 0;
+			WString read = WString::TakeOver(buffer, input.Length());
+			TEST_ASSERT(read == text);
+		}
+	};
+
+	void TestEncodingWithEncoderDecoderStreamPerByte(
+		IEncoder& encoder,
+		IDecoder& decoder,
+		const wchar_t* text,
+		const void* decodedBytes,
+		vint decodedByteLength
+	)
+	{
+		WString input = WString::Unmanaged(text);
+		// encode the text
+		MemoryStream memoryStream;
+		{
+			EncoderStream encoderStream(memoryStream, encoder);
+			vint size = input.Length() * sizeof(wchar_t);
+			char* bytes = (char*)input.Buffer();
+			for (vint i = 0; i < size; i++)
+			{
+				vint written = encoderStream.Write(bytes + i, 1);
+				TEST_ASSERT(written == 1);
+			}
+		}
+		memoryStream.SeekFromBegin(0);
+
+		{
+			// read the encoded data
+			Array<vuint8_t> buffer;
+			buffer.Resize((vint)memoryStream.Size());
+			memoryStream.Read(&buffer[0], buffer.Count());
+			memoryStream.SeekFromBegin(0);
+
+			// compare the encoded data to the expected data
+			TEST_ASSERT(buffer.Count() == decodedByteLength);
+			TEST_ASSERT(memcmp(&buffer[0], decodedBytes, decodedByteLength) == 0);
+		}
+
+		// test the encoding and decode
+		{
+			DecoderStream decoderStream(memoryStream, decoder);
+			wchar_t* buffer = new wchar_t[input.Length() + 1];
+			{
+				vint size = input.Length() * sizeof(wchar_t);
+				char* bytes = (char*)buffer;
+				for (vint i = 0; i < size; i++)
+				{
+					vint read = decoderStream.Read(bytes + i, 1);
+					TEST_ASSERT(read == 1);
+				}
+				vint zero = decoderStream.Read(bytes, 1);
+				TEST_ASSERT(zero == 0);
+			}
 			buffer[input.Length()] = 0;
 			WString read = WString::TakeOver(buffer, input.Length());
 			TEST_ASSERT(read == text);
@@ -127,9 +185,16 @@ namespace TestStreamEncoding_TestObjects
 			TestEncodingWithStreamReaderWriter(encoder, decoder, encoding, text, 0, decodedBytes, decodedByteLength, testEncoding);
 		}
 		{
+			TEST_PRINT(L"Encoder Decoder");
 			TEncoder encoder;
 			TDecoder decoder;
 			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedBytes, decodedByteLength);
+		}
+		{
+			TEST_PRINT(L"Per Byte");
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedBytes, decodedByteLength);
 		}
 	}
 
