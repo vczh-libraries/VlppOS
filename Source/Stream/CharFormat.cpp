@@ -230,19 +230,6 @@ Utf-16
 Utf-16-be
 ***********************************************************************/
 
-		template<typename T>
-		void SwapBytesForUtf16BE(T* _buffer, vint chars)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			for (vint i = 0; i < chars; i++)
-			{
-				vuint8_t* bytes = (vuint8_t*)(_buffer + i);
-				vuint8_t t = bytes[0];
-				bytes[0] = bytes[1];
-				bytes[1] = t;
-			}
-		}
-
 		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_WCHAR_UTF16
@@ -259,9 +246,8 @@ Utf-16-be
 				for (vint i = 0; i < chars; i++)
 				{
 					wchar_t c = _buffer[i];
-					vuint8_t* bytes = (vuint8_t*)&c;
-					counter += stream->Write(&bytes[1], 1);
-					counter += stream->Write(&bytes[0], 1);
+					SwapByteForUtf16BE(c);
+					counter += stream->Write(&c, sizeof(c));
 				}
 				return counter;
 			}
@@ -270,9 +256,8 @@ Utf-16-be
 			vint counter = 0;
 			while (char16_t c = reader.Read())
 			{
-				vuint8_t* bytes = (vuint8_t*)&c;
-				counter += stream->Write(&bytes[1], 1);
-				counter += stream->Write(&bytes[0], 1);
+				SwapByteForUtf16BE(c);
+				counter += stream->Write(&c, sizeof(c));
 			}
 			if (reader.HasIllegalChar())
 			{
@@ -285,19 +270,11 @@ Utf-16-be
 
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-//#if defined VCZH_WCHAR_UTF16
-//			chars = stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
-//			unsigned char* unicode = (unsigned char*)_buffer;
-//			for (vint i = 0; i < chars; i++)
-//			{
-//				unsigned char t = unicode[0];
-//				unicode[0] = unicode[1];
-//				unicode[1] = t;
-//				// +=2?
-//				unicode++;
-//			}
-//			return chars;
-//#elif defined VCZH_WCHAR_UTF32
+#if defined VCZH_WCHAR_UTF16
+			vint size = stream->Read(_buffer, chars * sizeof(wchar_t));
+			SwapBytesForUtf16BE(_buffer, size / sizeof(wchar_t));
+			return size;
+#elif defined VCZH_WCHAR_UTF32
 			reader.Setup(stream);
 			vint counter = 0;
 			for (vint i = 0; i < chars; i++)
@@ -308,7 +285,7 @@ Utf-16-be
 				counter++;
 			}
 			return counter * sizeof(wchar_t);
-//#endif
+#endif
 		}
 
 /***********************************************************************

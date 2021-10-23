@@ -14,6 +14,32 @@ namespace vl
 	{
 
 /***********************************************************************
+Helper Functions
+***********************************************************************/
+
+		template<typename T>
+		__forceinline void SwapByteForUtf16BE(T& c)
+		{
+			vuint8_t* bytes = (vuint8_t*)&c;
+			vuint8_t t = bytes[0];
+			bytes[0] = bytes[1];
+			bytes[1] = t;
+		}
+
+		template<typename T>
+		void SwapBytesForUtf16BE(T* _buffer, vint chars)
+		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			for (vint i = 0; i < chars; i++)
+			{
+				vuint8_t* bytes = (vuint8_t*)(_buffer + i);
+				vuint8_t t = bytes[0];
+				bytes[0] = bytes[1];
+				bytes[1] = t;
+			}
+		}
+
+/***********************************************************************
 WCharToUtfReader
 ***********************************************************************/
 
@@ -119,10 +145,7 @@ Utf16BEStreamToWCharReader
 					char16_t c;
 					vint size = stream->Read(&c, sizeof(c));
 					if (size != sizeof(c)) return 0;
-					vuint8_t* bs = (vuint8_t*)&c;
-					vuint8_t t = bs[0];
-					bs[0] = bs[1];
-					bs[1] = t;
+					SwapByteForUtf16BE(c);
 					return c;
 				}
 			};

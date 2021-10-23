@@ -89,21 +89,8 @@ TEST_FILE
 	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
-	for (const char16_t& c : text1U16BE)
-	{
-		vuint8_t* bs = (vuint8_t*)&c;
-		vuint8_t t = bs[0];
-		bs[0] = bs[1];
-		bs[1] = t;
-	}
-
-	for (const char16_t& c : text2U16BE)
-	{
-		vuint8_t* bs = (vuint8_t*)&c;
-		vuint8_t t = bs[0];
-		bs[0] = bs[1];
-		bs[1] = t;
-	}
+	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
+	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
 
 	/***********************************************************************
 	Encoding
