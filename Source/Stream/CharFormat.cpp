@@ -30,41 +30,48 @@ CharEncoder
 
 		vint CharEncoder::Write(void* _buffer, vint _size)
 		{
-			const vint all = cacheSize + _size;
-			const vint chars = all / sizeof(wchar_t);
-			const vint bytes = chars * sizeof(wchar_t);
-			wchar_t* unicode = 0;
+			// prepare a buffer for input
+			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
+			vint availableBytes = availableChars * sizeof(wchar_t);
 			bool needToFree = false;
-			vint result = 0;
-
-			if (chars)
+			vuint8_t* unicode = nullptr;
+			if (cacheSize > 0)
 			{
-				if (cacheSize > 0)
-				{
-					unicode = new wchar_t[chars];
-					memcpy(unicode, cacheBuffer, cacheSize);
-					memcpy(((vuint8_t*)unicode) + cacheSize, _buffer, bytes - cacheSize);
-					needToFree = true;
-				}
-				else
-				{
-					unicode = (wchar_t*)_buffer;
-				}
-				result = WriteString(unicode, chars, needToFree) - cacheSize;
-				cacheSize = 0;
+				unicode = new vuint8_t[cacheSize + _size];
+				memcpy(unicode, cacheBuffer, cacheSize);
+				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
+				needToFree = true;
+			}
+			else
+			{
+				unicode = (vuint8_t*)_buffer;
 			}
 
-			if (needToFree)
+#if defined VCZH_WCHAR_UTF16
 			{
-				delete[] unicode;
+				// a surrogate pair must be written as a whole thing
+				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
+				if ((c & 0xFC00U) == 0xD800U)
+				{
+					availableChars -= 1;
+					availableBytes -= sizeof(wchar_t);
+				}
 			}
-			if (all - bytes > 0)
+#endif
+
+			// write the buffer
+			vint written = WriteString((wchar_t*)unicode, availableBytes, needToFree);
+			CHECK_ERROR(written != availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+
+			// cache the remaining
+			cacheSize = cacheSize + _size - availableBytes;
+			if (cacheSize > 0)
 			{
-				cacheSize = all - bytes;
-				memcpy(cacheBuffer, (vuint8_t*)_buffer + _size - cacheSize, cacheSize);
-				result += cacheSize;
+				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
+				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
 			}
-			return result;
+
+			return written;
 		}
 
 /***********************************************************************
@@ -82,37 +89,57 @@ CharDecoder
 
 		vint CharDecoder::Read(void* _buffer, vint _size)
 		{
-			vuint8_t* unicode = (vuint8_t*)_buffer;
-			vint result = 0;
+			vuint8_t* writing = (vuint8_t*)_buffer;
+			vint filledBytes = 0;
+
+			// feed the cache first
+			if (cacheSize > 0)
 			{
-				vint index = 0;
-				while (cacheSize > 0 && _size > 0)
+				filledBytes = cacheSize < _size ? cacheSize : _size;
+				memcpy(writing, cacheBuffer, cacheSize);
+				_size -= filledBytes;
+				writing += filledBytes;
+
+				// adjust the cache if it is not fully consumed
+				cacheSize -= filledBytes;
+				if (cacheSize > 0)
 				{
-					*unicode++ = cacheBuffer[index]++;
-					cacheSize--;
-					_size--;
-					result++;
+					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
+				}
+
+				if (_size == 0)
+				{
+					return filledBytes;
 				}
 			}
 
-			const vint chars = _size / sizeof(wchar_t);
-			vint bytes = ReadString((wchar_t*)unicode, chars);
-			result += bytes;
-			_size -= bytes;
-			unicode += bytes;
+			// fill the buffer as many as possible
+			while (_size >= sizeof(wchar_t))
+			{
+				vint availableChars = _size / sizeof(wchar_t);
+				vint readBytes = ReadString((wchar_t*)writing, availableChars);
+				if (readBytes == 0) break;
+				filledBytes += readBytes;
+				_size -= readBytes;
+				writing += readBytes;
+			}
 
-			if (_size > 0)
+			// cache the remaining wchar_t
+			if (_size < sizeof(wchar_t))
 			{
 				wchar_t c;
-				if (ReadString(&c, 1) == 1)
+				vint readBytes = ReadString(&c, 1);
+				if (readBytes > 0)
 				{
+					vuint8_t* reading = (vuint8_t*)&c;
+					memcpy(writing, reading, _size);
+					filledBytes += _size;
 					cacheSize = sizeof(wchar_t) - _size;
-					memcpy(unicode, &c, _size);
-					memcpy(cacheBuffer, (vuint8_t*)&c + _size, cacheSize);
-					result += _size;
+					memcpy(cacheBuffer, reading + _size, cacheSize);
 				}
 			}
-			return result;
+
+			return filledBytes;
 		}
 
 /***********************************************************************

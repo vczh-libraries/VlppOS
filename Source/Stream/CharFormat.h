@@ -178,7 +178,7 @@ Char Encoder and Decoder
 		{
 		protected:
 			IStream*						stream = nullptr;
-			vuint8_t						cacheBuffer[sizeof(wchar_t)];
+			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
 			virtual vint					WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) = 0;
