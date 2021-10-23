@@ -21,13 +21,12 @@ Char Encoder and Decoder
 		class CharEncoder : public Object, public IEncoder
 		{
 		protected:
-			IStream*						stream;
+			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
-			vint							cacheSize;
+			vint							cacheSize = 0;
 
 			virtual vint					WriteString(wchar_t* _buffer, vint chars)=0;
 		public:
-			CharEncoder();
 
 			void							Setup(IStream* _stream);
 			void							Close();
@@ -38,13 +37,12 @@ Char Encoder and Decoder
 		class CharDecoder : public Object, public IDecoder
 		{
 		protected:
-			IStream*						stream;
+			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
-			vint							cacheSize;
+			vint							cacheSize = 0;
 
 			virtual vint					ReadString(wchar_t* _buffer, vint chars)=0;
 		public:
-			CharDecoder();
 
 			void							Setup(IStream* _stream);
 			void							Close();
@@ -121,12 +119,11 @@ Utf-8
 		{
 		protected:
 #if defined VCZH_MSVC
-			wchar_t							cache;
-			bool							cacheAvailable;
+			wchar_t							cache = 0;
+			bool							cacheAvailable = false;
 #endif
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		public:
-			Utf8Decoder();
 		};
 
 /***********************************************************************

@@ -19,15 +19,9 @@ namespace vl
 CharEncoder
 ***********************************************************************/
 
-		CharEncoder::CharEncoder()
-			:stream(0)
-			,cacheSize(0)
-		{
-		}
-
 		void CharEncoder::Setup(IStream* _stream)
 		{
-			stream=_stream;
+			stream = _stream;
 		}
 
 		void CharEncoder::Close()
@@ -36,39 +30,39 @@ CharEncoder
 
 		vint CharEncoder::Write(void* _buffer, vint _size)
 		{
-			const vint all=cacheSize+_size;
-			const vint chars=all/sizeof(wchar_t);
-			const vint bytes=chars*sizeof(wchar_t);
-			wchar_t* unicode=0;
-			bool needToFree=false;
-			vint result=0;
+			const vint all = cacheSize + _size;
+			const vint chars = all / sizeof(wchar_t);
+			const vint bytes = chars * sizeof(wchar_t);
+			wchar_t* unicode = 0;
+			bool needToFree = false;
+			vint result = 0;
 
-			if(chars)
+			if (chars)
 			{
-				if(cacheSize>0)
+				if (cacheSize > 0)
 				{
-					unicode=new wchar_t[chars];
+					unicode = new wchar_t[chars];
 					memcpy(unicode, cacheBuffer, cacheSize);
-					memcpy(((vuint8_t*)unicode)+cacheSize, _buffer, bytes-cacheSize);
-					needToFree=true;
+					memcpy(((vuint8_t*)unicode) + cacheSize, _buffer, bytes - cacheSize);
+					needToFree = true;
 				}
 				else
 				{
-					unicode=(wchar_t*)_buffer;
+					unicode = (wchar_t*)_buffer;
 				}
-				result=WriteString(unicode, chars)*sizeof(wchar_t)-cacheSize;
-				cacheSize=0;
+				result = WriteString(unicode, chars) * sizeof(wchar_t) - cacheSize;
+				cacheSize = 0;
 			}
 
-			if(needToFree)
+			if (needToFree)
 			{
 				delete[] unicode;
 			}
-			if(all-bytes>0)
+			if (all - bytes > 0)
 			{
-				cacheSize=all-bytes;
-				memcpy(cacheBuffer, (vuint8_t*)_buffer+_size-cacheSize, cacheSize);
-				result+=cacheSize;
+				cacheSize = all - bytes;
+				memcpy(cacheBuffer, (vuint8_t*)_buffer + _size - cacheSize, cacheSize);
+				result += cacheSize;
 			}
 			return result;
 		}
@@ -76,12 +70,6 @@ CharEncoder
 /***********************************************************************
 CharDecoder
 ***********************************************************************/
-
-		CharDecoder::CharDecoder()
-			:stream(0)
-			,cacheSize(0)
-		{
-		}
 
 		void CharDecoder::Setup(IStream* _stream)
 		{
@@ -94,34 +82,34 @@ CharDecoder
 
 		vint CharDecoder::Read(void* _buffer, vint _size)
 		{
-			vuint8_t* unicode=(vuint8_t*)_buffer;
-			vint result=0;
+			vuint8_t* unicode = (vuint8_t*)_buffer;
+			vint result = 0;
 			{
-				vint index=0;
-				while(cacheSize>0 && _size>0)
+				vint index = 0;
+				while (cacheSize > 0 && _size > 0)
 				{
-					*unicode++=cacheBuffer[index]++;
+					*unicode++ = cacheBuffer[index]++;
 					cacheSize--;
 					_size--;
 					result++;
 				}
 			}
 
-			const vint chars=_size/sizeof(wchar_t);
-			vint bytes=ReadString((wchar_t*)unicode, chars)*sizeof(wchar_t);
-			result+=bytes;
-			_size-=bytes;
-			unicode+=bytes;
+			const vint chars = _size / sizeof(wchar_t);
+			vint bytes = ReadString((wchar_t*)unicode, chars) * sizeof(wchar_t);
+			result += bytes;
+			_size -= bytes;
+			unicode += bytes;
 
-			if(_size>0)
+			if (_size > 0)
 			{
 				wchar_t c;
-				if(ReadString(&c, 1)==1)
+				if (ReadString(&c, 1) == 1)
 				{
-					cacheSize=sizeof(wchar_t)-_size;
+					cacheSize = sizeof(wchar_t) - _size;
 					memcpy(unicode, &c, _size);
-					memcpy(cacheBuffer, (vuint8_t*)&c+_size, cacheSize);
-					result+=_size;
+					memcpy(cacheBuffer, (vuint8_t*)&c + _size, cacheSize);
+					result += _size;
 				}
 			}
 			return result;
@@ -134,18 +122,18 @@ Mbcs
 		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			vint length=WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs=new char[length];
+			vint length = WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
+			char* mbcs = new char[length];
 			WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result=stream->Write(mbcs, length);
+			vint result = stream->Write(mbcs, length);
 			delete[] mbcs;
 #elif defined VCZH_GCC
 			WString w(_buffer, chars);
-			AString a=wtoa(w);
-			vint length=a.Length();
-			vint result=stream->Write((void*)a.Buffer(), length);
+			AString a = wtoa(w);
+			vint length = a.Length();
+			vint result = stream->Write((void*)a.Buffer(), length);
 #endif
-			if(result==length)
+			if (result == length)
 			{
 				return chars;
 			}
@@ -158,26 +146,26 @@ Mbcs
 
 		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-			char* source=new char[chars*2];
-			char* reading=source;
-			vint readed=0;
-			while(readed<chars)
+			char* source = new char[chars * 2];
+			char* reading = source;
+			vint readed = 0;
+			while (readed < chars)
 			{
-				if(stream->Read(reading, 1)!=1)
+				if (stream->Read(reading, 1) != 1)
 				{
 					break;
 				}
 #if defined VCZH_MSVC
-				if(IsDBCSLeadByte(*reading))
+				if (IsDBCSLeadByte(*reading))
 #elif defined VCZH_GCC
-				if((vint8_t)*reading<0)
+				if ((vint8_t)*reading < 0)
 #endif
 				{
-					if(stream->Read(reading+1, 1)!=1)
+					if (stream->Read(reading + 1, 1) != 1)
 					{
 						break;
 					}
-					reading+=2;
+					reading += 2;
 				}
 				else
 				{
@@ -186,11 +174,11 @@ Mbcs
 				readed++;
 			}
 #if defined VCZH_MSVC
-			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading-source), _buffer, (int)chars);
+			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading - source), _buffer, (int)chars);
 #elif defined VCZH_GCC
-			AString a(source, (vint)(reading-source));
-			WString w=atow(a);
-			memcpy(_buffer, w.Buffer(), readed*sizeof(wchar_t));
+			AString a(source, (vint)(reading - source));
+			WString w = atow(a);
+			memcpy(_buffer, w.Buffer(), readed * sizeof(wchar_t));
 #endif
 			delete[] source;
 			return readed;
@@ -203,7 +191,7 @@ Utf-16
 		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			return stream->Write(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
+			return stream->Write(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
 #elif defined VCZH_GCC
 			vint writed = 0;
 			vuint16_t utf16 = 0;
@@ -235,7 +223,7 @@ Utf-16
 				}
 				writed++;
 			}
-			if(writed!=chars)
+			if (writed != chars)
 			{
 				Close();
 			}
@@ -246,7 +234,7 @@ Utf-16
 		vint Utf16Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			return stream->Read(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
+			return stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
 #elif defined VCZH_GCC
 			wchar_t* writing = _buffer;
 			while (writing - _buffer < chars)
@@ -287,21 +275,21 @@ Utf-16-be
 		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			vint writed=0;
-			while(writed<chars)
+			vint writed = 0;
+			while (writed < chars)
 			{
-				if(stream->Write(((unsigned char*)_buffer)+1, 1)!=1)
+				if (stream->Write(((unsigned char*)_buffer) + 1, 1) != 1)
 				{
 					break;
 				}
-				if(stream->Write(_buffer, 1)!=1)
+				if (stream->Write(_buffer, 1) != 1)
 				{
 					break;
 				}
 				_buffer++;
 				writed++;
 			}
-			if(writed!=chars)
+			if (writed != chars)
 			{
 				Close();
 			}
@@ -337,7 +325,7 @@ Utf-16-be
 				}
 				writed++;
 			}
-			if(writed!=chars)
+			if (writed != chars)
 			{
 				Close();
 			}
@@ -348,13 +336,13 @@ Utf-16-be
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			chars=stream->Read(_buffer, chars*sizeof(wchar_t))/sizeof(wchar_t);
-			unsigned char* unicode=(unsigned char*)_buffer;
-			for(vint i=0;i<chars;i++)
+			chars = stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
+			unsigned char* unicode = (unsigned char*)_buffer;
+			for (vint i = 0; i < chars; i++)
 			{
-				unsigned char t=unicode[0];
-				unicode[0]=unicode[1];
-				unicode[1]=t;
+				unsigned char t = unicode[0];
+				unicode[0] = unicode[1];
+				unicode[1] = t;
 				// +=2?
 				unicode++;
 			}
@@ -413,12 +401,12 @@ Utf8
 		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 #if defined VCZH_MSVC
-			vint length=WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs=new char[length];
+			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
+			char* mbcs = new char[length];
 			WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result=stream->Write(mbcs, length);
+			vint result = stream->Write(mbcs, length);
 			delete[] mbcs;
-			if(result==length)
+			if (result == length)
 			{
 				return chars;
 			}
@@ -465,20 +453,12 @@ Utf8
 				}
 				writed++;
 			}
-			if(writed!=chars)
+			if (writed != chars)
 			{
 				Close();
 			}
 			return writed;
 #endif
-		}
-
-		Utf8Decoder::Utf8Decoder()
-#if defined VCZH_MSVC
-			:cache(0)
-			,cacheAvailable(false)
-#endif
-		{
 		}
 
 		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
@@ -487,65 +467,65 @@ Utf8
 #if defined VCZH_MSVC
 			wchar_t target[2];
 #endif
-			wchar_t* writing=_buffer;
-			vint readed=0;
-			vint sourceCount=0;
+			wchar_t* writing = _buffer;
+			vint readed = 0;
+			vint sourceCount = 0;
 
-			while(readed<chars)
+			while (readed < chars)
 			{
 #if defined VCZH_MSVC
-				if(cacheAvailable)
+				if (cacheAvailable)
 				{
-					*writing++=cache;
-					cache=0;
-					cacheAvailable=false;
+					*writing++ = cache;
+					cache = 0;
+					cacheAvailable = false;
 				}
 				else
 				{
 #endif
-					if(stream->Read(source, 1)!=1)
+					if (stream->Read(source, 1) != 1)
 					{
 						break;
 					}
-					if((*source & 0xF0) == 0xF0)
+					if ((*source & 0xF0) == 0xF0)
 					{
-						if(stream->Read(source+1, 3)!=3)
+						if (stream->Read(source + 1, 3) != 3)
 						{
 							break;
 						}
-						sourceCount=4;
+						sourceCount = 4;
 					}
-					else if((*source & 0xE0) == 0xE0)
+					else if ((*source & 0xE0) == 0xE0)
 					{
-						if(stream->Read(source+1, 2)!=2)
+						if (stream->Read(source + 1, 2) != 2)
 						{
 							break;
 						}
-						sourceCount=3;
+						sourceCount = 3;
 					}
-					else if((*source & 0xC0) == 0xC0)
+					else if ((*source & 0xC0) == 0xC0)
 					{
-						if(stream->Read(source+1, 1)!=1)
+						if (stream->Read(source + 1, 1) != 1)
 						{
 							break;
 						}
-						sourceCount=2;
+						sourceCount = 2;
 					}
 					else
 					{
-						sourceCount=1;
+						sourceCount = 1;
 					}
 #if defined VCZH_MSVC	
-					int targetCount=MultiByteToWideChar(CP_UTF8, 0, (char*)source, (int)sourceCount, target, 2);
-					if(targetCount==1)
+					int targetCount = MultiByteToWideChar(CP_UTF8, 0, (char*)source, (int)sourceCount, target, 2);
+					if (targetCount == 1)
 					{
-						*writing++=target[0];
+						*writing++ = target[0];
 					}
-					else if(targetCount==2)
+					else if (targetCount == 2)
 					{
-						*writing++=target[0];
-						cache=target[1];
-						cacheAvailable=true;
+						*writing++ = target[0];
+						cache = target[1];
+						cacheAvailable = true;
 					}
 					else
 					{
@@ -574,9 +554,9 @@ Utf8
 						break;
 					}
 #endif
-				readed++;
+					readed++;
 			}
-			return readed;
+				return readed;
 		}
 	}
 }
