@@ -18,7 +18,7 @@ WString GetExePath()
 		}
 		index++;
 	}
-	return WString(buffer, pos + 1);
+	return WString::CopyFrom(buffer, pos + 1);
 }
 
 WString GetTestOutputPath()
@@ -35,7 +35,7 @@ TEST_FILE
 	TEST_CASE_ASSERT(Folder(GetTestOutputPath()).Exists());
 }
 
-int wmain(vint argc , wchar_t* argv[])
+int wmain(int argc , wchar_t* argv[])
 {
 	{
 		Folder folder(GetTestOutputPath());

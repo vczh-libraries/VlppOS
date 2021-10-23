@@ -164,7 +164,7 @@ FilePath
 
 		vint FilePath::Compare(const FilePath& a, const FilePath& b)
 		{
-			return WString::Compare(a.fullPath, b.fullPath);
+			return (vint)WString::Compare(a.fullPath, b.fullPath);
 		}
 
 		FilePath FilePath::operator/(const WString& relativePath)const
@@ -222,7 +222,7 @@ FilePath
 
 		WString FilePath::GetName()const
 		{
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 			auto index = INVLOC.FindLast(fullPath, delimiter, Locale::None);
 			if (index.key == -1) return fullPath;
 			return fullPath.Right(fullPath.Length() - index.key - 1);
@@ -230,7 +230,7 @@ FilePath
 
 		FilePath FilePath::GetFolder()const
 		{
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 			auto index = INVLOC.FindLast(fullPath, delimiter, Locale::None);
 			if (index.key == -1) return FilePath();
 			return fullPath.Left(index.key);
@@ -291,7 +291,7 @@ FilePath
 		void FilePath::GetPathComponents(WString path, collections::List<WString>& components)
 		{
 			WString pathRemaining = path;
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 
 			components.Clear();
 
@@ -332,7 +332,7 @@ FilePath
 		WString FilePath::ComponentsToPath(const collections::List<WString>& components)
 		{
 			WString result;
-			WString delimiter = Delimiter;
+			auto delimiter = WString::FromChar(Delimiter);
 
 			int i = 0;
 

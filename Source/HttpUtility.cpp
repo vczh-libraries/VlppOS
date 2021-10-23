@@ -45,12 +45,12 @@ HttpRequest
 						if (index2)
 						{
 							query = index2;
-							server = WString(reading, (index1 ? index1 : index2) - reading);
+							server = WString::CopyFrom(reading, (index1 ? index1 : index2) - reading);
 							port = INTERNET_DEFAULT_HTTPS_PORT;
 							secure = true;
 							if (index1)
 							{
-								WString portString(index1 + 1, index2 - index1 - 1);
+								auto portString = WString::CopyFrom(index1 + 1, index2 - index1 - 1);
 								port = _wtoi(portString.Buffer());
 							}
 							return true;
@@ -71,11 +71,11 @@ HttpRequest
 						if (index2)
 						{
 							query = index2;
-							server = WString(reading, (index1 ? index1 : index2) - reading);
+							server = WString::CopyFrom(reading, (index1 ? index1 : index2) - reading);
 							port = INTERNET_DEFAULT_HTTP_PORT;
 							if (index1)
 							{
-								WString portString(index1 + 1, index2 - index1 - 1);
+								auto portString = WString::CopyFrom(index1 + 1, index2 - index1 - 1);
 								port = _wtoi(portString.Buffer());
 							}
 							return true;
@@ -238,7 +238,7 @@ Utilities
 					const wchar_t* cookieEnd = wcsstr(cookieStart, L";");
 					if (cookieEnd)
 					{
-						response.cookie = WString(cookieStart + 7, cookieEnd - cookieStart - 7);
+						response.cookie = WString::CopyFrom(cookieStart + 7, cookieEnd - cookieStart - 7);
 					}
 				}
 				delete[] rawHeader;

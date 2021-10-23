@@ -609,9 +609,9 @@ TEST_FILE
 				for (vint i = 0; i < buffer.Count(); i++)
 				{
 					vuint8_t byte = buffer[i];
-					output += L"0123456789ABCDEF"[byte / 16];
-					output += L"0123456789ABCDEF"[byte % 16];
-					output += L' ';
+					output += WString::FromChar(L"0123456789ABCDEF"[byte / 16]);
+					output += WString::FromChar(L"0123456789ABCDEF"[byte % 16]);
+					output += WString::FromChar(L' ');
 				}
 				TEST_PRINT(L"\tEncoded: " + output);
 			}
