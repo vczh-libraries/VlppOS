@@ -81,7 +81,7 @@ WCharToUtfReader
 			}
 		public:
 			WCharToUtfReader(const wchar_t* _starting, vint count)
-				: WCharTo32Reader(_starting, count)
+				: internalReader(_starting, count)
 			{
 			}
 
