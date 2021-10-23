@@ -102,6 +102,12 @@
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp">
       <Filter>Common\Stream</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_Bom.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">

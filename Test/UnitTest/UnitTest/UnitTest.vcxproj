@@ -164,6 +164,8 @@
     <ClCompile Include="..\..\..\Source\Stream\BroadcastStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CharFormat.cpp" />
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_Bom.cpp" />
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CompressionStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp" />
