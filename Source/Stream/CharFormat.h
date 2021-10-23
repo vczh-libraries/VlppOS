@@ -101,6 +101,52 @@ StreamToWCharReader
 		};
 
 /***********************************************************************
+Utf16BEStreamToWCharReader
+***********************************************************************/
+
+		class Utf16BEStreamToWCharReader : public encoding::UtfFrom32ReaderBase<wchar_t, Utf16BEStreamToWCharReader>
+		{
+			template<typename T, typename TBase>
+			friend class encoding::UtfFrom32ReaderBase;
+
+			class InternalReader : public encoding::UtfTo32ReaderBase<char16_t, InternalReader>
+			{
+			public:
+				IStream* stream = nullptr;
+
+				char16_t Consume()
+				{
+					char16_t c;
+					vint size = stream->Read(&c, sizeof(c));
+					if (size != sizeof(c)) return 0;
+					vuint8_t* bs = (vuint8_t*)&c;
+					vuint8_t t = bs[0];
+					bs[0] = bs[1];
+					bs[1] = t;
+					return c;
+				}
+			};
+		protected:
+			InternalReader internalReader;
+
+			char32_t Consume()
+			{
+				return internalReader.Read();
+			}
+		public:
+
+			void Setup(IStream* _stream)
+			{
+				internalReader.stream = _stream;
+			}
+
+			bool HasIllegalChar() const
+			{
+				return encoding::UtfFrom32ReaderBase<wchar_t, Utf16BEStreamToWCharReader>::HasIllegalChar() || internalReader.HasIllegalChar();
+			}
+		};
+
+/***********************************************************************
 Char Encoder and Decoder
 ***********************************************************************/
 
@@ -191,6 +237,8 @@ Utf-16-be
 		class Utf16BEDecoder : public CharDecoder
 		{
 		protected:
+			Utf16BEStreamToWCharReader		reader;
+
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		};
 

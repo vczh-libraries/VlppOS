@@ -285,63 +285,30 @@ Utf-16-be
 
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_MSVC
-			chars = stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
-			unsigned char* unicode = (unsigned char*)_buffer;
+//#if defined VCZH_WCHAR_UTF16
+//			chars = stream->Read(_buffer, chars * sizeof(wchar_t)) / sizeof(wchar_t);
+//			unsigned char* unicode = (unsigned char*)_buffer;
+//			for (vint i = 0; i < chars; i++)
+//			{
+//				unsigned char t = unicode[0];
+//				unicode[0] = unicode[1];
+//				unicode[1] = t;
+//				// +=2?
+//				unicode++;
+//			}
+//			return chars;
+//#elif defined VCZH_WCHAR_UTF32
+			reader.Setup(stream);
+			vint counter = 0;
 			for (vint i = 0; i < chars; i++)
 			{
-				unsigned char t = unicode[0];
-				unicode[0] = unicode[1];
-				unicode[1] = t;
-				// +=2?
-				unicode++;
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
 			}
-			return chars;
-#elif defined VCZH_GCC
-			wchar_t* writing = _buffer;
-			while (writing - _buffer < chars)
-			{
-				vuint16_t utf16_1 = 0;
-				vuint16_t utf16_2 = 0;
-				vuint8_t* utf16buf = 0;
-				vuint8_t utf16buf_temp = 0;
-
-				if (stream->Read(&utf16_1, 2) != 2) break;
-
-				utf16buf = (vuint8_t*)&utf16_1;
-				utf16buf_temp = utf16buf[0];
-				utf16buf[0] = utf16buf[1];
-				utf16buf[1] = utf16buf_temp;
-
-				if (utf16_1 < 0xD800 || utf16_1 > 0xDFFF)
-				{
-					*writing++ = (wchar_t)utf16_1;
-				}
-				else if (utf16_1 < 0xDC00)
-				{
-					if (stream->Read(&utf16_2, 2) != 2) break;
-
-					utf16buf = (vuint8_t*)&utf16_2;
-					utf16buf_temp = utf16buf[0];
-					utf16buf[0] = utf16buf[1];
-					utf16buf[1] = utf16buf_temp;
-
-					if (0xDC00 <= utf16_2 && utf16_2 <= 0xDFFF)
-					{
-						*writing++ = (wchar_t)(utf16_1 - 0xD800) * 0x400 + (wchar_t)(utf16_2 - 0xDC00) + 0x10000;
-					}
-					else
-					{
-						break;
-					}
-				}
-				else
-				{
-					break;
-				}
-			}
-			return writing - _buffer;
-#endif
+			return counter * sizeof(wchar_t);
+//#endif
 		}
 
 /***********************************************************************
