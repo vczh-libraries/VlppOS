@@ -185,6 +185,100 @@ Mbcs
 		}
 
 /***********************************************************************
+Consumer
+***********************************************************************/
+
+		template<typename T, typename TBase>
+		class StreamConsumer : public TBase
+		{
+		protected:
+			const T* starting = nullptr;
+			const T* ending = nullptr;
+			const T* consuming = nullptr;
+
+			T Consume()
+			{
+				if (consuming == ending) return 0;
+				return *consuming++;
+			}
+		public:
+			StreamConsumer(const T* _starting, vint count)
+				: starting(_starting)
+				, ending(_starting + count)
+				, consuming(_starting)
+			{
+			}
+
+			const T* Starting() const
+			{
+				return starting;
+			}
+
+			const T* Current() const
+			{
+				return consuming;
+			}
+		};
+
+		template<typename T>
+		class StreamFrom32Reader : public StreamConsumer<char32_t, encoding::UtfFrom32ReaderBase<T, StreamFrom32Reader<T>>>
+		{
+			template<typename T2, typename TBase>
+			friend class encoding::UtfFrom32ReaderBase;
+		public:
+			StreamFrom32Reader(const char32_t* _starting, vint count)
+				: StreamConsumer<char32_t, encoding::UtfFrom32ReaderBase<T, StreamFrom32Reader<T>>>(_starting, count)
+			{
+			}
+		};
+
+		template<typename T>
+		class StreamTo32Reader : public StreamConsumer<T, encoding::UtfTo32ReaderBase<T, StreamTo32Reader<T>>>
+		{
+			template<typename T2, typename TBase>
+			friend class encoding::UtfTo32ReaderBase;
+		public:
+			StreamTo32Reader(const T* _starting, vint count)
+				: StreamConsumer<T, encoding::UtfTo32ReaderBase<T, StreamTo32Reader<T>>>(_starting, count)
+			{
+			}
+		};
+
+		template<typename TFrom, typename TTo>
+		class StreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, StreamToStreamReader<TFrom, TTo>>
+		{
+			template<typename T, typename TBase>
+			friend class encoding::UtfFrom32ReaderBase;
+		protected:
+			StreamTo32Reader<TFrom>		internalReader;
+
+			char32_t Consume()
+			{
+				return internalReader.Read();
+			}
+		public:
+			StreamToStreamReader(const TFrom* _starting, vint count)
+				: internalReader(_starting, count)
+			{
+			}
+
+			const TFrom* Starting() const
+			{
+				return internalReader.Starting();
+			}
+
+			const TFrom* Current() const
+			{
+				return internalReader.Current();
+			}
+
+			bool HasIllegalChar() const
+			{
+				return encoding::UtfFrom32ReaderBase<TTo, StreamFrom32Reader<TFrom, TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
+			}
+		};
+
+/***********************************************************************
 Utf-16
 ***********************************************************************/
 
