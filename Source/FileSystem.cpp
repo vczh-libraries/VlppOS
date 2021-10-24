@@ -550,7 +550,7 @@ File
 			{
 				EncoderStream encoderStream(fileStream, *encoder);
 				StreamWriter writer(encoderStream);
-				FOREACH(WString, line, lines)
+				for (auto line : lines)
 				{
 					writer.WriteLine(line);
 				}
@@ -802,14 +802,14 @@ Folder
 			{
 				List<Folder> folders;
 				GetFolders(folders);
-				FOREACH(Folder, folder, folders)
+				for (auto folder : folders)
 				{
 					if (!folder.Delete(true)) return false;
 				}
 				
 				List<File> files;
 				GetFiles(files);
-				FOREACH(File, file, files)
+				for (auto file : files)
 				{
 					if (!file.Delete()) return false;
 				}

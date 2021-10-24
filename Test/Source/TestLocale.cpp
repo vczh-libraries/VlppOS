@@ -46,7 +46,7 @@ TEST_FILE
 		List<Locale> locales;
 		Locale::Enumerate(locales);
 		locales.Insert(0, Locale::Invariant());
-		FOREACH(Locale, locale, locales)
+		for (auto locale : locales)
 		{
 			writer.WriteLine(L"========================================");
 			writer.WriteLine(L"Locale: " + locale.GetName());
@@ -92,7 +92,7 @@ TEST_FILE
 			{
 				List<WString> formats;
 				locale.GetLongDateFormats(formats);
-				FOREACH(WString, format, formats)
+				for (auto format : formats)
 				{
 					writer.WriteLine(L"[LongDate]" + format + L" => " + locale.FormatDate(format, dt));
 				}
@@ -100,7 +100,7 @@ TEST_FILE
 			{
 				List<WString> formats;
 				locale.GetShortDateFormats(formats);
-				FOREACH(WString, format, formats)
+				for (auto format : formats)
 				{
 					writer.WriteLine(L"[ShortDate]" + format + L" => " + locale.FormatDate(format, dt));
 				}
@@ -108,7 +108,7 @@ TEST_FILE
 			{
 				List<WString> formats;
 				locale.GetYearMonthDateFormats(formats);
-				FOREACH(WString, format, formats)
+				for (auto format : formats)
 				{
 					writer.WriteLine(L"[YearMonth]" + format + L" => " + locale.FormatDate(format, dt));
 				}
@@ -116,7 +116,7 @@ TEST_FILE
 			{
 				List<WString> formats;
 				locale.GetLongTimeFormats(formats);
-				FOREACH(WString, format, formats)
+				for (auto format : formats)
 				{
 					writer.WriteLine(L"[LongTime]" + format + L" => " + locale.FormatTime(format, dt));
 				}
@@ -124,7 +124,7 @@ TEST_FILE
 			{
 				List<WString> formats;
 				locale.GetShortTimeFormats(formats);
-				FOREACH(WString, format, formats)
+				for (auto format : formats)
 				{
 					writer.WriteLine(L"[ShortTime]" + format + L" => " + locale.FormatTime(format, dt));
 				}

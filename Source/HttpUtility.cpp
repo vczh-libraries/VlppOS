@@ -275,7 +275,7 @@ Utilities
 		{
 			// concatincate response body
 			vint totalSize = 0;
-			FOREACH(BufferPair, p, availableBuffers)
+			for (auto p : availableBuffers)
 			{
 				totalSize += p.length;
 			}
@@ -285,7 +285,7 @@ Utilities
 				char* utf8 = new char[totalSize];
 				{
 					char* temp = utf8;
-					FOREACH(BufferPair, p, availableBuffers)
+					for (auto p : availableBuffers)
 					{
 						memcpy(temp, p.buffer, p.length);
 						temp += p.length;
@@ -294,7 +294,7 @@ Utilities
 				memcpy(&response.body[0], utf8, totalSize);
 				delete[] utf8;
 			}
-			FOREACH(BufferPair, p, availableBuffers)
+			for (auto p : availableBuffers)
 			{
 				delete[] p.buffer;
 			}

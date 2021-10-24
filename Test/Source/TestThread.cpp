@@ -281,7 +281,7 @@ TEST_FILE
 			TEST_ASSERT(data.counter == 0);
 			TEST_ASSERT(data.mutex.Release());
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -320,7 +320,7 @@ TEST_FILE
 			CriticalSection::Scope lock(data.cs);
 			TEST_ASSERT(data.counter == 10);
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -341,7 +341,7 @@ TEST_FILE
 			TEST_ASSERT(data.counter == 0);
 			TEST_ASSERT(data.eventObject.Signal());
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -369,7 +369,7 @@ TEST_FILE
 			Thread::Sleep(100);
 			TEST_ASSERT(data.counter == i + 1);
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -391,7 +391,7 @@ TEST_FILE
 			Thread::Sleep(1000);
 			TEST_ASSERT(data.counter == 0);
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -415,7 +415,7 @@ TEST_FILE
 			TEST_ASSERT(data.counter == 0);
 		}
 		data.ev.Signal();
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -437,7 +437,7 @@ TEST_FILE
 			Thread::Sleep(1000);
 			TEST_ASSERT(data.counter == 0);
 		}
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			TEST_ASSERT(thread->GetState() == Thread::Stopped);
@@ -483,7 +483,7 @@ TEST_FILE
 		}
 		TlsProc(-1, counter);
 		Thread::Sleep(1000);
-		FOREACH(Thread*, thread, threads)
+		for (auto thread : threads)
 		{
 			thread->Wait();
 			delete thread;
