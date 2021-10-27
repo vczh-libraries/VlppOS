@@ -28,16 +28,17 @@ Kernel Mode Objects
 	}
 	
 	/// <summary>Base type of all synchronization objects.</summary>
-	class WaitableObject : public Object, public NotCopyable
+	class WaitableObject : public Object
 	{
 #if defined VCZH_MSVC
 	private:
 		threading_internal::WaitableData*			waitableData;
 	protected:
-
 		WaitableObject();
 		void										SetData(threading_internal::WaitableData* data);
 	public:
+		NOT_COPYABLE(WaitableObject);
+
 		/// <summary>Test if the object has already been created. Some of the synchronization objects should initialize itself after the constructor.</summary>
 		/// <returns>Returns true if the object has already been created.</returns>
 		/// <remarks>This function is only available in Windows.</remarks>
@@ -302,12 +303,13 @@ Kernel Mode Objects in Process
 	/// In Windows, enter a owned critical section will not result in dead lock.
 	/// In Linux and macOS, it works like a mutex.
 	/// </remarks>
-	class CriticalSection : public Object, public NotCopyable
+	class CriticalSection : public Object
 	{
 	private:
 		friend class ConditionVariable;
 		threading_internal::CriticalSectionData*	internalData;
 	public:
+		NOT_COPYABLE(CriticalSection);
 		/// <summary>Create a critical section.</summary>
 		CriticalSection();
 		~CriticalSection();
@@ -321,11 +323,12 @@ Kernel Mode Objects in Process
 		void										Leave();
 
 	public:
-		class Scope : public Object, public NotCopyable
+		class Scope : public Object
 		{
 		private:
 			CriticalSection*						criticalSection;
 		public:
+			NOT_COPYABLE(Scope);
 			Scope(CriticalSection& _criticalSection);
 			~Scope();
 		};
@@ -348,12 +351,13 @@ Kernel Mode Objects in Process
 	/// }
 	/// ]]></code></program>
 	/// </summary>
-	class ReaderWriterLock : public Object, public NotCopyable
+	class ReaderWriterLock : public Object
 	{
 	private:
 		friend class ConditionVariable;
 		threading_internal::ReaderWriterLockData*	internalData;
 	public:
+		NOT_COPYABLE(ReaderWriterLock);
 		/// <summary>Create a reader writer lock.</summary>
 		ReaderWriterLock();
 		~ReaderWriterLock();
@@ -373,31 +377,34 @@ Kernel Mode Objects in Process
 		/// <summary>Release a writer lock.</summary>
 		void										LeaveWriter();
 	public:
-		class ReaderScope : public Object, public NotCopyable
+		class ReaderScope : public Object
 		{
 		private:
 			ReaderWriterLock*						lock;
 		public:
+			NOT_COPYABLE(ReaderScope);
 			ReaderScope(ReaderWriterLock& _lock);
 			~ReaderScope();
 		};
 		
-		class WriterScope : public Object, public NotCopyable
+		class WriterScope : public Object
 		{
 		private:
 			ReaderWriterLock*						lock;
 		public:
+			NOT_COPYABLE(WriterScope);
 			WriterScope(ReaderWriterLock& _lock);
 			~WriterScope();
 		};
 	};
 
 	/// <summary>Conditional variable.</summary>
-	class ConditionVariable : public Object, public NotCopyable
+	class ConditionVariable : public Object
 	{
 	private:
 		threading_internal::ConditionVariableData*	internalData;
 	public:
+		NOT_COPYABLE(ConditionVariable);
 		/// <summary>Create a conditional variable.</summary>
 		ConditionVariable();
 		~ConditionVariable();
@@ -458,11 +465,12 @@ User Mode Objects
 	/// }
 	/// ]]></code></program>
 	/// </summary>
-	class SpinLock : public Object, public NotCopyable
+	class SpinLock : public Object
 	{
 	protected:
 		volatile LockedInt							token;
 	public:
+		NOT_COPYABLE(SpinLock);
 		/// <summary>Create a spin lock.</summary>
 		SpinLock();
 		~SpinLock();
@@ -476,11 +484,12 @@ User Mode Objects
 		void										Leave();
 
 	public:
-		class Scope : public Object, public NotCopyable
+		class Scope : public Object
 		{
 		private:
 			SpinLock*								spinLock;
 		public:
+			NOT_COPYABLE(Scope);
 			Scope(SpinLock& _spinLock);
 			~Scope();
 		};
@@ -500,7 +509,7 @@ Thread Local Storage
 	/// This class is designed to define global variables.
 	/// Dynamically allocation will result in undefined behavior.
 	/// </remarks>
-	class ThreadLocalStorage : public Object, private NotCopyable
+	class ThreadLocalStorage : public Object
 	{
 		typedef void(*Destructor)(void*);
 	protected:
@@ -510,6 +519,7 @@ Thread Local Storage
 		
 		static void								PushStorage(ThreadLocalStorage* storage);
 	public:
+		NOT_COPYABLE(ThreadLocalStorage);
 		ThreadLocalStorage(Destructor _destructor);
 		~ThreadLocalStorage();
 
@@ -533,7 +543,7 @@ Thread Local Storage
 	/// Dynamically allocation will result in undefined behavior.
 	/// </remarks>
 	template<typename T>
-	class ThreadVariable : public Object, private NotCopyable
+	class ThreadVariable : public Object
 	{
 	protected:
 		ThreadLocalStorage						storage;
@@ -546,6 +556,8 @@ Thread Local Storage
 			}
 		}
 	public:
+		NOT_COPYABLE(ThreadVariable);
+
 		/// <summary>Create a thread local variable.</summary>
 		ThreadVariable()
 			:storage(&Destructor)
@@ -586,12 +598,14 @@ Thread Local Storage
 	};
 
 	template<typename T>
-	class ThreadVariable<T*> : public Object, private NotCopyable
+	class ThreadVariable<T*> : public Object
 	{
 	protected:
 		ThreadLocalStorage						storage;
 
 	public:
+		NOT_COPYABLE(ThreadVariable);
+
 		ThreadVariable()
 			:storage(nullptr)
 		{

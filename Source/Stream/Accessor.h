@@ -19,9 +19,12 @@ Text Related
 ***********************************************************************/
 
 		/// <summary>Text reader. All line breaks are normalized to CRLF regardless whatever in the input stream.</summary>
-		class TextReader : public Object, private NotCopyable
+		class TextReader : public Object
 		{
 		public:
+			NOT_COPYABLE(TextReader);
+			TextReader() = default;
+
 			/// <summary>Test does the reader reach the end or not.</summary>
 			/// <returns>Returns true if the reader reaches the end.</returns>
 			virtual bool				IsEnd()=0;
@@ -41,9 +44,12 @@ Text Related
 		};
 		
 		/// <summary>Text writer.</summary>
-		class TextWriter : public Object, private NotCopyable
+		class TextWriter : public Object
 		{
 		public:
+			NOT_COPYABLE(TextWriter);
+			TextWriter() = default;
+
 			/// <summary>Write a single character.</summary>
 			/// <param name="c">The character to write.</param>
 			virtual void				WriteChar(wchar_t c)=0;
