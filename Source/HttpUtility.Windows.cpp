@@ -4,10 +4,12 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "HttpUtility.h"
-
-#ifdef VCZH_MSVC
 #include <Windows.h>
 #include <winhttp.h>
+
+#ifndef VCZH_MSVC
+static_assert(false, "Do not build this file for non-Windows applications.");
+#endif
 
 #pragma comment(lib, "WinHttp.lib")
 
@@ -339,4 +341,3 @@ Utilities
 		return result;
 	}
 }
-#endif

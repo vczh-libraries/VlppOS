@@ -169,7 +169,14 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\FileSystem.cpp" />
-    <ClCompile Include="..\..\..\Source\HttpUtility.cpp" />
+    <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\HttpUtility.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Locale.cpp" />
     <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>

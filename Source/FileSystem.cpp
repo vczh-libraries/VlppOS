@@ -9,15 +9,6 @@ Licensed under https://github.com/vczh-libraries/License
 #include "Stream/MemoryWrapperStream.h"
 #include "Stream/Accessor.h"
 #include "Stream/EncodingStream.h"
-#if defined VCZH_MSVC
-#include <Windows.h>
-#include <Shlwapi.h>
-#pragma comment(lib, "Shlwapi.lib")
-#elif defined VCZH_GCC
-#include <sys/stat.h>
-#include <dirent.h>
-#include <unistd.h>
-#endif
 
 namespace vl
 {
@@ -32,115 +23,23 @@ namespace vl
 FilePath
 ***********************************************************************/
 
-#if defined VCZH_GCC
-		const wchar_t FilePath::Delimiter;
-#endif
-
-		void FilePath::Initialize()
+		void FilePath::NormalizeDelimiters(collections::Array<wchar_t>& buffer)
 		{
+			for (vint i = 0; i < buffer.Count(); i++)
 			{
-				Array<wchar_t> buffer(fullPath.Length() + 1);
-#if defined VCZH_MSVC
-				wcscpy_s(&buffer[0], fullPath.Length() + 1, fullPath.Buffer());
-#elif defined VCZH_GCC
-				wcscpy(&buffer[0], fullPath.Buffer());
-#endif
-				for (vint i = 0; i < buffer.Count(); i++)
+				if (buffer[i] == L'\\' || buffer[i] == L'/')
 				{
-					if (buffer[i] == L'\\' || buffer[i] == L'/')
-					{
-						buffer[i] = Delimiter;
-					}
-				}
-				fullPath = &buffer[0];
-			}
-
-#if defined VCZH_MSVC
-			if (fullPath != L"")
-			{
-				if (fullPath.Length() < 2 || fullPath[1] != L':')
-				{
-					wchar_t buffer[MAX_PATH + 1] = { 0 };
-					auto result = GetCurrentDirectory(sizeof(buffer) / sizeof(*buffer), buffer);
-					if (result > MAX_PATH + 1 || result == 0)
-					{
-						throw ArgumentException(L"Failed to call GetCurrentDirectory.", L"vl::filesystem::FilePath::Initialize", L"");
-					}
-					fullPath = WString(buffer) + L"\\" + fullPath;
-				}
-				{
-					wchar_t buffer[MAX_PATH + 1] = { 0 };
-					if (fullPath.Length() == 2 && fullPath[1] == L':')
-					{
-						fullPath += L"\\";
-					}
-					auto result = GetFullPathName(fullPath.Buffer(), sizeof(buffer) / sizeof(*buffer), buffer, NULL);
-					if (result > MAX_PATH + 1 || result == 0)
-					{
-						throw ArgumentException(L"The path is illegal.", L"vl::filesystem::FilePath::FilePath", L"_filePath");
-					}
-
-					{
-						wchar_t shortPath[MAX_PATH + 1];
-						wchar_t longPath[MAX_PATH + 1];
-						if (GetShortPathName(buffer, shortPath, MAX_PATH) > 0)
-						{
-							if (GetLongPathName(shortPath, longPath, MAX_PATH) > 0)
-							{
-								memcpy(buffer, longPath, sizeof(buffer));
-							}
-						}
-					}
-					fullPath = buffer;
+					buffer[i] = Delimiter;
 				}
 			}
-#elif defined VCZH_GCC
-			if (fullPath.Length() == 0)
-				fullPath = L"/";
+		}
 
-			if (fullPath[0] != Delimiter)
-			{
-				char buffer[PATH_MAX] = { 0 };
-				getcwd(buffer, PATH_MAX);
-				fullPath = atow(AString(buffer)) + WString::FromChar(Delimiter) + fullPath;
-			}
-
-			{
-				collections::List<WString> components;
-				GetPathComponents(fullPath, components);
-				for(int i = 0; i < components.Count(); i++)
-				{
-					if(components[i] == L".")
-					{
-						components.RemoveAt(i);
-						i--;
-					}
-					else if(components[i] == L"..")
-					{
-						if(i > 0)
-						{
-							components.RemoveAt(i);
-							components.RemoveAt(i - 1);
-							i -= 2;
-						}
-						else
-						{
-							throw ArgumentException(L"Illegal path.");
-						}
-					}
-				}
-
-				fullPath = ComponentsToPath(components);
-			}
-#endif
+		void FilePath::TrimLastDelimiter(WString& fullPath)
+		{
 			if (fullPath != L"/" && fullPath.Length() > 0 && fullPath[fullPath.Length() - 1] == Delimiter)
 			{
 				fullPath = fullPath.Left(fullPath.Length() - 1);
 			}
-		}
-
-		FilePath::FilePath()
-		{
 		}
 
 		FilePath::FilePath(const WString& _filePath)
@@ -160,10 +59,6 @@ FilePath
 		{
 		}
 
-		FilePath::~FilePath()
-		{
-		}
-
 		vint FilePath::Compare(const FilePath& a, const FilePath& b)
 		{
 			return (vint)WString::Compare(a.fullPath, b.fullPath);
@@ -179,47 +74,6 @@ FilePath
 			{
 				return fullPath + L"/" + relativePath;
 			}
-		}
-
-		bool FilePath::IsFile()const
-		{
-#if defined VCZH_MSVC
-			WIN32_FILE_ATTRIBUTE_DATA info;
-			BOOL result = GetFileAttributesEx(fullPath.Buffer(), GetFileExInfoStandard, &info);
-			if (!result) return false;
-			return (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#elif defined VCZH_GCC
-			struct stat info;
-			AString path = wtoa(fullPath);
-			int result = stat(path.Buffer(), &info);
-			if(result != 0) return false;
-			else return S_ISREG(info.st_mode);
-#endif
-		}
-
-		bool FilePath::IsFolder()const
-		{
-#if defined VCZH_MSVC
-			WIN32_FILE_ATTRIBUTE_DATA info;
-			BOOL result = GetFileAttributesEx(fullPath.Buffer(), GetFileExInfoStandard, &info);
-			if (!result) return false;
-			return (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-#elif defined VCZH_GCC
-			struct stat info;
-			AString path = wtoa(fullPath);
-			int result = stat(path.Buffer(), &info);
-			if(result != 0) return false;
-			else return S_ISDIR(info.st_mode);
-#endif
-		}
-
-		bool FilePath::IsRoot()const
-		{
-#if defined VCZH_MSVC
-			return fullPath == L"";
-#elif defined VCZH_GCC
-			return fullPath == L"/";
-#endif
 		}
 
 		WString FilePath::GetName()const
@@ -243,53 +97,6 @@ FilePath
 			return fullPath;
 		}
 
-		WString FilePath::GetRelativePathFor(const FilePath& _filePath)
-		{
-			if (fullPath.Length()==0 || _filePath.fullPath.Length()==0 || fullPath[0] != _filePath.fullPath[0])
-			{
-				return _filePath.fullPath;
-			}
-#if defined VCZH_MSVC
-			wchar_t buffer[MAX_PATH + 1] = { 0 };
-			PathRelativePathTo(
-				buffer,
-				fullPath.Buffer(),
-				(IsFolder() ? FILE_ATTRIBUTE_DIRECTORY : 0),
-				_filePath.fullPath.Buffer(),
-				(_filePath.IsFolder() ? FILE_ATTRIBUTE_DIRECTORY : 0)
-				);
-			return buffer;
-#elif defined VCZH_GCC
-			collections::List<WString> srcComponents, tgtComponents, resultComponents;
-			GetPathComponents(IsFolder() ? fullPath : GetFolder().GetFullPath(), srcComponents);
-			GetPathComponents(_filePath.fullPath, tgtComponents);
-
-			int minLength = srcComponents.Count() <= tgtComponents.Count() ? srcComponents.Count() : tgtComponents.Count();
-			int lastCommonComponent = 0;
-			for(int i = 0; i < minLength; i++)
-			{
-				if(srcComponents[i] == tgtComponents[i])
-				{
-					lastCommonComponent = i;
-				}
-				else
-					break;
-			}
-
-			for(int i = lastCommonComponent + 1; i < srcComponents.Count(); i++)
-			{
-				resultComponents.Add(L"..");
-			}
-
-			for(int i = lastCommonComponent + 1; i < tgtComponents.Count(); i++)
-			{
-				resultComponents.Add(tgtComponents[i]);
-			}
-
-			return ComponentsToPath(resultComponents);
-#endif
-		}
-
 		void FilePath::GetPathComponents(WString path, collections::List<WString>& components)
 		{
 			WString pathRemaining = path;
@@ -297,35 +104,35 @@ FilePath
 
 			components.Clear();
 
-			while(true)
+			while (true)
 			{
 				auto index = INVLOC.FindFirst(pathRemaining, delimiter, Locale::None);
 				if (index.key == -1)
 					break;
 
-				if(index.key != 0)
+				if (index.key != 0)
 					components.Add(pathRemaining.Left(index.key));
 				else
 				{
-#if defined VCZH_GCC
-					// Unix absolute path starting with "/"
-					// components[0] will be L"/"
-					components.Add(delimiter);
-#elif defined VCZH_MSVC
-					if(pathRemaining.Length() >= 2 && pathRemaining[1] == Delimiter)
+#if defined VCZH_MSVC
+					if (pathRemaining.Length() >= 2 && pathRemaining[1] == Delimiter)
 					{
 						// Windows UNC Path starting with "\\"
 						// components[0] will be L"\\"
 						components.Add(L"\\");
 						index.value++;
 					}
+#elif defined VCZH_GCC
+					// Unix absolute path starting with "/"
+					// components[0] will be L"/"
+					components.Add(delimiter);
 #endif
 				}
 
 				pathRemaining = pathRemaining.Right(pathRemaining.Length() - (index.key + index.value));
 			}
 
-			if(pathRemaining.Length() != 0)
+			if (pathRemaining.Length() != 0)
 			{
 				components.Add(pathRemaining);
 			}
@@ -337,17 +144,17 @@ FilePath
 			auto delimiter = WString::FromChar(Delimiter);
 
 			int i = 0;
-
-#if defined VCZH_GCC
-			// For Unix-like OSes, if first component is "/" then take it as absolute path
-			if(components.Count() > 0 && components[0] == delimiter)
+			
+#if defined VCZH_MSVC
+			// For Windows, if first component is "\\" then it is an UNC path
+			if(components.Count() > 0 && components[0] == L"\\")
 			{
 				result += delimiter;
 				i++;
 			}
-#elif defined VCZH_MSVC
-			// For Windows, if first component is "\\" then it is an UNC path
-			if(components.Count() > 0 && components[0] == L"\\")
+#elif defined VCZH_GCC
+			// For Unix-like OSes, if first component is "/" then take it as absolute path
+			if(components.Count() > 0 && components[0] == delimiter)
 			{
 				result += delimiter;
 				i++;
@@ -367,17 +174,9 @@ FilePath
 /***********************************************************************
 File
 ***********************************************************************/
-
-		File::File()
-		{
-		}
 		
 		File::File(const FilePath& _filePath)
 			:filePath(_filePath)
-		{
-		}
-
-		File::~File()
 		{
 		}
 
@@ -564,209 +363,18 @@ File
 			return filePath.IsFile();
 		}
 
-		bool File::Delete()const
-		{
-#if defined VCZH_MSVC
-			return DeleteFile(filePath.GetFullPath().Buffer()) != 0;
-#elif defined VCZH_GCC
-			AString path = wtoa(filePath.GetFullPath());
-			return unlink(path.Buffer()) == 0;
-#endif
-		}
-
-		bool File::Rename(const WString& newName)const
-		{
-#if defined VCZH_MSVC
-			WString oldFileName = filePath.GetFullPath();
-			WString newFileName = (filePath.GetFolder() / newName).GetFullPath();
-			return MoveFile(oldFileName.Buffer(), newFileName.Buffer()) != 0;
-#elif defined VCZH_GCC
-			AString oldFileName = wtoa(filePath.GetFullPath());
-			AString newFileName = wtoa((filePath.GetFolder() / newName).GetFullPath());
-			return rename(oldFileName.Buffer(), newFileName.Buffer()) == 0;
-#endif
-		}
-
 /***********************************************************************
 Folder
 ***********************************************************************/
-
-		Folder::Folder()
-		{
-		}
 		
 		Folder::Folder(const FilePath& _filePath)
 			:filePath(_filePath)
 		{
 		}
 
-		Folder::~Folder()
-		{
-		}
-
 		const FilePath& Folder::GetFilePath()const
 		{
 			return filePath;
-		}
-
-		bool Folder::GetFolders(collections::List<Folder>& folders)const
-		{
-#if defined VCZH_MSVC
-			if (filePath.IsRoot())
-			{
-				auto bufferSize = GetLogicalDriveStrings(0, nullptr);
-				if (bufferSize > 0)
-				{
-					Array<wchar_t> buffer(bufferSize);
-					if (GetLogicalDriveStrings((DWORD)buffer.Count(), &buffer[0]) > 0)
-					{
-						auto begin = &buffer[0];
-						auto end = begin + buffer.Count();
-						while (begin < end && *begin)
-						{
-							WString driveString = begin;
-							begin += driveString.Length() + 1;
-							folders.Add(Folder(FilePath(driveString)));
-						}
-						return true;
-					}
-				}
-				return false;
-			}
-			else
-			{
-				if (!Exists()) return false;
-				WIN32_FIND_DATA findData;
-				HANDLE findHandle = INVALID_HANDLE_VALUE;
-
-				while (true)
-				{
-					if (findHandle == INVALID_HANDLE_VALUE)
-					{
-						WString searchPath = (filePath / L"*").GetFullPath();
-						findHandle = FindFirstFile(searchPath.Buffer(), &findData);
-						if (findHandle == INVALID_HANDLE_VALUE)
-						{
-							break;
-						}
-					}
-					else
-					{
-						BOOL result = FindNextFile(findHandle, &findData);
-						if (result == 0)
-						{
-							FindClose(findHandle);
-							break;
-						}
-					}
-
-					if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-					{
-						if (wcscmp(findData.cFileName, L".") != 0 && wcscmp(findData.cFileName, L"..") != 0)
-						{
-							folders.Add(Folder(filePath / findData.cFileName));
-						}
-					}
-				}
-				return true;
-			}
-#elif defined VCZH_GCC
-			if (!Exists()) return false;
-
-			DIR *dir;
-			AString searchPath = wtoa(filePath.GetFullPath());
-
-			if ((dir = opendir(searchPath.Buffer())) == NULL)
-			{
-				return false;
-			}
-
-			struct dirent* entry;
-			while ((entry = readdir(dir)) != NULL)
-			{
-				WString childName = atow(AString(entry->d_name));
-				FilePath childFullPath = filePath / childName;
-				if (childName != L"." && childName != L".." && childFullPath.IsFolder())
-				{
-					folders.Add(Folder(childFullPath));
-				}
-			}
-
-			if (closedir(dir) != 0)
-			{
-				return false;
-			}
-
-			return true;
-#endif
-		}
-
-		bool Folder::GetFiles(collections::List<File>& files)const
-		{
-#if defined VCZH_MSVC
-			if (filePath.IsRoot())
-			{
-				return true;
-			}
-			if (!Exists()) return false;
-			WIN32_FIND_DATA findData;
-			HANDLE findHandle = INVALID_HANDLE_VALUE;
-
-			while (true)
-			{
-				if (findHandle == INVALID_HANDLE_VALUE)
-				{
-					WString searchPath = (filePath / L"*").GetFullPath();
-					findHandle = FindFirstFile(searchPath.Buffer(), &findData);
-					if (findHandle == INVALID_HANDLE_VALUE)
-					{
-						break;
-					}
-				}
-				else
-				{
-					BOOL result = FindNextFile(findHandle, &findData);
-					if (result == 0)
-					{
-						FindClose(findHandle);
-						break;
-					}
-				}
-
-				if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-				{
-					files.Add(File(filePath / findData.cFileName));
-				}
-			}
-			return true;
-#elif defined VCZH_GCC
-			if (!Exists()) return false;
-
-			DIR *dir;
-			AString searchPath = wtoa(filePath.GetFullPath());
-
-			if ((dir = opendir(searchPath.Buffer())) == NULL)
-			{
-				return false;
-			}
-
-			struct dirent* entry;
-			while ((entry = readdir(dir)) != NULL)
-			{
-				FilePath childFullPath = filePath / (atow(AString(entry->d_name)));
-				if (childFullPath.IsFile())
-				{
-					files.Add(File(childFullPath));
-				}
-			}
-
-			if (closedir(dir) != 0)
-			{
-				return false;
-			}
-
-			return true;
-#endif
 		}
 
 		bool Folder::Exists()const
@@ -785,12 +393,7 @@ Folder
 			}
 			else
 			{
-#if defined VCZH_MSVC
-				return CreateDirectory(filePath.GetFullPath().Buffer(), NULL) != 0;
-#elif defined VCZH_GCC
-				AString path = wtoa(filePath.GetFullPath());
-				return mkdir(path.Buffer(), 0777) == 0;
-#endif
+				return CreateNonRecursively();
 			}
 		}
 
@@ -816,25 +419,7 @@ Folder
 
 				return Delete(false);
 			}
-#if defined VCZH_MSVC
-			return RemoveDirectory(filePath.GetFullPath().Buffer()) != 0;
-#elif defined VCZH_GCC
-			AString path = wtoa(filePath.GetFullPath());
-			return rmdir(path.Buffer()) == 0;
-#endif
-		}
-
-		bool Folder::Rename(const WString& newName)const
-		{
-#if defined VCZH_MSVC
-			WString oldFileName = filePath.GetFullPath();
-			WString newFileName = (filePath.GetFolder() / newName).GetFullPath();
-			return MoveFile(oldFileName.Buffer(), newFileName.Buffer()) != 0;
-#elif defined VCZH_GCC
-			AString oldFileName = wtoa(filePath.GetFullPath());
-			AString newFileName = wtoa((filePath.GetFolder() / newName).GetFullPath());
-			return rename(oldFileName.Buffer(), newFileName.Buffer()) == 0;
-#endif
+			return DeleteNonRecursively();
 		}
 	}
 }
