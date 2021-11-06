@@ -135,6 +135,12 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat.Windows.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat.Linux.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">

@@ -4,11 +4,6 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "CharFormat.h"
-#if defined VCZH_MSVC
-#include <windows.h>
-#elif defined VCZH_GCC
-#include <string.h>
-#endif
 
 namespace vl
 {
@@ -150,27 +145,8 @@ CharDecoder
 Mbcs
 ***********************************************************************/
 
-		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-#if defined VCZH_MSVC
-			vint length = WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs = new char[length];
-			WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result = stream->Write(mbcs, length);
-			delete[] mbcs;
-#elif defined VCZH_GCC
-			WString w = WString::CopyFrom(_buffer, chars);
-			AString a = wtoa(w);
-			vint length = a.Length();
-			vint result = stream->Write((void*)a.Buffer(), length);
-#endif
-			if (result != length)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
+		extern bool IsMbcsLeadByte(char c);
+		extern void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars);
 
 		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
@@ -183,11 +159,7 @@ Mbcs
 				{
 					break;
 				}
-#if defined VCZH_MSVC
-				if (IsDBCSLeadByte(*reading))
-#elif defined VCZH_GCC
-				if ((vint8_t)*reading < 0)
-#endif
+				if (IsMbcsLeadByte(*reading))
 				{
 					if (stream->Read(reading + 1, 1) != 1)
 					{
@@ -201,13 +173,8 @@ Mbcs
 				}
 				readed++;
 			}
-#if defined VCZH_MSVC
-			MultiByteToWideChar(CP_THREAD_ACP, 0, source, (int)(reading - source), _buffer, (int)chars);
-#elif defined VCZH_GCC
-			AString a = AString::CopyFrom(source, (vint)(reading - source));
-			WString w = atow(a);
-			memcpy(_buffer, w.Buffer(), readed * sizeof(wchar_t));
-#endif
+
+			MbcsToWChar(_buffer, chars, readed, source, (vint)(reading - source));
 			delete[] source;
 			return readed;
 		}
@@ -350,40 +317,6 @@ Utf-16-be
 /***********************************************************************
 Utf8
 ***********************************************************************/
-
-		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-#if defined VCZH_MSVC
-			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs = new char[length];
-			WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result = stream->Write(mbcs, length);
-			delete[] mbcs;
-			if (result != length)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-#elif defined VCZH_GCC
-			WCharToUtfReader<char8_t> reader(_buffer, chars);
-			while (char8_t c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-#endif
-		}
 
 		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
