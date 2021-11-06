@@ -18,19 +18,25 @@ clean:
 
 all:pre-build ./Bin/UnitTest
 
-./Bin/UnitTest:./Obj/Vlpp.o ./Obj/FileSystem.o ./Obj/HttpUtility.o ./Obj/Locale.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat_Bom.o ./Obj/CharFormat_TestEncoding.o ./Obj/CompressionStream.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/ThreadingLinux.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
+./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/FileSystem.o ./Obj/FileSystem.Linux.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/CharFormat_Bom.o ./Obj/CharFormat_TestEncoding.o ./Obj/CharFormat_TestEncoding.Linux.o ./Obj/CompressionStream.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../Import/Vlpp.cpp ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
+./Obj/Vlpp.Linux.o: ../../Import/Vlpp.Linux.cpp ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
 ./Obj/FileSystem.o: ../../Source/FileSystem.cpp ../../Source/FileSystem.h ../../Import/Vlpp.h ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Source/Locale.h ../../Source/Stream/FileStream.h ../../Source/Stream/MemoryWrapperStream.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h
 	$(CPP_COMPILE)
 
-./Obj/HttpUtility.o: ../../Source/HttpUtility.cpp ../../Source/HttpUtility.h ../../Import/Vlpp.h
+./Obj/FileSystem.Linux.o: ../../Source/FileSystem.Linux.cpp ../../Source/FileSystem.h ../../Import/Vlpp.h ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Source/Locale.h ../../Source/Stream/FileStream.h ../../Source/Stream/MemoryWrapperStream.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h
 	$(CPP_COMPILE)
 
 ./Obj/Locale.o: ../../Source/Locale.cpp ../../Source/Locale.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
+./Obj/Locale.Linux.o: ../../Source/Locale.Linux.cpp ../../Source/Locale.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/Accessor.o: ../../Source/Stream/Accessor.cpp ../../Source/Stream/Accessor.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Stream/MemoryStream.h
@@ -45,10 +51,16 @@ all:pre-build ./Bin/UnitTest
 ./Obj/CharFormat.o: ../../Source/Stream/CharFormat.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
+./Obj/CharFormat.Linux.o: ../../Source/Stream/CharFormat.Linux.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
 ./Obj/CharFormat_Bom.o: ../../Source/Stream/CharFormat_Bom.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/CharFormat_TestEncoding.o: ../../Source/Stream/CharFormat_TestEncoding.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
+./Obj/CharFormat_TestEncoding.Linux.o: ../../Source/Stream/CharFormat_TestEncoding.Linux.cpp ../../Source/Stream/CharFormat.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/CompressionStream.o: ../../Source/Stream/CompressionStream.cpp ../../Source/Stream/CompressionStream.h ../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h ../../Source/Stream/MemoryWrapperStream.h
@@ -72,7 +84,7 @@ all:pre-build ./Bin/UnitTest
 ./Obj/Threading.o: ../../Source/Threading.cpp ../../Source/Threading.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
-./Obj/ThreadingLinux.o: ../../Source/ThreadingLinux.cpp ../../Source/Threading.h ../../Import/Vlpp.h
+./Obj/Threading.Linux.o: ../../Source/Threading.Linux.cpp ../../Source/Threading.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/TestFileSystem.o: ../Source/TestFileSystem.cpp ../Source/../../Source/FileSystem.h ../../Import/Vlpp.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Stream/Interfaces.h ../Source/../../Source/Locale.h ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Threading.h

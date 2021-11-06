@@ -41,11 +41,6 @@ Locale
 		locales.Add(Locale(L"en-US"));
 	}
 
-	const WString& Locale::GetName()const
-	{
-		return localeName;
-	}
-
 	void Locale::GetShortDateFormats(collections::List<WString>& formats)const
 	{
 		formats.Add(L"MM/dd/yyyy");

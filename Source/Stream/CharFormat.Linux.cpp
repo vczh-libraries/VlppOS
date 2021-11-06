@@ -16,7 +16,7 @@ namespace vl
 	{
 		bool IsMbcsLeadByte(char c)
 		{
-			return (vint8_t)c < 0
+			return (vint8_t)c < 0;
 		}
 
 /***********************************************************************
