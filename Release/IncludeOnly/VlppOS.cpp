@@ -5,10 +5,8 @@ DEVELOPER: Zihan Chen(vczh)
 #include "VlppOS.h"
 
 #include "..\..\Source\FileSystem.cpp"
-#include "..\..\Source\HttpUtility.cpp"
 #include "..\..\Source\Locale.cpp"
 #include "..\..\Source\Threading.cpp"
-#include "..\..\Source\ThreadingLinux.cpp"
 #include "..\..\Source\Stream\Accessor.cpp"
 #include "..\..\Source\Stream\BroadcastStream.cpp"
 #include "..\..\Source\Stream\CacheStream.cpp"

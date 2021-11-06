@@ -6,10 +6,21 @@
   </folders>
   <categories>
     <category name="vlpp" pattern="\Import\Vlpp."/>
-    <category name="vlppos" pattern="\Source\"/>
+    <category name="vlppos" pattern="\Source\">
+      <except pattern=".Windows."/>
+      <except pattern=".Linux."/>
+    </category>
+    <category name="vlppos.windows" pattern=".Windows.">
+      <except pattern="Vlpp.Windows."/>
+    </category>
+    <category name="vlppos.linux" pattern=".Linux.">
+      <except pattern="Vlpp.Linux."/>
+    </category>
   </categories>
   <output path=".">
     <codepair category="vlpp" filename="Vlpp" generate="false"/>
     <codepair category="vlppos" filename="VlppOS" generate="true"/>
+    <codepair category="vlppos.windows" filename="VlppOS.Windows" generate="true"/>
+    <codepair category="vlppos.linux" filename="VlppOS.Linux" generate="true"/>
   </output>
 </codegen>
