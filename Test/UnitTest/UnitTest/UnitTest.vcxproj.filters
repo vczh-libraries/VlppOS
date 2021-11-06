@@ -48,10 +48,10 @@
     <ClCompile Include="..\..\..\Source\Locale.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Threading.cpp">
+    <ClCompile Include="..\..\..\Source\Threading.Windows.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\ThreadingLinux.cpp">
+    <ClCompile Include="..\..\..\Source\Threading.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Stream\Accessor.cpp">
@@ -118,6 +118,9 @@
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.cpp">
       <Filter>Common</Filter>
     </ClCompile>
   </ItemGroup>

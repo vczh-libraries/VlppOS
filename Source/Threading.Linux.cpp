@@ -4,7 +4,6 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "Threading.h"
-#ifdef VCZH_GCC
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -13,6 +12,10 @@ Licensed under https://github.com/vczh-libraries/License
 #include <errno.h>
 #if defined(__APPLE__) || defined(__APPLE_CC__)
 #include <CoreFoundation/CoreFoundation.h>
+#endif
+
+#ifndef VCZH_GCC
+static_assert(false, "Do not build this file for Windows applications.");
 #endif
 
 namespace vl
@@ -917,4 +920,3 @@ ThreadLocalStorage
 
 #undef KEY
 }
-#endif
