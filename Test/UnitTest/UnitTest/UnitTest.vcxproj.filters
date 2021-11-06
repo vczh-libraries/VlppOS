@@ -123,6 +123,12 @@
     <ClCompile Include="..\..\..\Source\Threading.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.Linux.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.Windows.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
