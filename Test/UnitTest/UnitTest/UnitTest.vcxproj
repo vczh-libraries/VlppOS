@@ -171,6 +171,13 @@
     <ClCompile Include="..\..\..\Source\FileSystem.cpp" />
     <ClCompile Include="..\..\..\Source\HttpUtility.cpp" />
     <ClCompile Include="..\..\..\Source\Locale.cpp" />
+    <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\Accessor.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\BroadcastStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp" />

@@ -114,6 +114,12 @@
     <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp">
       <Filter>Import</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.Windows.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
