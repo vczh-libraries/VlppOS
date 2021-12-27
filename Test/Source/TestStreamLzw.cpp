@@ -1,10 +1,13 @@
-﻿#include "../../Source/Stream/MemoryStream.h"
+﻿#include "../../Source/Stream/FileStream.h"
+#include "../../Source/Stream/MemoryStream.h"
 #include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Stream/CompressionStream.h"
 
 using namespace vl;
 using namespace vl::stream;
 using namespace vl::collections;
+
+extern WString GetTestOutputPath();
 
 TEST_FILE
 {
