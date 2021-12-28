@@ -102,7 +102,7 @@ all:pre-build ./Bin/UnitTest
 ./Obj/TestStreamEncoding.o: ../Source/TestStreamEncoding.cpp ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/CharFormat.h ../Source/../../Source/Locale.h
 	$(CPP_COMPILE)
 
-./Obj/TestStreamLzw.o: ../Source/TestStreamLzw.cpp ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/CompressionStream.h
+./Obj/TestStreamLzw.o: ../Source/TestStreamLzw.cpp ../Source/../../Source/Stream/FileStream.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/CompressionStream.h
 	$(CPP_COMPILE)
 
 ./Obj/TestStreamReaderWriter.o: ../Source/TestStreamReaderWriter.cpp ../Source/../../Source/Stream/MemoryWrapperStream.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/MemoryStream.h
