@@ -6,7 +6,9 @@
 
 This project is licensed under [the License repo](https://github.com/vczh-libraries/License).
 
-This project is not open sourced and for development only. But you are able to use the open sourced version in [the Release repo](https://github.com/vczh-libraries/Release).
+Source code in this repo is for reference only, please use the source code in [the Release repo](https://github.com/vczh-libraries/Release).
+
+You are welcome to contribute to this repo by opening pull requests.
 
 ## Document
 
@@ -16,12 +18,6 @@ For **VlppOS**: click [here](http://vczh-libraries.github.io/doc/current/vlppos/
 
 ## Unit Test
 
-- **Locale and Locale-awared String Operation**
-  - **TEST** [TestLocale.cpp](./Test/Source/TestLocale.cpp)
-  - **TEST** [TestLocalString.cpp](./Test/Source/TestLocaleString.cpp)
-- **File System** (Windows only)
-  - **TEST** [TestFileSystem.cpp](./Test/Source/TestFileSystem.cpp)
-- **Streaming** (FileStream, MemoryStream, compression, encoding, etc)
-  - **TEST** [TestStream.cpp](./Test/Source/TestStream.cpp)
-- **Multi-Threading**
-  - **TEST** [TestThread.cpp](./Test/Source/TestThread.cpp)
+For **Windows**, open `Test/UnitTest/UnitTest.sln`, and run the `UnitTest` project.
+
+For **Linux**, use `Test/Linux/makefile` to build and unit test.
