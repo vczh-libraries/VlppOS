@@ -290,7 +290,7 @@ Serialization (generic types)
 					reader << notNull;
 					if (notNull)
 					{
-						value = new T;
+						value = Ptr(new T);
 						Serialization<T>::IO(reader, *value.Obj());
 					}
 					else

@@ -158,7 +158,8 @@ TEST_FILE
 	TEST_CASE(L"Serialize Generic Types")
 	{
 		MemoryStream memoryStream;
-		Ptr<Strings> a1 = MakePtr<Strings>(), a2;
+		auto a1 = Ptr(new Strings);
+		Ptr<Strings> a2;
 		a1->sa = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 		a1->sb = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 		a1->sc = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
