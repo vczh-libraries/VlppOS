@@ -610,7 +610,7 @@ ThreadPoolLite
 						return false;
 					}
 
-					auto task = MakePtr<ThreadPoolTask>();
+					auto task = Ptr(new ThreadPoolTask);
 					task->task = proc;
 					*threadPoolData->taskEnd = task;
 					threadPoolData->taskEnd = &task->next;
