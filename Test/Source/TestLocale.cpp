@@ -12,6 +12,28 @@ extern WString GetTestOutputPath();
 
 TEST_FILE
 {
+	TEST_CASE(L"Locale comparisong")
+	{
+		{
+			Locale a, b;
+			TEST_ASSERT((a == b) == true);
+			TEST_ASSERT((a != b) == false);
+			TEST_ASSERT((a < b) == false);
+			TEST_ASSERT((a <= b) == true);
+			TEST_ASSERT((a > b) == false);
+			TEST_ASSERT((a >= b) == true);
+		}
+		{
+			Locale a(L"a"), b(L"b");
+			TEST_ASSERT((a == b) == false);
+			TEST_ASSERT((a != b) == true);
+			TEST_ASSERT((a < b) == true);
+			TEST_ASSERT((a <= b) == true);
+			TEST_ASSERT((a > b) == false);
+			TEST_ASSERT((a >= b) == false);
+		}
+	});
+
 	TEST_CASE(L"Print locale awared data")
 	{
 		DateTime dt = DateTime::LocalTime();

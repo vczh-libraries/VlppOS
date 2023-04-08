@@ -47,6 +47,27 @@ TEST_FILE
 	{
 	#if defined VCZH_MSVC
 		ClearTestFolders();
+		TEST_CASE(L"Comparison")
+		{
+			{
+				FilePath a, b;
+				TEST_ASSERT((a == b) == true);
+				TEST_ASSERT((a != b) == false);
+				TEST_ASSERT((a < b) == false);
+				TEST_ASSERT((a <= b) == true);
+				TEST_ASSERT((a > b) == false);
+				TEST_ASSERT((a >= b) == true);
+			}
+			{
+				FilePath a(L"C:\\"), b(L"D::\\");
+				TEST_ASSERT((a == b) == false);
+				TEST_ASSERT((a != b) == true);
+				TEST_ASSERT((a < b) == true);
+				TEST_ASSERT((a <= b) == true);
+				TEST_ASSERT((a > b) == false);
+				TEST_ASSERT((a >= b) == false);
+			}
+		});
 		TEST_CASE(L"/")
 		{
 			FilePath p;

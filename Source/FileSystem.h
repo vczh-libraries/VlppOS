@@ -52,13 +52,8 @@ namespace vl
 			FilePath(const FilePath& _filePath);
 			~FilePath() = default;
 
-			static vint					Compare(const FilePath& a, const FilePath& b);
-			bool						operator==(const FilePath& filePath)const{ return Compare(*this, filePath) == 0; }
-			bool						operator!=(const FilePath& filePath)const{ return Compare(*this, filePath) != 0; }
-			bool						operator< (const FilePath& filePath)const{ return Compare(*this, filePath) <  0; }
-			bool						operator<=(const FilePath& filePath)const{ return Compare(*this, filePath) <= 0; }
-			bool						operator> (const FilePath& filePath)const{ return Compare(*this, filePath) >  0; }
-			bool						operator>=(const FilePath& filePath)const{ return Compare(*this, filePath) >= 0; }
+			std::strong_ordering		operator<=>(const FilePath& path)const { return fullPath <=> path.fullPath; }
+			bool						operator==(const FilePath& path)const { return fullPath == path.fullPath; }
 
 			/// <summary>Concat an absolute path and a relative path.</summary>
 			/// <returns>The result absolute path.</returns>

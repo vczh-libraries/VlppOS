@@ -17,10 +17,6 @@ Locale
 	{
 	}
 
-	Locale::~Locale()
-	{
-	}
-
 	const WString& Locale::GetName()const
 	{
 		return localeName;

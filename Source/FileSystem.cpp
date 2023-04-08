@@ -59,11 +59,6 @@ FilePath
 		{
 		}
 
-		vint FilePath::Compare(const FilePath& a, const FilePath& b)
-		{
-			return (vint)WString::Compare(a.fullPath, b.fullPath);
-		}
-
 		FilePath FilePath::operator/(const WString& relativePath)const
 		{
 			if (IsRoot())
