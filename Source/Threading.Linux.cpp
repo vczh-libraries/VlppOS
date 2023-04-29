@@ -426,7 +426,7 @@ EventObject
 			volatile bool		signaled;
 			CriticalSection		mutex;
 			ConditionVariable	cond;
-			volatile vint		counter = 0;
+			atomic_vint			counter = 0;
 		};
 	}
 
@@ -842,55 +842,6 @@ ConditionVariable
 	void ConditionVariable::WakeAllPendings()
 	{
 		pthread_cond_broadcast(&internalData->cond);
-	}
-
-/***********************************************************************
-SpinLock
-***********************************************************************/
-
-	SpinLock::Scope::Scope(SpinLock& _spinLock)
-		:spinLock(&_spinLock)
-	{
-		spinLock->Enter();
-	}
-
-	SpinLock::Scope::~Scope()
-	{
-		spinLock->Leave();
-	}
-			
-	SpinLock::SpinLock()
-		:token(0)
-	{
-	}
-
-	SpinLock::~SpinLock()
-	{
-	}
-
-	bool SpinLock::TryEnter()
-	{
-		return __sync_lock_test_and_set(&token, 1)==0;
-	}
-
-	void SpinLock::Enter()
-	{
-		while(__sync_val_compare_and_swap(&token, 0, 1)!=0)
-		{
-			while (token != 0)
-			{
-#ifdef VCZH_ARM
-				__yield();
-#else
-				_mm_pause();
-#endif
-			}
-		}
-	}
-
-	void SpinLock::Leave()
-	{
-		__sync_lock_test_and_set(&token, 0);
 	}
 
 /***********************************************************************

@@ -32,7 +32,7 @@ namespace mynamespace
 	struct Mutex_ThreadData
 	{
 		Mutex				mutex;
-		volatile vint		counter;
+		atomic_vint			counter;
 
 		Mutex_ThreadData()
 			:counter(0)
@@ -59,7 +59,7 @@ namespace mynamespace
 	{
 		CriticalSection		cs;
 		Semaphore			semaphore;
-		volatile vint		counter;
+		atomic_vint			counter;
 
 		Semaphore_ThreadData(vint max)
 			:counter(0)
@@ -86,7 +86,7 @@ namespace mynamespace
 	{
 		CriticalSection		cs;
 		EventObject			eventObject;
-		volatile vint		counter;
+		atomic_vint			counter;
 
 		ManualEvent_ThreadData()
 			:counter(0)
@@ -108,7 +108,7 @@ namespace mynamespace
 	struct AutoEvent_ThreadData
 	{
 		EventObject			eventObject;
-		volatile vint		counter;
+		atomic_vint			counter;
 
 		AutoEvent_ThreadData()
 			:counter(0)
@@ -131,7 +131,7 @@ namespace mynamespace
 	struct CS_ThreadData
 	{
 		CriticalSection			cs;
-		volatile vint			counter;
+		atomic_vint				counter;
 
 		CS_ThreadData()
 			:counter(0)
@@ -157,7 +157,7 @@ namespace mynamespace
 		EventObject				ev;
 		SpinLock				sl;
 		ReaderWriterLock		lock;
-		volatile vint			counter;
+		atomic_vint				counter;
 
 		SRW_ThreadData()
 			:counter(0)
@@ -197,7 +197,7 @@ namespace mynamespace
 	struct SL_ThreadData
 	{
 		SpinLock				lock;
-		volatile vint			counter;
+		atomic_vint				counter;
 
 		SL_ThreadData()
 			:counter(0)
@@ -222,7 +222,7 @@ namespace mynamespace
 	ThreadVariable<const wchar_t*> tls2;
 	ThreadVariable<WString> tls3;
 
-	void TlsProc(int i, volatile vint& counter)
+	void TlsProc(int i, atomic_vint& counter)
 	{
 		TEST_ASSERT(tls1.HasData() == false);
 		tls1.Set(i);
@@ -470,7 +470,7 @@ TEST_FILE
 	TEST_CASE(L"Test ThreadLocalStorage")
 	{
 		ThreadLocalStorage::FixStorages();
-		volatile vint counter = 0;
+		atomic_vint counter = 0;
 		List<Thread*> threads;
 		{
 			for (int i = 0; i < 10; i++)

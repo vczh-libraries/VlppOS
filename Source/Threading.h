@@ -452,8 +452,6 @@ Kernel Mode Objects in Process
 /***********************************************************************
 User Mode Objects
 ***********************************************************************/
-
-	typedef long LockedInt;
 	
 	/// <summary>
 	/// Spin lock. It is similar to mutex, but it does not occupy resource in the system.
@@ -468,12 +466,12 @@ User Mode Objects
 	class SpinLock : public Object
 	{
 	protected:
-		volatile LockedInt							token;
+		atomic_vint									token = 0;
 	public:
 		NOT_COPYABLE(SpinLock);
 		/// <summary>Create a spin lock.</summary>
-		SpinLock();
-		~SpinLock();
+		SpinLock() = default;
+		~SpinLock() = default;
 		
 		/// <summary>Try enter a spin lock. This function will return immediately.</summary>
 		/// <returns>Returns true if the current thread owned the spin lock.</returns>
