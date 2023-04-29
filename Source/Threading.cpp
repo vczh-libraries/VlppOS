@@ -5,6 +5,12 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "Threading.h"
 
+#if defined VCZH_ARM
+#elif defined VCZH_MSVC
+#elif defined VCZH_GCC
+#include <emmintrin.h>
+#endif
+
 namespace vl
 {
 
