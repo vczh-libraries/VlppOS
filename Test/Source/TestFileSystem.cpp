@@ -68,7 +68,7 @@ TEST_FILE
 				TEST_ASSERT((a >= b) == false);
 			}
 		});
-		TEST_CASE(L"/")
+		TEST_CASE(L"<Empty>")
 		{
 			FilePath p;
 			TEST_ASSERT(p.IsFile() == false);
@@ -151,6 +151,14 @@ TEST_FILE
 		});
 	#elif defined VCZH_GCC
 		ClearTestFolders();
+		TEST_CASE(L"<Empty>")
+		{
+			FilePath p;
+			TEST_ASSERT(p.IsFile() == false);
+			TEST_ASSERT(p.IsFolder() == true);
+			TEST_ASSERT(p.IsRoot() == true);
+			TEST_ASSERT(p.GetFullPath() == L"/");
+		});
 		TEST_CASE(L"/")
 		{
 			FilePath p = L"/";
