@@ -10,32 +10,8 @@ Licensed under https://github.com/vczh-libraries/License
 
 namespace vl
 {
-	namespace stream
+	namespace encoding
 	{
-
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-
-		template<typename T>
-		__forceinline void SwapByteForUtf16BE(T& c)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			vuint8_t* bytes = (vuint8_t*)&c;
-			vuint8_t t = bytes[0];
-			bytes[0] = bytes[1];
-			bytes[1] = t;
-		}
-
-		template<typename T>
-		void SwapBytesForUtf16BE(T* _buffer, vint chars)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			for (vint i = 0; i < chars; i++)
-			{
-				SwapByteForUtf16BE(_buffer[i]);
-			}
-		}
 
 /***********************************************************************
 UtfStringRangeConsumer<T>
@@ -77,11 +53,96 @@ UtfStringRangeConsumer<T>
 		};
 
 /***********************************************************************
-UtfStringStreamConsumer<T>
+UtfStringRangeToStringRangeReader<TFrom, TTo>
+***********************************************************************/
+
+		template<typename TFrom, typename TTo>
+		class UtfStringRangeToStringRangeReader : public UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>>>
+		{
+			using TBase = UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>>>;
+		public:
+			UtfStringRangeToStringRangeReader(const TFrom* _starting, const TFrom* _ending)
+				: TBase(_starting, _ending)
+			{
+			}
+
+			UtfStringRangeToStringRangeReader(const TFrom* _starting, vint count)
+				: TBase(_starting, count)
+			{
+			}
+
+			UtfCharCluster SourceCluster() const
+			{
+				return this->internalReader.SourceCluster();
+			}
+		};
+
+		template<typename TTo>
+		class UtfStringRangeToStringRangeReader<char32_t, TTo> : public UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<char32_t>>
+		{
+			using TBase = UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<char32_t>>;
+		public:
+			UtfStringRangeToStringRangeReader(const char32_t* _starting, const char32_t* _ending)
+				: TBase(_starting, _ending)
+			{
+			}
+
+			UtfStringRangeToStringRangeReader(const char32_t* _starting, vint count)
+				: TBase(_starting, count)
+			{
+			}
+		};
+
+		template<typename TFrom>
+		class UtfStringRangeToStringRangeReader<TFrom, char32_t> : public UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>
+		{
+			using TBase = UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>;
+		public:
+			UtfStringRangeToStringRangeReader(const TFrom* _starting, const TFrom* _ending)
+				: TBase(_starting, _ending)
+			{
+			}
+
+			UtfStringRangeToStringRangeReader(const TFrom* _starting, vint count)
+				: TBase(_starting, count)
+			{
+			}
+		};
+	}
+
+	namespace stream
+	{
+
+/***********************************************************************
+Helper Functions
 ***********************************************************************/
 
 		template<typename T>
-		class UtfStringStreamConsumer : public Object
+		__forceinline void SwapByteForUtf16BE(T& c)
+		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			vuint8_t* bytes = (vuint8_t*)&c;
+			vuint8_t t = bytes[0];
+			bytes[0] = bytes[1];
+			bytes[1] = t;
+		}
+
+		template<typename T>
+		void SwapBytesForUtf16BE(T* _buffer, vint chars)
+		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			for (vint i = 0; i < chars; i++)
+			{
+				SwapByteForUtf16BE(_buffer[i]);
+			}
+		}
+
+/***********************************************************************
+UtfStreamConsumer<T>
+***********************************************************************/
+
+		template<typename T>
+		class UtfStreamConsumer : public Object
 		{
 		protected:
 			IStream*				stream = nullptr;
@@ -106,112 +167,28 @@ UtfStringStreamConsumer<T>
 		};
 
 /***********************************************************************
-StreamToWCharReader
+UtfStreamToStreamReader<TFrom, TTo>
 ***********************************************************************/
+
+		template<typename TFrom, typename TTo>
+		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, UtfStreamConsumer<encoding::UtfStringTo32Reader<TFrom>>>
+		{
+		public:
+
+			encoding::UtfCharCluster SourceCluster() const
+			{
+				return this->internalReader.SourceCluster();
+			}
+		};
+
+		template<typename TTo>
+		class UtfStreamToStreamReader<char32_t, TTo> : public encoding::UtfFrom32ReaderBase<TTo, UtfStreamConsumer<char32_t>>
+		{
+		};
 
 		template<typename TFrom>
-		class StreamToWCharReader : public encoding::UtfFrom32ReaderBase<wchar_t, StreamToWCharReader<TFrom>>
+		class UtfStreamToStreamReader<TFrom, char32_t> : public encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>
 		{
-			template<typename T, typename TBase>
-			friend class encoding::UtfFrom32ReaderBase;
-
-			class InternalReader : public encoding::UtfTo32ReaderBase<TFrom, InternalReader>
-			{
-			public:
-				IStream* stream = nullptr;
-
-				TFrom Consume()
-				{
-					TFrom c;
-					vint size = stream->Read(&c, sizeof(c));
-					if (size != sizeof(c)) return 0;
-					return c;
-				}
-			};
-		protected:
-			InternalReader internalReader;
-
-			char32_t Consume()
-			{
-				return internalReader.Read();
-			}
-		public:
-
-			void Setup(IStream* _stream)
-			{
-				internalReader.stream = _stream;
-			}
-
-			bool HasIllegalChar() const
-			{
-				return encoding::UtfFrom32ReaderBase<wchar_t, StreamToWCharReader<TFrom>>::HasIllegalChar() || internalReader.HasIllegalChar();
-			}
-		};
-
-		template<>
-		class StreamToWCharReader<char32_t> : public encoding::UtfFrom32ReaderBase<wchar_t, StreamToWCharReader<char32_t>>
-		{
-			template<typename T, typename TBase>
-			friend class encoding::UtfFrom32ReaderBase;
-		protected:
-			IStream* stream = nullptr;
-
-			char32_t Consume()
-			{
-				char32_t c;
-				vint size = stream->Read(&c, sizeof(c));
-				if (size != sizeof(c)) return 0;
-				return c;
-			}
-		public:
-
-			void Setup(IStream* _stream)
-			{
-				stream = _stream;
-			}
-		};
-
-/***********************************************************************
-Utf16BEStreamToWCharReader
-***********************************************************************/
-
-		class Utf16BEStreamToWCharReader : public encoding::UtfFrom32ReaderBase<wchar_t, Utf16BEStreamToWCharReader>
-		{
-			template<typename T, typename TBase>
-			friend class encoding::UtfFrom32ReaderBase;
-
-			class InternalReader : public encoding::UtfTo32ReaderBase<char16_t, InternalReader>
-			{
-			public:
-				IStream* stream = nullptr;
-
-				char16_t Consume()
-				{
-					char16_t c;
-					vint size = stream->Read(&c, sizeof(c));
-					if (size != sizeof(c)) return 0;
-					SwapByteForUtf16BE(c);
-					return c;
-				}
-			};
-		protected:
-			InternalReader internalReader;
-
-			char32_t Consume()
-			{
-				return internalReader.Read();
-			}
-		public:
-
-			void Setup(IStream* _stream)
-			{
-				internalReader.stream = _stream;
-			}
-
-			bool HasIllegalChar() const
-			{
-				return encoding::UtfFrom32ReaderBase<wchar_t, Utf16BEStreamToWCharReader>::HasIllegalChar() || internalReader.HasIllegalChar();
-			}
 		};
 
 /***********************************************************************
