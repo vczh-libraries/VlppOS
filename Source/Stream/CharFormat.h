@@ -206,9 +206,14 @@ UtfStreamToStreamReader<TFrom, TTo>
 ***********************************************************************/
 
 		template<typename TFrom, typename TTo>
-		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, UtfStreamConsumer<encoding::UtfStringTo32Reader<TFrom>>>
+		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, encoding::UtfReaderConsumer<encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>>>
 		{
 		public:
+
+			void Setup(IStream* _stream)
+			{
+				this->internalReader.Setup(_stream);
+			}
 
 			encoding::UtfCharCluster SourceCluster() const
 			{

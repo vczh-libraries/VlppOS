@@ -259,8 +259,8 @@ TEST_FILE
 	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char32_t text2U32[] = U"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
-	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
-	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
+	encoding::SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
+	encoding::SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
 
 	/***********************************************************************
 	Encoding

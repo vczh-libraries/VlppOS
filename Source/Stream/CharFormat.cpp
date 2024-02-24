@@ -196,7 +196,7 @@ Utf-16
 			}
 			return chars;
 #elif defined VCZH_WCHAR_UTF32
-			WCharToUtfReader<char16_t> reader(_buffer, chars);
+			UtfStringRangeToStringRangeReader<wchar_t, char16_t> reader(_buffer, chars);
 			while (char16_t c = reader.Read())
 			{
 				vint written = stream->Write(&c, sizeof(c));
@@ -273,7 +273,7 @@ Utf-16-be
 				return counter;
 			}
 #elif defined VCZH_WCHAR_UTF32
-			WCharToUtfReader<char16_t> reader(_buffer, chars);
+			UtfStringRangeToStringRangeReader<wchar_t, char16_t> reader(_buffer, chars);
 			while (char16_t c = reader.Read())
 			{
 				SwapByteForUtf16BE(c);
@@ -340,7 +340,7 @@ Utf-32
 		vint Utf32Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
 #if defined VCZH_WCHAR_UTF16
-			WCharTo32Reader reader(_buffer, chars);
+			UtfStringRangeToStringRangeReader<wchar_t, char32_t> reader(_buffer, chars);
 			while (char32_t c = reader.Read())
 			{
 				vint written = stream->Write(&c, sizeof(c));
