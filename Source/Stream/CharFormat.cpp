@@ -143,6 +143,58 @@ CharDecoder
 		}
 
 /***********************************************************************
+UtfGeneralEncoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
+			while (T c = reader.Read())
+			{
+				vint written = stream->Write(&c, sizeof(c));
+				if (written != sizeof(c))
+				{
+					Close();
+					return 0;
+				}
+			}
+			if (reader.HasIllegalChar())
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+		template class UtfGeneralEncoder<char8_t>;
+		template class UtfGeneralEncoder<char16_t>;
+		template class UtfGeneralEncoder<char32_t>;
+
+/***********************************************************************
+UtfGeneralDecoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
+			{
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
+			}
+			return counter;
+		}
+
+		template class UtfGeneralDecoder<char8_t>;
+		template class UtfGeneralDecoder<char16_t>;
+		template class UtfGeneralDecoder<char32_t>;
+
+/***********************************************************************
 Mbcs
 ***********************************************************************/
 
@@ -184,9 +236,9 @@ Mbcs
 Utf-16
 ***********************************************************************/
 
+#if defined VCZH_WCHAR_UTF16
 		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-#if defined VCZH_WCHAR_UTF16
 			vint size = chars * sizeof(wchar_t);
 			vint written = stream->Write(_buffer, size);
 			if (written != size)
@@ -195,53 +247,23 @@ Utf-16
 				return 0;
 			}
 			return chars;
-#elif defined VCZH_WCHAR_UTF32
-			UtfStringRangeToStringRangeReader<wchar_t, char16_t> reader(_buffer, chars);
-			while (char16_t c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-#endif
 		}
 
 		vint Utf16Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_WCHAR_UTF16
 			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
 			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
 			return read / sizeof(wchar_t);
-#elif defined VCZH_WCHAR_UTF32
-			reader.Setup(stream);
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-#endif
 		}
+#endif
 
 /***********************************************************************
 Utf-16-be
 ***********************************************************************/
 
+#if defined VCZH_WCHAR_UTF16
 		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-#if defined VCZH_WCHAR_UTF16
 			if (freeToUpdate)
 			{
 				SwapBytesForUtf16BE(_buffer, chars);
@@ -272,91 +294,25 @@ Utf-16-be
 				}
 				return counter;
 			}
-#elif defined VCZH_WCHAR_UTF32
-			UtfStringRangeToStringRangeReader<wchar_t, char16_t> reader(_buffer, chars);
-			while (char16_t c = reader.Read())
-			{
-				SwapByteForUtf16BE(c);
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-#endif
 		}
 
 		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_WCHAR_UTF16
 			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
 			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
 			vint readChars = read / sizeof(wchar_t);
 			SwapBytesForUtf16BE(_buffer, readChars);
 			return readChars;
-#elif defined VCZH_WCHAR_UTF32
-			reader.Setup(stream);
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
+		}
 #endif
-		}
-
-/***********************************************************************
-Utf8
-***********************************************************************/
-
-		vint Utf8Decoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			reader.Setup(stream);
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-		}
 
 /***********************************************************************
 Utf-32
 ***********************************************************************/
 
+#if defined VCZH_WCHAR_UTF32
 		vint Utf32Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-#if defined VCZH_WCHAR_UTF16
-			UtfStringRangeToStringRangeReader<wchar_t, char32_t> reader(_buffer, chars);
-			while (char32_t c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-#elif defined VCZH_WCHAR_UTF32
 			vint size = chars * sizeof(wchar_t);
 			vint written = stream->Write(_buffer, size);
 			if (written != size)
@@ -365,27 +321,14 @@ Utf-32
 				return 0;
 			}
 			return chars;
-#endif
 		}
 
 		vint Utf32Decoder::ReadString(wchar_t* _buffer, vint chars)
 		{
-#if defined VCZH_WCHAR_UTF16
-			reader.Setup(stream);
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-#elif defined VCZH_WCHAR_UTF32
 			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
 			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
 			return read / sizeof(wchar_t);
-#endif
 		}
+#endif
 	}
 }

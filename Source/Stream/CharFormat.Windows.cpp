@@ -19,6 +19,11 @@ namespace vl
 			return IsDBCSLeadByte(c);
 		}
 
+		void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars)
+		{
+			MultiByteToWideChar(CP_THREAD_ACP, 0, mbcsBuffer, (int)mbcsChars, wideBuffer, (int)wideChars);
+		}
+
 /***********************************************************************
 Mbcs
 ***********************************************************************/
@@ -37,11 +42,6 @@ Mbcs
 				return 0;
 			}
 			return chars;
-		}
-
-		void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars)
-		{
-			MultiByteToWideChar(CP_THREAD_ACP, 0, mbcsBuffer, (int)mbcsChars, wideBuffer, (int)wideChars);
 		}
 
 /***********************************************************************
