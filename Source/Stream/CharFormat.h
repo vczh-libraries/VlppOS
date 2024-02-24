@@ -10,27 +10,12 @@ Licensed under https://github.com/vczh-libraries/License
 
 namespace vl
 {
-	struct char16be_t
-	{
-		char16_t				value;
-	};
-
 	namespace encoding
 	{
 
 /***********************************************************************
 Helper Functions
 ***********************************************************************/
-
-		template<typename T>
-		__forceinline void SwapByteForUtf16BE(T& c)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			vuint8_t* bytes = (vuint8_t*)&c;
-			vuint8_t t = bytes[0];
-			bytes[0] = bytes[1];
-			bytes[1] = t;
-		}
 
 		template<typename T>
 		void SwapBytesForUtf16BE(T* _buffer, vint chars)
@@ -41,131 +26,6 @@ Helper Functions
 				SwapByteForUtf16BE(_buffer[i]);
 			}
 		}
-
-/***********************************************************************
-char16be_t
-***********************************************************************/
-
-		template<>
-		struct UtfConversion<char16be_t>
-		{
-			static const vint		BufferLength = 2;
-
-			static vint From32(char32_t source, char16be_t(&dest)[BufferLength])
-			{
-				char16_t destle[BufferLength];
-				UtfConversion<char16_t>::From32(source, destle);
-				SwapByteForUtf16BE(destle[0]);
-				SwapByteForUtf16BE(destle[1]);
-				dest[0].value = destle[0];
-				dest[1].value = destle[1];
-			}
-
-			static vint To32(const char16be_t* source, vint sourceLength, char32_t& dest)
-			{
-				char16_t destle[BufferLength];
-				if (sourceLength >= 1) destle[0] = source[0].value;
-				if (sourceLength >= 2) destle[1] = source[1].value;
-				SwapByteForUtf16BE(destle[0]);
-				SwapByteForUtf16BE(destle[1]);
-				UtfConversion<char16_t>::To32(destle, sourceLength, dest);
-			}
-		};
-
-/***********************************************************************
-UtfStringRangeConsumer<T>
-***********************************************************************/
-
-		template<typename T>
-		class UtfStringRangeConsumer : public Object
-		{
-		protected:
-			const T*				starting = nullptr;
-			const T*				ending = nullptr;
-			const T*				consuming = nullptr;
-
-			T Consume()
-			{
-				if (consuming == ending) return 0;
-				return *consuming++;
-			}
-		public:
-			UtfStringRangeConsumer(const T* _starting, const T* _ending)
-				: starting(_starting)
-				, ending(_ending)
-				, consuming(_starting)
-			{
-			}
-
-			UtfStringRangeConsumer(const T* _starting, vint count)
-				: starting(_starting)
-				, ending(_starting + count)
-				, consuming(_starting)
-			{
-			}
-
-			bool HasIllegalChar() const
-			{
-				return false;
-			}
-		};
-
-/***********************************************************************
-UtfStringRangeToStringRangeReader<TFrom, TTo>
-***********************************************************************/
-
-		template<typename TFrom, typename TTo>
-		class UtfStringRangeToStringRangeReader : public UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>>>
-		{
-			using TBase = UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>>>;
-		public:
-			UtfStringRangeToStringRangeReader(const TFrom* _starting, const TFrom* _ending)
-				: TBase(_starting, _ending)
-			{
-			}
-
-			UtfStringRangeToStringRangeReader(const TFrom* _starting, vint count)
-				: TBase(_starting, count)
-			{
-			}
-
-			UtfCharCluster SourceCluster() const
-			{
-				return this->internalReader.SourceCluster();
-			}
-		};
-
-		template<typename TTo>
-		class UtfStringRangeToStringRangeReader<char32_t, TTo> : public UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<char32_t>>
-		{
-			using TBase = UtfFrom32ReaderBase<TTo, UtfStringRangeConsumer<char32_t>>;
-		public:
-			UtfStringRangeToStringRangeReader(const char32_t* _starting, const char32_t* _ending)
-				: TBase(_starting, _ending)
-			{
-			}
-
-			UtfStringRangeToStringRangeReader(const char32_t* _starting, vint count)
-				: TBase(_starting, count)
-			{
-			}
-		};
-
-		template<typename TFrom>
-		class UtfStringRangeToStringRangeReader<TFrom, char32_t> : public UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>
-		{
-			using TBase = UtfTo32ReaderBase<TFrom, UtfStringRangeConsumer<TFrom>>;
-		public:
-			UtfStringRangeToStringRangeReader(const TFrom* _starting, const TFrom* _ending)
-				: TBase(_starting, _ending)
-			{
-			}
-
-			UtfStringRangeToStringRangeReader(const TFrom* _starting, vint count)
-				: TBase(_starting, count)
-			{
-			}
-		};
 	}
 
 	namespace stream
