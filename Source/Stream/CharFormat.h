@@ -86,9 +86,8 @@ UtfStringRangeConsumer<T>
 
 			T Consume()
 			{
-				T c = *consuming;
-				if (c) consuming++;
-				return c;
+				if (consuming == ending) return 0;
+				return *consuming++;
 			}
 		public:
 			UtfStringRangeConsumer(const T* _starting, const T* _ending)
@@ -209,7 +208,6 @@ UtfStreamToStreamReader<TFrom, TTo>
 		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, encoding::UtfReaderConsumer<encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>>>
 		{
 		public:
-
 			void Setup(IStream* _stream)
 			{
 				this->internalReader.Setup(_stream);
