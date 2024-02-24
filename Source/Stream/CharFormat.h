@@ -20,6 +20,7 @@ Helper Functions
 		template<typename T>
 		__forceinline void SwapByteForUtf16BE(T& c)
 		{
+			static_assert(sizeof(T) == sizeof(char16_t));
 			vuint8_t* bytes = (vuint8_t*)&c;
 			vuint8_t t = bytes[0];
 			bytes[0] = bytes[1];
@@ -32,62 +33,75 @@ Helper Functions
 			static_assert(sizeof(T) == sizeof(char16_t));
 			for (vint i = 0; i < chars; i++)
 			{
-				vuint8_t* bytes = (vuint8_t*)(_buffer + i);
-				vuint8_t t = bytes[0];
-				bytes[0] = bytes[1];
-				bytes[1] = t;
+				SwapByteForUtf16BE(_buffer[i]);
 			}
 		}
 
 /***********************************************************************
-WCharToUtfReader
+UtfStringRangeConsumer<T>
 ***********************************************************************/
 
-		class WCharTo32Reader : public encoding::UtfTo32ReaderBase<wchar_t, WCharTo32Reader>
+		template<typename T>
+		class UtfStringRangeConsumer : public Object
 		{
-			template<typename T, typename TBase>
-			friend class encoding::UtfTo32ReaderBase;
 		protected:
-			const wchar_t* starting = nullptr;
-			const wchar_t* ending = nullptr;
-			const wchar_t* consuming = nullptr;
+			const T*				starting = nullptr;
+			const T*				ending = nullptr;
+			const T*				consuming = nullptr;
 
-			wchar_t Consume()
+			T Consume()
 			{
-				if (consuming == ending) return 0;
-				return *consuming++;
-			}
-
-		public:
-			WCharTo32Reader(const wchar_t* _starting, vint count)
-			{
-				starting = _starting;
-				ending = _starting + count;
-				consuming = _starting;
-			}
-		};
-
-		template<typename TTo>
-		class WCharToUtfReader : public encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>
-		{
-			template<typename T, typename TBase>
-			friend class encoding::UtfFrom32ReaderBase;
-		protected:
-			WCharTo32Reader internalReader;
-
-			char32_t Consume()
-			{
-				return internalReader.Read();
+				T c = *consuming;
+				if (c) consuming++;
+				return c;
 			}
 		public:
-			WCharToUtfReader(const wchar_t* _starting, vint count)
-				: internalReader(_starting, count)
+			UtfStringRangeConsumer(const T* _starting, const T* _ending)
+				: starting(_starting)
+				, ending(_ending)
+				, consuming(_starting)
+			{
+			}
+
+			UtfStringRangeConsumer(const T* _starting, vint count)
+				: starting(_starting)
+				, ending(_starting + count)
+				, consuming(_starting)
 			{
 			}
 
 			bool HasIllegalChar() const
 			{
-				return encoding::UtfFrom32ReaderBase<TTo, WCharToUtfReader<TTo>>::HasIllegalChar() || internalReader.HasIllegalChar();
+				return false;
+			}
+		};
+
+/***********************************************************************
+UtfStringStreamConsumer<T>
+***********************************************************************/
+
+		template<typename T>
+		class UtfStringStreamConsumer : public Object
+		{
+		protected:
+			IStream*				stream = nullptr;
+
+			T Consume()
+			{
+				T c;
+				vint size = stream->Read(&c, sizeof(c));
+				if (size != sizeof(c)) return 0;
+				return c;
+			}
+		public:
+			void Setup(IStream* _stream)
+			{
+				stream = _stream;
+			}
+
+			bool HasIllegalChar() const
+			{
+				return false;
 			}
 		};
 
