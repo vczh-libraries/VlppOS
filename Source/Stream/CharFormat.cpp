@@ -169,6 +169,7 @@ UtfGeneralEncoder
 
 		template class UtfGeneralEncoder<char8_t>;
 		template class UtfGeneralEncoder<char16_t>;
+		template class UtfGeneralEncoder<char16be_t>;
 		template class UtfGeneralEncoder<char32_t>;
 
 /***********************************************************************
@@ -192,6 +193,7 @@ UtfGeneralDecoder
 
 		template class UtfGeneralDecoder<char8_t>;
 		template class UtfGeneralDecoder<char16_t>;
+		template class UtfGeneralDecoder<char16be_t>;
 		template class UtfGeneralDecoder<char32_t>;
 
 /***********************************************************************

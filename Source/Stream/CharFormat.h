@@ -156,6 +156,7 @@ Unicode General
 
 		extern template class UtfGeneralEncoder<char8_t>;
 		extern template class UtfGeneralEncoder<char16_t>;
+		extern template class UtfGeneralEncoder<char16be_t>;
 		extern template class UtfGeneralEncoder<char32_t>;
 
 		template<typename T>
@@ -169,6 +170,7 @@ Unicode General
 
 		extern template class UtfGeneralDecoder<char8_t>;
 		extern template class UtfGeneralDecoder<char16_t>;
+		extern template class UtfGeneralDecoder<char16be_t>;
 		extern template class UtfGeneralDecoder<char32_t>;
 
 /***********************************************************************
