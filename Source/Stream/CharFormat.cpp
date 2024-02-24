@@ -195,6 +195,33 @@ UtfGeneralDecoder
 		template class UtfGeneralDecoder<char32_t>;
 
 /***********************************************************************
+UtfGeneralEncoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+			vint size = chars * sizeof(wchar_t);
+			vint written = stream->Write(_buffer, size);
+			if (written != size)
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+/***********************************************************************
+UtfGeneralDecoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralDecoder<wchar_t>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
+			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
+			return read / sizeof(wchar_t);
+		}
+
+/***********************************************************************
 Mbcs
 ***********************************************************************/
 
@@ -231,31 +258,6 @@ Mbcs
 			delete[] source;
 			return readed;
 		}
-
-/***********************************************************************
-Utf-16
-***********************************************************************/
-
-#if defined VCZH_WCHAR_UTF16
-		vint Utf16Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			vint size = chars * sizeof(wchar_t);
-			vint written = stream->Write(_buffer, size);
-			if (written != size)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		vint Utf16Decoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			return read / sizeof(wchar_t);
-		}
-#endif
 
 /***********************************************************************
 Utf-16-be
@@ -303,31 +305,6 @@ Utf-16-be
 			vint readChars = read / sizeof(wchar_t);
 			SwapBytesForUtf16BE(_buffer, readChars);
 			return readChars;
-		}
-#endif
-
-/***********************************************************************
-Utf-32
-***********************************************************************/
-
-#if defined VCZH_WCHAR_UTF32
-		vint Utf32Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			vint size = chars * sizeof(wchar_t);
-			vint written = stream->Write(_buffer, size);
-			if (written != size)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		vint Utf32Decoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			return read / sizeof(wchar_t);
 		}
 #endif
 	}

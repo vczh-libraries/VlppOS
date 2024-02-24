@@ -133,14 +133,14 @@ Mbcs
 		class MbcsEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
 		};
 		
 		/// <summary>Decoder to read text in the local code page.</summary>
 		class MbcsDecoder : public CharDecoder
 		{
 		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars);
+			vint							ReadString(wchar_t* _buffer, vint chars) override;
 		};
 
 /***********************************************************************
@@ -151,7 +151,7 @@ Unicode General
 		class UtfGeneralEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
 		};
 
 		extern template class UtfGeneralEncoder<char8_t>;
@@ -164,12 +164,30 @@ Unicode General
 		protected:
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
-			vint							ReadString(wchar_t* _buffer, vint chars);
+			vint							ReadString(wchar_t* _buffer, vint chars) override;
 		};
 
 		extern template class UtfGeneralDecoder<char8_t>;
 		extern template class UtfGeneralDecoder<char16_t>;
 		extern template class UtfGeneralDecoder<char32_t>;
+
+/***********************************************************************
+Unicode General (wchar_t)
+***********************************************************************/
+
+		template<>
+		class UtfGeneralEncoder<wchar_t> : public CharEncoder
+		{
+		protected:
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+		};
+
+		template<>
+		class UtfGeneralDecoder<wchar_t> : public CharDecoder
+		{
+		protected:
+			vint							ReadString(wchar_t* _buffer, vint chars) override;
+		};
 
 /***********************************************************************
 Utf-8
@@ -180,10 +198,9 @@ Utf-8
 		class Utf8Encoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
+			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
 		};
-#elif define VCZH_GCC
-
+#elif defined VCZH_GCC
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
 #endif
@@ -198,18 +215,10 @@ Utf-16
 ***********************************************************************/
 		
 		/// <summary>Encoder to write UTF-16 text.</summary>
-		class Utf16Encoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
-		};
+		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
 		
 		/// <summary>Decoder to read UTF-16 text.</summary>
-		class Utf16Decoder : public CharDecoder
-		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars);
-		};
+		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
 
 /***********************************************************************
 Utf-16-be
@@ -268,23 +277,10 @@ Utf-32
 ***********************************************************************/
 		
 		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf32Encoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
-		};
+		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
 		
 		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf32Decoder : public CharDecoder
-		{
-		protected:
-#if defined VCZH_WCHAR_UTF16
-			UtfStreamToStreamReader<char32_t, wchar_t>		reader;
-#endif
-
-			vint							ReadString(wchar_t* _buffer, vint chars);
-		public:
-		};
+		class Utf32Decoder : public UtfGeneralDecoder<wchar_t> {};
 #endif
 
 /***********************************************************************
