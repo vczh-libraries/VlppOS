@@ -10,8 +10,67 @@ Licensed under https://github.com/vczh-libraries/License
 
 namespace vl
 {
+	struct char16be_t
+	{
+		char16_t				value;
+	};
+
 	namespace encoding
 	{
+
+/***********************************************************************
+Helper Functions
+***********************************************************************/
+
+		template<typename T>
+		__forceinline void SwapByteForUtf16BE(T& c)
+		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			vuint8_t* bytes = (vuint8_t*)&c;
+			vuint8_t t = bytes[0];
+			bytes[0] = bytes[1];
+			bytes[1] = t;
+		}
+
+		template<typename T>
+		void SwapBytesForUtf16BE(T* _buffer, vint chars)
+		{
+			static_assert(sizeof(T) == sizeof(char16_t));
+			for (vint i = 0; i < chars; i++)
+			{
+				SwapByteForUtf16BE(_buffer[i]);
+			}
+		}
+
+/***********************************************************************
+char16be_t
+***********************************************************************/
+
+		template<>
+		struct UtfConversion<char16be_t>
+		{
+			static const vint		BufferLength = 2;
+
+			static vint From32(char32_t source, char16be_t(&dest)[BufferLength])
+			{
+				char16_t destle[BufferLength];
+				UtfConversion<char16_t>::From32(source, destle);
+				SwapByteForUtf16BE(destle[0]);
+				SwapByteForUtf16BE(destle[1]);
+				dest[0].value = destle[0];
+				dest[1].value = destle[1];
+			}
+
+			static vint To32(const char16be_t* source, vint sourceLength, char32_t& dest)
+			{
+				char16_t destle[BufferLength];
+				if (sourceLength >= 1) destle[0] = source[0].value;
+				if (sourceLength >= 2) destle[1] = source[1].value;
+				SwapByteForUtf16BE(destle[0]);
+				SwapByteForUtf16BE(destle[1]);
+				UtfConversion<char16_t>::To32(destle, sourceLength, dest);
+			}
+		};
 
 /***********************************************************************
 UtfStringRangeConsumer<T>
@@ -112,30 +171,6 @@ UtfStringRangeToStringRangeReader<TFrom, TTo>
 
 	namespace stream
 	{
-
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-
-		template<typename T>
-		__forceinline void SwapByteForUtf16BE(T& c)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			vuint8_t* bytes = (vuint8_t*)&c;
-			vuint8_t t = bytes[0];
-			bytes[0] = bytes[1];
-			bytes[1] = t;
-		}
-
-		template<typename T>
-		void SwapBytesForUtf16BE(T* _buffer, vint chars)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			for (vint i = 0; i < chars; i++)
-			{
-				SwapByteForUtf16BE(_buffer[i]);
-			}
-		}
 
 /***********************************************************************
 UtfStreamConsumer<T>
@@ -261,7 +296,7 @@ Utf-16
 		{
 		protected:
 #if defined VCZH_WCHAR_UTF32
-			StreamToWCharReader<char16_t>	reader;
+			UtfStreamToStreamReader<char16_t, wchar_t>		reader;
 #endif
 
 			vint							ReadString(wchar_t* _buffer, vint chars);
@@ -282,7 +317,7 @@ Utf-16-be
 		class Utf16BEDecoder : public CharDecoder
 		{
 		protected:
-			Utf16BEStreamToWCharReader		reader;
+			UtfStreamToStreamReader<char16be_t, wchar_t>	reader;
 
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		};
@@ -302,7 +337,7 @@ Utf-8
 		class Utf8Decoder : public CharDecoder
 		{
 		protected:
-			StreamToWCharReader<char8_t>	reader;
+			UtfStreamToStreamReader<char8_t, wchar_t>		reader;
 
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		public:
@@ -324,7 +359,7 @@ Utf-32
 		{
 		protected:
 #if defined VCZH_WCHAR_UTF16
-			StreamToWCharReader<char32_t>	reader;
+			UtfStreamToStreamReader<char32_t, wchar_t>		reader;
 #endif
 
 			vint							ReadString(wchar_t* _buffer, vint chars);

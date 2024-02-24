@@ -9,6 +9,7 @@ namespace vl
 {
 	namespace stream
 	{
+		using namespace vl::encoding;
 
 /***********************************************************************
 CharEncoder
