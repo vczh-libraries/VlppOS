@@ -14,6 +14,8 @@ namespace vl
 {
 	namespace stream
 	{
+		using namespace vl::encoding;
+
 		bool IsMbcsLeadByte(char c)
 		{
 			return (vint8_t)c < 0;
@@ -51,7 +53,7 @@ Utf8
 
 		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
 		{
-			WCharToUtfReader<char8_t> reader(_buffer, chars);
+			UtfStringRangeToStringRangeReader<wchar_t, char8_t> reader(_buffer, chars);
 			while (char8_t c = reader.Read())
 			{
 				vint written = stream->Write(&c, sizeof(c));
