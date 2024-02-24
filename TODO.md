@@ -8,9 +8,8 @@
   - `vl::filesystem::InjectFileSystemImpl(vl::filesystem::IFileSystemImpl*)`, `nullptr` to cancel, a default implementation using `vl::filesystem::OSFileSystem` will take place.
   - Need to affect `FileStream`.
 - Base64 read/write from text reader/writer.
-  - Refactor `ITextReader/Writer` to accept all string types.
-  - Refactor encoders/decoders to convert between all string types.
   - Implement Base64 encoding as any string types <-> binary.
-  - Document.
+- Refactor `ITextReader/Writer` to accept all string types.
+- Refactor encoders/decoders to convert between all string types.
 
 ## Optional
