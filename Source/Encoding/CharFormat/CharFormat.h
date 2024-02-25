@@ -55,7 +55,7 @@ UtfStreamToStreamReader<TFrom, TTo>
 ***********************************************************************/
 
 		template<typename TFrom, typename TTo>
-		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, encoding::UtfReaderConsumer<encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>>>
+		class UtfStreamToStreamReader : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
 		{
 		public:
 			void Setup(IStream* _stream)
@@ -69,13 +69,9 @@ UtfStreamToStreamReader<TFrom, TTo>
 			}
 		};
 
-		template<typename TTo>
-		class UtfStreamToStreamReader<char32_t, TTo> : public encoding::UtfFrom32ReaderBase<TTo, UtfStreamConsumer<char32_t>>
-		{
-		};
-
-		template<typename TFrom>
-		class UtfStreamToStreamReader<TFrom, char32_t> : public encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>
+		template<typename TFrom, typename TTo>
+			requires(std::is_same_v<TFrom, char32_t> || std::is_same_v<TTo, char32_t>)
+		class UtfStreamToStreamReader<TFrom, TTo> : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
 		{
 		};
 
