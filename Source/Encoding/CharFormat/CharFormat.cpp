@@ -260,54 +260,5 @@ Mbcs
 			delete[] source;
 			return readed;
 		}
-
-/***********************************************************************
-Utf-16-be
-***********************************************************************/
-
-#if defined VCZH_WCHAR_UTF16
-		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			if (freeToUpdate)
-			{
-				SwapBytesForUtf16BE(_buffer, chars);
-				vint size = chars * sizeof(wchar_t);
-				vint written = stream->Write(_buffer, size);
-				SwapBytesForUtf16BE(_buffer, chars);
-				if (written != size)
-				{
-					Close();
-					return 0;
-				}
-				return chars;
-			}
-			else
-			{
-				vint counter = 0;
-				for (vint i = 0; i < chars; i++)
-				{
-					wchar_t c = _buffer[i];
-					SwapByteForUtf16BE(c);
-					vint written = stream->Write(&c, sizeof(c));
-					if (written != sizeof(c))
-					{
-						Close();
-						return 0;
-					}
-					counter++;
-				}
-				return counter;
-			}
-		}
-
-		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			vint readChars = read / sizeof(wchar_t);
-			SwapBytesForUtf16BE(_buffer, readChars);
-			return readChars;
-		}
-#endif
 	}
 }

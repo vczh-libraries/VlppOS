@@ -9,6 +9,16 @@ using namespace vl::collections;
 
 namespace TestStreamEncoding_TestObjects
 {
+	template<typename T>
+	void SwapBytesForUtf16BE(T* _buffer, vint chars)
+	{
+		static_assert(sizeof(T) == sizeof(char16_t));
+		for (vint i = 0; i < chars; i++)
+		{
+			encoding::SwapByteForUtf16BE(_buffer[i]);
+		}
+	}
+
 	void TestEncodingWithStreamReaderWriter(
 		IEncoder& encoder,
 		IDecoder& decoder,
@@ -259,8 +269,8 @@ TEST_FILE
 	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char32_t text2U32[] = U"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
-	encoding::SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
-	encoding::SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
+	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
+	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
 
 	/***********************************************************************
 	Encoding
