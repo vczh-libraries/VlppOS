@@ -7,7 +7,15 @@ using namespace vl::collections;
 
 namespace TestSerialization_TestObjects
 {
-	enum class Seasons
+	enum Seasons1
+	{
+		Spring,
+		Summer,
+		Autumn,
+		Winter,
+	};
+
+	enum class Seasons2
 	{
 		Spring,
 		Summer,
@@ -31,8 +39,6 @@ namespace vl
 	{
 		namespace internal
 		{
-			SERIALIZE_ENUM(Seasons)
-
 			BEGIN_SERIALIZATION(Strings)
 				SERIALIZE(sa)
 				SERIALIZE(sb)
@@ -122,32 +128,46 @@ TEST_FILE
 		TEST_ASSERT(sd1 == sd2);
 	});
 
-	TEST_CASE(L"Serialize Enums and Structs")
+	TEST_CASE(L"Serialize Enums (1)")
 	{
 		MemoryStream memoryStream;
-		Seasons a1 = Seasons::Spring, a2;
-		Seasons b1 = Seasons::Summer, b2;
-		Seasons c1 = Seasons::Autumn, c2;
-		Seasons d1 = Seasons::Winter, d2;
+
+		Seasons1 ea1 = Spring, ea2;
+		Seasons1 eb1 = Summer, eb2;
+		Seasons1 ec1 = Autumn, ec2;
+		Seasons1 ed1 = Winter, ed2;
+
+		Seasons2 eca1 = Seasons2::Spring, eca2;
+		Seasons2 ecb1 = Seasons2::Summer, ecb2;
+		Seasons2 ecc1 = Seasons2::Autumn, ecc2;
+		Seasons2 ecd1 = Seasons2::Winter, ecd2;
+
 		Strings e1, e2;
 		e1.sa = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 		e1.sb = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 		e1.sc = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 		e1.sd = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+
 		{
 			internal::ContextFreeWriter writer(memoryStream);
-			writer << a1 << b1 << c1 << d1 << e1;
+			writer << ea1 << eb1 << ec1 << ed1 << eca1 << ecb1 << ecc1 << ecd1 << e1;
 		}
 		memoryStream.SeekFromBegin(0);
 		{
 			internal::ContextFreeReader reader(memoryStream);
-			reader << a2 << b2 << c2 << d2 << e2;
+			reader << ea2 << eb2 << ec2 << ed2 << eca2 << ecb2 << ecc2 << ecd2 << e2;
 			TEST_ASSERT(memoryStream.Position() == memoryStream.Size());
 		}
-		TEST_ASSERT(a1 == a2);
-		TEST_ASSERT(b1 == b2);
-		TEST_ASSERT(c1 == c2);
-		TEST_ASSERT(d1 == d2);
+
+		TEST_ASSERT(ea1 == ea2);
+		TEST_ASSERT(eb1 == eb2);
+		TEST_ASSERT(ec1 == ec2);
+		TEST_ASSERT(ed1 == ed2);
+
+		TEST_ASSERT(eca1 == eca2);
+		TEST_ASSERT(ecb1 == ecb2);
+		TEST_ASSERT(ecc1 == ecc2);
+		TEST_ASSERT(ecd1 == ecd2);
 
 		TEST_ASSERT(e1.sa == e2.sa);
 		TEST_ASSERT(e1.sb == e2.sb);
@@ -190,34 +210,34 @@ TEST_FILE
 	TEST_CASE(L"Serialize Collections")
 	{
 		MemoryStream memoryStream;
-		List<Seasons> a1, a2;
-		Array<Seasons> b1(4), b2;
-		Dictionary<vint, Seasons> c1, c2;
-		Group<vint, Seasons> d1, d2;
+		List<Seasons2> a1, a2;
+		Array<Seasons2> b1(4), b2;
+		Dictionary<vint, Seasons2> c1, c2;
+		Group<vint, Seasons2> d1, d2;
 
-		a1.Add(Seasons::Spring);
-		a1.Add(Seasons::Summer);
-		a1.Add(Seasons::Autumn);
-		a1.Add(Seasons::Winter);
+		a1.Add(Seasons2::Spring);
+		a1.Add(Seasons2::Summer);
+		a1.Add(Seasons2::Autumn);
+		a1.Add(Seasons2::Winter);
 
-		b1[0] = Seasons::Spring;
-		b1[1] = Seasons::Summer;
-		b1[2] = Seasons::Autumn;
-		b1[3] = Seasons::Winter;
+		b1[0] = Seasons2::Spring;
+		b1[1] = Seasons2::Summer;
+		b1[2] = Seasons2::Autumn;
+		b1[3] = Seasons2::Winter;
 
-		c1.Add(1, Seasons::Spring);
-		c1.Add(2, Seasons::Summer);
-		c1.Add(3, Seasons::Autumn);
-		c1.Add(4, Seasons::Winter);
+		c1.Add(1, Seasons2::Spring);
+		c1.Add(2, Seasons2::Summer);
+		c1.Add(3, Seasons2::Autumn);
+		c1.Add(4, Seasons2::Winter);
 
-		d1.Add(1, Seasons::Spring);
-		d1.Add(1, Seasons::Summer);
-		d1.Add(2, Seasons::Autumn);
-		d1.Add(2, Seasons::Winter);
-		d1.Add(3, Seasons::Spring);
-		d1.Add(3, Seasons::Summer);
-		d1.Add(4, Seasons::Autumn);
-		d1.Add(4, Seasons::Winter);
+		d1.Add(1, Seasons2::Spring);
+		d1.Add(1, Seasons2::Summer);
+		d1.Add(2, Seasons2::Autumn);
+		d1.Add(2, Seasons2::Winter);
+		d1.Add(3, Seasons2::Spring);
+		d1.Add(3, Seasons2::Summer);
+		d1.Add(4, Seasons2::Autumn);
+		d1.Add(4, Seasons2::Winter);
 
 		{
 			internal::ContextFreeWriter writer(memoryStream);

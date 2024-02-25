@@ -196,6 +196,14 @@ Serialization (floats)
 			};
 
 /***********************************************************************
+Serialization (enum)
+***********************************************************************/
+
+			template<typename T>
+				requires(std::is_enum_v<T>)
+			struct Serialization<T> : Serialization_Conversion<T, vint64_t> {};
+
+/***********************************************************************
 Serialization (strings)
 ***********************************************************************/
 
@@ -547,25 +555,6 @@ Serialization (macros)
 
 #define END_SERIALIZATION\
 					;\
-				}\
-			};\
-
-#define SERIALIZE_ENUM(TYPE)\
-			template<>\
-			struct Serialization<TYPE>\
-			{\
-				template<typename TContext>\
-				static void IO(Reader<TContext>& reader, TYPE& value)\
-				{\
-					vint32_t v = 0;\
-					Serialization<vint32_t>::IO(reader, v);\
-					value = (TYPE)v;\
-				}\
-				template<typename TContext>\
-				static void IO(Writer<TContext>& writer, TYPE& value)\
-				{\
-					vint32_t v = (vint32_t)value;\
-					Serialization<vint32_t>::IO(writer, v);\
 				}\
 			};\
 
