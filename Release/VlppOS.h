@@ -1640,21 +1640,16 @@ Utf-8
 		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
 
-#if defined VCZH_WCHAR_UTF16
-
 /***********************************************************************
-Utf-16
+Utf-16 / Utf-16BE / Utf-32
 ***********************************************************************/
+
+#if defined VCZH_WCHAR_UTF16
 		
 		/// <summary>Encoder to write UTF-16 text.</summary>
 		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
-		
 		/// <summary>Decoder to read UTF-16 text.</summary>
 		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
-
-/***********************************************************************
-Utf-16-be
-***********************************************************************/
 		
 		/// <summary>Encoder to write big endian UTF-16 to.</summary>
 		class Utf16BEEncoder : public CharEncoder
@@ -1667,52 +1662,31 @@ Utf-16-be
 		class Utf16BEDecoder : public CharDecoder
 		{
 		protected:
-			UtfStreamToStreamReader<char16be_t, wchar_t>	reader;
-
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		};
-
-/***********************************************************************
-Utf-32
-***********************************************************************/
 		
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf32Encoder : public UtfGeneralEncoder<char32_t> {};
-		
 		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf32Decoder : public UtfGeneralDecoder<char32_t> {};
 
 #elif defined VCZH_WCHAR_UTF32
-
-/***********************************************************************
-Utf-16
-***********************************************************************/
 		
 		/// <summary>Encoder to write UTF-16 text.</summary>
 		class Utf16Encoder : public UtfGeneralEncoder<char16_t> {};
-		
 		/// <summary>Decoder to read UTF-16 text.</summary>
 		class Utf16Decoder : public UtfGeneralDecoder<char16_t> {};
 
-/***********************************************************************
-Utf-16-be
-***********************************************************************/
-		
 		/// <summary>Encoder to write big endian UTF-16 to.</summary>
 		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
-		
 		/// <summary>Decoder to read big endian UTF-16 text.</summary>
 		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
 
-/***********************************************************************
-Utf-32
-***********************************************************************/
-		
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
-		
 		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf32Decoder : public UtfGeneralDecoder<wchar_t> {};
+
 #endif
 
 /***********************************************************************
@@ -2975,6 +2949,14 @@ Serialization (floats)
 			};
 
 /***********************************************************************
+Serialization (enum)
+***********************************************************************/
+
+			template<typename T>
+				requires(std::is_enum_v<T>)
+			struct Serialization<T> : Serialization_Conversion<T, vint64_t> {};
+
+/***********************************************************************
 Serialization (strings)
 ***********************************************************************/
 
@@ -3326,25 +3308,6 @@ Serialization (macros)
 
 #define END_SERIALIZATION\
 					;\
-				}\
-			};\
-
-#define SERIALIZE_ENUM(TYPE)\
-			template<>\
-			struct Serialization<TYPE>\
-			{\
-				template<typename TContext>\
-				static void IO(Reader<TContext>& reader, TYPE& value)\
-				{\
-					vint32_t v = 0;\
-					Serialization<vint32_t>::IO(reader, v);\
-					value = (TYPE)v;\
-				}\
-				template<typename TContext>\
-				static void IO(Writer<TContext>& writer, TYPE& value)\
-				{\
-					vint32_t v = (vint32_t)value;\
-					Serialization<vint32_t>::IO(writer, v);\
 				}\
 			};\
 
