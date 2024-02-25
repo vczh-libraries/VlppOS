@@ -114,7 +114,7 @@ TEST_FILE
 
 			DateTime end = DateTime::LocalTime();
 
-			double time = (end.totalMilliseconds - begin.totalMilliseconds) / 1000.0;
+			double time = (end.osMilliseconds - begin.osMilliseconds) / 1000.0;
 			unittest::UnitTest::PrintMessage(L"    Time elasped: " + ftow(time) + L" seconds", unittest::UnitTest::MessageKind::Info);
 			unittest::UnitTest::PrintMessage(L"    Performance: " + ftow(totalSize / time / (1 << 20)) + L" MB/s", unittest::UnitTest::MessageKind::Info);
 		}
@@ -131,7 +131,7 @@ TEST_FILE
 			Copy(decompressedStream, decoderStream, buffer, totalSize);
 
 			DateTime end = DateTime::LocalTime();
-			double time = (end.totalMilliseconds - begin.totalMilliseconds) / 1000.0;
+			double time = (end.osMilliseconds - begin.osMilliseconds) / 1000.0;
 			unittest::UnitTest::PrintMessage(L"    Time elasped: " + ftow(time) + L" seconds", unittest::UnitTest::MessageKind::Info);
 			unittest::UnitTest::PrintMessage(L"    Performance: " + ftow(totalSize / time / (1 << 20)) + L" MB/s", unittest::UnitTest::MessageKind::Info);
 		}
