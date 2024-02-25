@@ -59,7 +59,7 @@ CharEncoder
 			// write the buffer
 			if (availableChars > 0)
 			{
-				vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
+				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
 				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
 			}
 
@@ -71,6 +71,7 @@ CharEncoder
 				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
 			}
 
+			if (needToFree) delete[] unicode;
 			return _size;
 		}
 
@@ -147,7 +148,7 @@ UtfGeneralEncoder
 ***********************************************************************/
 
 		template<typename T>
-		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars)
 		{
 			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
 			while (T c = reader.Read())
@@ -200,7 +201,7 @@ UtfGeneralDecoder
 UtfGeneralEncoder<wchar_t>
 ***********************************************************************/
 
-		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars)
 		{
 			vint size = chars * sizeof(wchar_t);
 			vint written = stream->Write(_buffer, size);

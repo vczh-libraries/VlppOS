@@ -32,7 +32,7 @@ namespace vl
 Mbcs
 ***********************************************************************/
 
-		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 			WString w = WString::CopyFrom(_buffer, chars);
 			AString a = wtoa(w);

@@ -87,7 +87,7 @@ Char Encoder and Decoder
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) = 0;
+			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
 			void							Setup(IStream* _stream);
@@ -119,7 +119,7 @@ Mbcs
 		class MbcsEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 		
 		/// <summary>Decoder to read text in the local code page.</summary>
@@ -137,7 +137,7 @@ Unicode General
 		class UtfGeneralEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		extern template class UtfGeneralEncoder<char8_t>;
@@ -167,7 +167,7 @@ Unicode General (wchar_t)
 		class UtfGeneralEncoder<wchar_t> : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		template<>
@@ -186,7 +186,7 @@ Utf-8
 		class Utf8Encoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 #elif defined VCZH_GCC
 		/// <summary>Encoder to write UTF-8 text.</summary>

@@ -97,7 +97,7 @@ Text Related
 			WString						ReadLine();
 			WString						ReadToEnd();
 		};
-		
+
 		/// <summary>
 		/// Text reader from a stream storing characters in wchar_t.
 		/// </summary>
