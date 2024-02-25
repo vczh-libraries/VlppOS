@@ -592,6 +592,1209 @@ ThreadLocalStorage
 
 
 /***********************************************************************
+.\ENCODING\LZWENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+		using namespace collections;
+		using namespace lzw;
+
+/***********************************************************************
+LzwBase
+***********************************************************************/
+
+		void LzwBase::UpdateIndexBits()
+		{
+			if (nextIndex >=2 && (nextIndex & (nextIndex - 1)) == 0)
+			{
+				indexBits++;
+			}
+		}
+
+		lzw::Code* LzwBase::CreateCode(lzw::Code* prefix, vuint8_t byte)
+		{
+			if (nextIndex < MaxDictionarySize)
+			{
+				Code* code = codeAllocator.Create();
+				code->byte = byte;
+				code->code = nextIndex;
+				code->parent = prefix;
+				code->size = prefix->size + 1;
+				prefix->children.Set(byte, code, mapAllocator);
+				nextIndex++;
+
+				return code;
+			}
+			else
+			{
+				return 0;
+			}
+		}
+
+		LzwBase::LzwBase()
+			:codeAllocator(65536)
+			, mapAllocator(1048576)
+		{
+			root = codeAllocator.Create();
+
+			for (vint i = 0; i < 256; i++)
+			{
+				UpdateIndexBits();
+				CreateCode(root, (vuint8_t)i);
+			}
+		}
+
+		LzwBase::LzwBase(bool (&existingBytes)[256])
+		{
+			root = codeAllocator.Create();
+			for (vint i = 0; i < 256; i++)
+			{
+				if (existingBytes[i])
+				{
+					UpdateIndexBits();
+					CreateCode(root, (vuint8_t)i);
+				}
+			}
+
+			if (indexBits < 8)
+			{
+				eofIndex = nextIndex++;
+			}
+		}
+
+		LzwBase::~LzwBase()
+		{
+		}
+
+/***********************************************************************
+LzwEncoder
+***********************************************************************/
+
+		void LzwEncoder::Flush()
+		{
+			vint written = 0;
+			vint bufferUsedSize = bufferUsedBits / 8;
+			if (bufferUsedBits % 8 != 0)
+			{
+				bufferUsedSize++;
+			}
+			while (written < bufferUsedSize)
+			{
+				vint size = stream->Write(buffer + written, bufferUsedSize - written);
+				CHECK_ERROR(size != 0, L"LzwEncoder::Flush()#Failed to flush the lzw buffer.");
+				written += size;
+			}
+			bufferUsedBits = 0;
+		}
+
+		vuint8_t highMarks[9] = { 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF };
+		vuint8_t lowMarks[9] = { 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF };
+
+		void LzwEncoder::WriteNumber(vint number, vint bitSize)
+		{
+			vint bitStart = 0;
+			vint bitStep = 8 - bufferUsedBits % 8;
+			if (bitStep > bitSize)
+			{
+				bitStep = bitSize;
+			}
+			while (bitStart < bitSize)
+			{
+				if(bufferUsedBits == BufferSize * 8)
+				{
+					Flush();
+				}
+
+				vint writeStart = bufferUsedBits % 8;
+				vint byteIndex = bufferUsedBits / 8;
+				vuint8_t byte = buffer[byteIndex];
+				byte &= highMarks[writeStart];
+
+				vuint8_t content = (vuint8_t)((number >> bitStart)&lowMarks[bitStep]) << (8 - writeStart - bitStep);
+				byte |= content;
+
+				buffer[byteIndex] = byte;
+				bufferUsedBits += bitStep;
+
+				bitStart += bitStep;
+				vint remain = bitSize - bitStart;
+				bitStep = remain < 8 ? remain : 8;
+			}
+		}
+
+		LzwEncoder::LzwEncoder()
+		{
+			prefix = root;
+		}
+
+		LzwEncoder::LzwEncoder(bool (&existingBytes)[256])
+			:LzwBase(existingBytes)
+		{
+			prefix = root;
+		}
+
+		LzwEncoder::~LzwEncoder()
+		{
+		}
+
+		void LzwEncoder::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void LzwEncoder::Close()
+		{
+			if (prefix != root)
+			{
+				WriteNumber(prefix->code, indexBits);
+				prefix = root;
+			}
+
+			vint remain = 8 - bufferUsedBits % 8;
+			if (remain != 8 && remain >= indexBits)
+			{
+				CHECK_ERROR(eofIndex != -1, L"LzwEncoder::Close()#Internal error.");
+				WriteNumber(eofIndex, indexBits);
+			}
+			Flush();
+		}
+
+		vint LzwEncoder::Write(void* _buffer, vint _size)
+		{
+			vuint8_t* bytes = (vuint8_t*)_buffer;
+			for (vint i = 0; i < _size; i++)
+			{
+				vuint8_t byte = bytes[i];
+				Code* next = prefix->children.Get(byte);
+				if (next)
+				{
+					prefix = next;
+				}
+				else
+				{
+					WriteNumber(prefix->code, indexBits);
+
+					if (nextIndex < MaxDictionarySize)
+					{
+						UpdateIndexBits();
+						CreateCode(prefix, byte);
+					}
+					prefix = root->children.Get(byte);
+				}
+			}
+			return _size;
+		}
+
+/***********************************************************************
+LzwDecoder
+***********************************************************************/
+
+		bool LzwDecoder::ReadNumber(vint& number, vint bitSize)
+		{
+			number = 0;
+			if (inputBufferSize == -1)
+			{
+				return false;
+			}
+
+			vint remainBits = inputBufferSize * 8 - inputBufferUsedBits;
+			vint writtenBits = 0;
+			vint bitStep = 8 - inputBufferUsedBits % 8;
+			if (bitStep > bitSize)
+			{
+				bitStep = bitSize;
+			}
+			while (writtenBits < bitSize)
+			{
+				if (remainBits == 0)
+				{
+					inputBufferSize = stream->Read(inputBuffer, BufferSize);
+					if (inputBufferSize == 0)
+					{
+						inputBufferSize = -1;
+						return false;
+					}
+					remainBits = inputBufferSize * 8;
+					inputBufferUsedBits = 0;
+				}
+
+				vuint8_t byte = inputBuffer[inputBufferUsedBits / 8];
+				byte >>= (8 - inputBufferUsedBits % 8 - bitStep);
+				byte &= lowMarks[bitStep];
+				number |= byte << writtenBits;
+
+				inputBufferUsedBits += bitStep;
+				remainBits -= bitStep;
+				writtenBits += bitStep;
+				vint remain = bitSize - writtenBits;
+				bitStep = remain < 8 ? remain : 8;
+			}
+
+			return true;
+		}
+
+		void LzwDecoder::PrepareOutputBuffer(vint size)
+		{
+			if (outputBuffer.Count() < size)
+			{
+				outputBuffer.Resize(size);
+			}
+			outputBufferSize = size;
+		}
+
+		void LzwDecoder::ExpandCodeToOutputBuffer(lzw::Code* code)
+		{
+			vuint8_t* outputByte = &outputBuffer[0] + code->size;
+			Code* current = code;
+			while (current != root)
+			{
+				*(--outputByte) = current->byte;
+				current = current->parent;
+			}
+			outputBufferUsedBytes = 0;
+		}
+
+		LzwDecoder::LzwDecoder()
+		{
+			for (vint i = 0; i < 256; i++)
+			{
+				dictionary.Add(root->children.Get((vuint8_t)i));
+			}
+		}
+
+		LzwDecoder::LzwDecoder(bool (&existingBytes)[256])
+			:LzwBase(existingBytes)
+		{
+			for (vint i = 0; i < 256; i++)
+			{
+				if (existingBytes[i])
+				{
+					dictionary.Add(root->children.Get((vuint8_t)i));
+				}
+			}
+			if (eofIndex != -1)
+			{
+				dictionary.Add(nullptr);
+			}
+		}
+
+		LzwDecoder::~LzwDecoder()
+		{
+		}
+
+		void LzwDecoder::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void LzwDecoder::Close()
+		{
+		}
+
+		vint LzwDecoder::Read(void* _buffer, vint _size)
+		{
+			vint written = 0;
+			vuint8_t* bytes = (vuint8_t*)_buffer;
+			while (written < _size)
+			{
+				vint expect = _size - written;
+				vint remain = outputBufferSize - outputBufferUsedBytes;
+				if (remain == 0)
+				{
+					vint index = 0;
+					if (!ReadNumber(index, indexBits) || index == eofIndex)
+					{
+						break;
+					}
+
+					Code* prefix = 0;
+					if (index == dictionary.Count())
+					{
+						prefix = lastCode;
+						PrepareOutputBuffer(prefix->size + 1);
+						ExpandCodeToOutputBuffer(prefix);
+						outputBuffer[outputBufferSize - 1] = outputBuffer[0];
+					}
+					else
+					{
+						prefix = dictionary[index];
+						PrepareOutputBuffer(prefix->size);
+						ExpandCodeToOutputBuffer(prefix);
+					}
+					
+					if (nextIndex < MaxDictionarySize)
+					{
+						if (lastCode)
+						{
+							dictionary.Add(CreateCode(lastCode, outputBuffer[0]));
+						}
+						UpdateIndexBits();
+					}
+					lastCode = dictionary[index];
+				}
+				else
+				{
+					if (remain > expect)
+					{
+						remain = expect;
+					}
+					memcpy(bytes + written, &outputBuffer[outputBufferUsedBytes], remain);
+
+					outputBufferUsedBytes += remain;
+					written += remain;
+				}
+			}
+			return written;
+		}
+
+/***********************************************************************
+Helper Functions
+***********************************************************************/
+
+		vint CopyStream(stream::IStream& inputStream, stream::IStream& outputStream)
+		{
+			vint totalSize = 0;
+			while (true)
+			{
+				char buffer[1024];
+				vint copied = inputStream.Read(buffer, (vint)sizeof(buffer));
+				if (copied == 0)
+				{
+					break;
+				}
+				totalSize += outputStream.Write(buffer, copied);
+			}
+			return totalSize;
+		}
+
+		const vint CompressionFragmentSize = 1048576;
+
+		void CompressStream(stream::IStream& inputStream, stream::IStream& outputStream)
+		{
+			Array<char> buffer(CompressionFragmentSize);
+			while (true)
+			{
+				vint size = inputStream.Read(&buffer[0], buffer.Count());
+				if (size == 0) break;
+
+				MemoryStream compressedStream;
+				{
+					LzwEncoder encoder;
+					EncoderStream encoderStream(compressedStream, encoder);
+					encoderStream.Write(&buffer[0], size);
+				}
+
+				compressedStream.SeekFromBegin(0);
+				{
+					{
+						vint32_t bufferSize = (vint32_t)size;
+						outputStream.Write(&bufferSize, (vint)sizeof(bufferSize));
+					}
+					{
+						vint32_t compressedSize = (vint32_t)compressedStream.Size();
+						outputStream.Write(&compressedSize, (vint)sizeof(compressedSize));
+					}
+					CopyStream(compressedStream, outputStream);
+				}
+			}
+		}
+
+		void DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream)
+		{
+			vint totalSize = 0;
+			vint totalWritten = 0;
+			while (true)
+			{
+				vint32_t bufferSize = 0;
+				if (inputStream.Read(&bufferSize, (vint)sizeof(bufferSize)) != sizeof(bufferSize))
+				{
+					break;
+				}
+
+				vint32_t compressedSize = 0;
+				CHECK_ERROR(inputStream.Read(&compressedSize, (vint)sizeof(compressedSize)) == sizeof(compressedSize), L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
+
+				Array<char> buffer(compressedSize);
+				CHECK_ERROR(inputStream.Read(&buffer[0], compressedSize) == compressedSize, L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
+
+				MemoryWrapperStream compressedStream(&buffer[0], compressedSize);
+				LzwDecoder decoder;
+				DecoderStream decoderStream(compressedStream, decoder);
+				totalWritten += CopyStream(decoderStream, outputStream);
+				totalSize += bufferSize;
+			}
+			CHECK_ERROR(outputStream.Size() == totalSize, L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
+		}
+	}
+}
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARFORMAT.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+		using namespace vl::encoding;
+
+/***********************************************************************
+CharEncoder
+***********************************************************************/
+
+		void CharEncoder::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void CharEncoder::Close()
+		{
+		}
+
+		vint CharEncoder::Write(void* _buffer, vint _size)
+		{
+			// prepare a buffer for input
+			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
+			vint availableBytes = availableChars * sizeof(wchar_t);
+			bool needToFree = false;
+			vuint8_t* unicode = nullptr;
+			if (cacheSize > 0)
+			{
+				unicode = new vuint8_t[cacheSize + _size];
+				memcpy(unicode, cacheBuffer, cacheSize);
+				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
+				needToFree = true;
+			}
+			else
+			{
+				unicode = (vuint8_t*)_buffer;
+			}
+
+#if defined VCZH_WCHAR_UTF16
+			if (availableChars > 0)
+			{
+				// a surrogate pair must be written as a whole thing
+				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
+				if ((c & 0xFC00U) == 0xD800U)
+				{
+					availableChars -= 1;
+					availableBytes -= sizeof(wchar_t);
+				}
+			}
+#endif
+
+			// write the buffer
+			if (availableChars > 0)
+			{
+				vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
+				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			}
+
+			// cache the remaining
+			cacheSize = cacheSize + _size - availableBytes;
+			if (cacheSize > 0)
+			{
+				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
+				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
+			}
+
+			return _size;
+		}
+
+/***********************************************************************
+CharDecoder
+***********************************************************************/
+
+		void CharDecoder::Setup(IStream* _stream)
+		{
+			stream=_stream;
+		}
+
+		void CharDecoder::Close()
+		{
+		}
+
+		vint CharDecoder::Read(void* _buffer, vint _size)
+		{
+			vuint8_t* writing = (vuint8_t*)_buffer;
+			vint filledBytes = 0;
+
+			// feed the cache first
+			if (cacheSize > 0)
+			{
+				filledBytes = cacheSize < _size ? cacheSize : _size;
+				memcpy(writing, cacheBuffer, cacheSize);
+				_size -= filledBytes;
+				writing += filledBytes;
+
+				// adjust the cache if it is not fully consumed
+				cacheSize -= filledBytes;
+				if (cacheSize > 0)
+				{
+					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
+				}
+
+				if (_size == 0)
+				{
+					return filledBytes;
+				}
+			}
+
+			// fill the buffer as many as possible
+			while (_size >= sizeof(wchar_t))
+			{
+				vint availableChars = _size / sizeof(wchar_t);
+				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
+				if (readBytes == 0) break;
+				filledBytes += readBytes;
+				_size -= readBytes;
+				writing += readBytes;
+			}
+
+			// cache the remaining wchar_t
+			if (_size < sizeof(wchar_t))
+			{
+				wchar_t c;
+				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
+				if (readChars == sizeof(wchar_t))
+				{
+					vuint8_t* reading = (vuint8_t*)&c;
+					memcpy(writing, reading, _size);
+					filledBytes += _size;
+					cacheSize = sizeof(wchar_t) - _size;
+					memcpy(cacheBuffer, reading + _size, cacheSize);
+				}
+			}
+
+			return filledBytes;
+		}
+
+/***********************************************************************
+UtfGeneralEncoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
+			while (T c = reader.Read())
+			{
+				vint written = stream->Write(&c, sizeof(c));
+				if (written != sizeof(c))
+				{
+					Close();
+					return 0;
+				}
+			}
+			if (reader.HasIllegalChar())
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+		template class UtfGeneralEncoder<char8_t>;
+		template class UtfGeneralEncoder<char16_t>;
+		template class UtfGeneralEncoder<char16be_t>;
+		template class UtfGeneralEncoder<char32_t>;
+
+/***********************************************************************
+UtfGeneralDecoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			reader.Setup(stream);
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
+			{
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
+			}
+			return counter;
+		}
+
+		template class UtfGeneralDecoder<char8_t>;
+		template class UtfGeneralDecoder<char16_t>;
+		template class UtfGeneralDecoder<char16be_t>;
+		template class UtfGeneralDecoder<char32_t>;
+
+/***********************************************************************
+UtfGeneralEncoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+			vint size = chars * sizeof(wchar_t);
+			vint written = stream->Write(_buffer, size);
+			if (written != size)
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+/***********************************************************************
+UtfGeneralDecoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralDecoder<wchar_t>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
+			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
+			return read / sizeof(wchar_t);
+		}
+
+/***********************************************************************
+Mbcs
+***********************************************************************/
+
+		extern bool IsMbcsLeadByte(char c);
+		extern void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars);
+
+		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
+		{
+			char* source = new char[chars * 2];
+			char* reading = source;
+			vint readed = 0;
+			while (readed < chars)
+			{
+				if (stream->Read(reading, 1) != 1)
+				{
+					break;
+				}
+				if (IsMbcsLeadByte(*reading))
+				{
+					if (stream->Read(reading + 1, 1) != 1)
+					{
+						break;
+					}
+					reading += 2;
+				}
+				else
+				{
+					reading++;
+				}
+				readed++;
+			}
+
+			MbcsToWChar(_buffer, chars, readed, source, (vint)(reading - source));
+			delete[] source;
+			return readed;
+		}
+
+/***********************************************************************
+Utf-16-be
+***********************************************************************/
+
+#if defined VCZH_WCHAR_UTF16
+		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		{
+			if (freeToUpdate)
+			{
+				SwapBytesForUtf16BE(_buffer, chars);
+				vint size = chars * sizeof(wchar_t);
+				vint written = stream->Write(_buffer, size);
+				SwapBytesForUtf16BE(_buffer, chars);
+				if (written != size)
+				{
+					Close();
+					return 0;
+				}
+				return chars;
+			}
+			else
+			{
+				vint counter = 0;
+				for (vint i = 0; i < chars; i++)
+				{
+					wchar_t c = _buffer[i];
+					SwapByteForUtf16BE(c);
+					vint written = stream->Write(&c, sizeof(c));
+					if (written != sizeof(c))
+					{
+						Close();
+						return 0;
+					}
+					counter++;
+				}
+				return counter;
+			}
+		}
+
+		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
+		{
+			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
+			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
+			vint readChars = read / sizeof(wchar_t);
+			SwapBytesForUtf16BE(_buffer, readChars);
+			return readChars;
+		}
+#endif
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARFORMAT_BOM.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+BomEncoder
+***********************************************************************/
+
+		BomEncoder::BomEncoder(Encoding _encoding)
+			:encoding(_encoding)
+			,encoder(0)
+		{
+			switch(encoding)
+			{
+			case Mbcs:
+				encoder=new MbcsEncoder;
+				break;
+			case Utf8:
+				encoder=new Utf8Encoder;
+				break;
+			case Utf16:
+				encoder=new Utf16Encoder;
+				break;
+			case Utf16BE:
+				encoder=new Utf16BEEncoder;
+				break;
+			}
+		}
+
+		BomEncoder::~BomEncoder()
+		{
+			Close();
+		}
+
+		void BomEncoder::Setup(IStream* _stream)
+		{
+			switch(encoding)
+			{
+			case Mbcs:
+				break;
+			case Utf8:
+				_stream->Write((void*)"\xEF\xBB\xBF", 3);
+				break;
+			case Utf16:
+				_stream->Write((void*)"\xFF\xFE", 2);
+				break;
+			case Utf16BE:
+				_stream->Write((void*)"\xFE\xFF", 2);
+				break;
+			}
+			encoder->Setup(_stream);
+		}
+
+		void BomEncoder::Close()
+		{
+			if(encoder)
+			{
+				encoder->Close();
+				delete encoder;
+				encoder=0;
+			}
+		}
+
+		vint BomEncoder::Write(void* _buffer, vint _size)
+		{
+			return encoder->Write(_buffer, _size);
+		}
+
+/***********************************************************************
+BomDecoder
+***********************************************************************/
+
+		BomDecoder::BomStream::BomStream(IStream* _stream, char* _bom, vint _bomLength)
+			:stream(_stream)
+			,bomPosition(0)
+			,bomLength(_bomLength)
+		{
+			memcpy(bom, _bom, bomLength);
+		}
+
+		bool BomDecoder::BomStream::CanRead()const
+		{
+			return IsAvailable();
+		}
+
+		bool BomDecoder::BomStream::CanWrite()const
+		{
+			return false;
+		}
+
+		bool BomDecoder::BomStream::CanSeek()const
+		{
+			return false;
+		}
+
+		bool BomDecoder::BomStream::CanPeek()const
+		{
+			return false;
+		}
+
+		bool BomDecoder::BomStream::IsLimited()const
+		{
+			return stream!=0 && stream->IsLimited();
+		}
+
+		bool BomDecoder::BomStream::IsAvailable()const
+		{
+			return stream!=0 && stream->IsAvailable();
+		}
+
+		void BomDecoder::BomStream::Close()
+		{
+			stream=0;
+		}
+
+		pos_t BomDecoder::BomStream::Position()const
+		{
+			return IsAvailable()?bomPosition+stream->Position():-1;
+		}
+
+		pos_t BomDecoder::BomStream::Size()const
+		{
+			return -1;
+		}
+
+		void BomDecoder::BomStream::Seek(pos_t _size)
+		{
+			CHECK_FAIL(L"BomDecoder::BomStream::Seek(pos_t)#Operation not supported.");
+		}
+
+		void BomDecoder::BomStream::SeekFromBegin(pos_t _size)
+		{
+			CHECK_FAIL(L"BomDecoder::BomStream::SeekFromBegin(pos_t)#Operation not supported.");
+		}
+
+		void BomDecoder::BomStream::SeekFromEnd(pos_t _size)
+		{
+			CHECK_FAIL(L"BomDecoder::BomStream::SeekFromEnd(pos_t)#Operation not supported.");
+		}
+
+		vint BomDecoder::BomStream::Read(void* _buffer, vint _size)
+		{
+			vint result=0;
+			unsigned char* buffer=(unsigned char*)_buffer;
+			if(bomPosition<bomLength)
+			{
+				vint remain=bomLength-bomPosition;
+				result=remain<_size?remain:_size;
+				memcpy(buffer, bom+bomPosition, result);
+				buffer+=result;
+				bomPosition+=result;
+				_size-=result;
+			}
+			if(_size)
+			{
+				result+=stream->Read(buffer, _size);
+			}
+			return result;
+		}
+
+		vint BomDecoder::BomStream::Write(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"BomDecoder::BomStream::Write(void*, vint)#Operation not supported.");
+		}
+
+		vint BomDecoder::BomStream::Peek(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"BomDecoder::BomStream::Peek(void*, vint)#Operation not supported.");
+		}
+
+		BomDecoder::BomDecoder()
+			:decoder(0)
+		{
+		}
+
+		BomDecoder::~BomDecoder()
+		{
+			Close();
+		}
+
+		void BomDecoder::Setup(IStream* _stream)
+		{
+			char bom[3]={0};
+			vint length=_stream->Read(bom, sizeof(bom));
+			if(strncmp(bom, "\xEF\xBB\xBF", 3)==0)
+			{
+				decoder=new Utf8Decoder;
+				stream=new BomStream(_stream, bom+3, 0);
+			}
+			else if(strncmp(bom, "\xFF\xFE", 2)==0)
+			{
+				decoder=new Utf16Decoder;
+				stream=new BomStream(_stream, bom+2, 1);
+			}
+			else if(strncmp(bom, "\xFE\xFF", 2)==0)
+			{
+				decoder=new Utf16BEDecoder;
+				stream=new BomStream(_stream, bom+2, 1);
+			}
+			else
+			{
+				decoder=new MbcsDecoder;
+				stream=new BomStream(_stream, bom, 3);
+			}
+			decoder->Setup(stream);
+		}
+
+		void BomDecoder::Close()
+		{
+			if(decoder)
+			{
+				decoder->Close();
+				delete decoder;
+				decoder=0;
+				stream->Close();
+				delete stream;
+				stream=0;
+			}
+		}
+
+		vint BomDecoder::Read(void* _buffer, vint _size)
+		{
+			return decoder->Read(_buffer, _size);
+		}
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARFORMAT_TESTENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+Helper Functions
+***********************************************************************/
+
+		bool CanBeMbcs(unsigned char* buffer, vint size)
+		{
+			for(vint i=0;i<size;i++)
+			{
+				if(buffer[i]==0) return false;
+			}
+			return true;
+		}
+
+		bool CanBeUtf8(unsigned char* buffer, vint size)
+		{
+			for(vint i=0;i<size;i++)
+			{
+				unsigned char c=(unsigned char)buffer[i];
+				if(c==0)
+				{
+					return false;
+				}
+				else
+				{
+					vint count10xxxxxx=0;
+					if((c&0x80)==0x00) /* 0x0xxxxxxx */ count10xxxxxx=0;
+					else if((c&0xE0)==0xC0) /* 0x110xxxxx */ count10xxxxxx=1;
+					else if((c&0xF0)==0xE0) /* 0x1110xxxx */ count10xxxxxx=2;
+					else if((c&0xF8)==0xF0) /* 0x11110xxx */ count10xxxxxx=3;
+					else if((c&0xFC)==0xF8) /* 0x111110xx */ count10xxxxxx=4;
+					else if((c&0xFE)==0xFC) /* 0x1111110x */ count10xxxxxx=5;
+
+					if(size<=i+count10xxxxxx)
+					{
+						return false;
+					}
+					else
+					{
+						for(vint j=0;j<count10xxxxxx;j++)
+						{
+							c=(unsigned char)buffer[i+j+1];
+							if((c&0xC0)!=0x80) /* 0x10xxxxxx */ return false;
+						}
+					}
+					i+=count10xxxxxx;
+				}
+			}
+			return true;
+		}
+
+		bool CanBeUtf16(unsigned char* buffer, vint size, bool& hitSurrogatePairs)
+		{
+			hitSurrogatePairs = false;
+			if (size % 2 != 0) return false;
+			bool needTrail = false;
+			for (vint i = 0; i < size; i += 2)
+			{
+				vuint16_t c = buffer[i] + (buffer[i + 1] << 8);
+				if (c == 0) return false;
+				vint type = 0;
+				if (0xD800 <= c && c <= 0xDBFF) type = 1;
+				else if (0xDC00 <= c && c <= 0xDFFF) type = 2;
+				if (needTrail)
+				{
+					if (type == 2)
+					{
+						needTrail = false;
+					}
+					else
+					{
+						return false;
+					}
+				}
+				else
+				{
+					if (type == 1)
+					{
+						needTrail = true;
+						hitSurrogatePairs = true;
+					}
+					else if (type != 0)
+					{
+						return false;
+					}
+				}
+			}
+			return !needTrail;
+		}
+
+		bool CanBeUtf16BE(unsigned char* buffer, vint size, bool& hitSurrogatePairs)
+		{
+			hitSurrogatePairs = false;
+			if (size % 2 != 0) return false;
+			bool needTrail = false;
+			for (vint i = 0; i < size; i += 2)
+			{
+				vuint16_t c = buffer[i + 1] + (buffer[i] << 8);
+				if (c == 0) return false;
+				vint type = 0;
+				if (0xD800 <= c && c <= 0xDBFF) type = 1;
+				else if (0xDC00 <= c && c <= 0xDFFF) type = 2;
+				if (needTrail)
+				{
+					if (type == 2)
+					{
+						needTrail = false;
+					}
+					else
+					{
+						return false;
+					}
+				}
+				else
+				{
+					if (type == 1)
+					{
+						needTrail = true;
+						hitSurrogatePairs = true;
+					}
+					else if (type != 0)
+					{
+						return false;
+					}
+				}
+			}
+			return !needTrail;
+		}
+		
+/***********************************************************************
+TestEncoding
+***********************************************************************/
+
+		extern void TestEncodingInternal(
+			unsigned char* buffer,
+			vint size,
+			BomEncoder::Encoding& encoding,
+			bool containsBom,
+			bool utf16HitSurrogatePairs,
+			bool utf16BEHitSurrogatePairs,
+			bool roughMbcs,
+			bool roughUtf8,
+			bool roughUtf16,
+			bool roughUtf16BE
+		);
+
+		void TestEncoding(unsigned char* buffer, vint size, BomEncoder::Encoding& encoding, bool& containsBom)
+		{
+			if (size >= 3 && strncmp((char*)buffer, "\xEF\xBB\xBF", 3) == 0)
+			{
+				encoding = BomEncoder::Utf8;
+				containsBom = true;
+			}
+			else if (size >= 2 && strncmp((char*)buffer, "\xFF\xFE", 2) == 0)
+			{
+				encoding = BomEncoder::Utf16;
+				containsBom = true;
+			}
+			else if (size >= 2 && strncmp((char*)buffer, "\xFE\xFF", 2) == 0)
+			{
+				encoding = BomEncoder::Utf16BE;
+				containsBom = true;
+			}
+			else
+			{
+				encoding = BomEncoder::Mbcs;
+				containsBom = false;
+
+				bool utf16HitSurrogatePairs = false;
+				bool utf16BEHitSurrogatePairs = false;
+				bool roughMbcs = CanBeMbcs(buffer, size);
+				bool roughUtf8 = CanBeUtf8(buffer, size);
+				bool roughUtf16 = CanBeUtf16(buffer, size, utf16HitSurrogatePairs);
+				bool roughUtf16BE = CanBeUtf16BE(buffer, size, utf16BEHitSurrogatePairs);
+
+				vint roughCount = (roughMbcs ? 1 : 0) + (roughUtf8 ? 1 : 0) + (roughUtf16 ? 1 : 0) + (roughUtf16BE ? 1 : 0);
+				if (roughCount == 1)
+				{
+					if (roughUtf8) encoding = BomEncoder::Utf8;
+					else if (roughUtf16) encoding = BomEncoder::Utf16;
+					else if (roughUtf16BE) encoding = BomEncoder::Utf16BE;
+				}
+				else if (roughCount > 1)
+				{
+					TestEncodingInternal(buffer, size, encoding, containsBom, utf16HitSurrogatePairs, utf16BEHitSurrogatePairs, roughMbcs, roughUtf8, roughUtf16, roughUtf16BE);
+				}
+			}
+		}
+	}
+}
+
+
+/***********************************************************************
 .\STREAM\ACCESSOR.CPP
 ***********************************************************************/
 /***********************************************************************
@@ -1409,1209 +2612,6 @@ CacheStream
 			CHECK_ERROR(_size>=0, L"CacheStream::Read(void*, vint)#Argument size cannot be negative.");
 
 			return InternalRead(_buffer, _size);
-		}
-	}
-}
-
-/***********************************************************************
-.\STREAM\CHARFORMAT.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-		using namespace vl::encoding;
-
-/***********************************************************************
-CharEncoder
-***********************************************************************/
-
-		void CharEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void CharEncoder::Close()
-		{
-		}
-
-		vint CharEncoder::Write(void* _buffer, vint _size)
-		{
-			// prepare a buffer for input
-			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
-			vint availableBytes = availableChars * sizeof(wchar_t);
-			bool needToFree = false;
-			vuint8_t* unicode = nullptr;
-			if (cacheSize > 0)
-			{
-				unicode = new vuint8_t[cacheSize + _size];
-				memcpy(unicode, cacheBuffer, cacheSize);
-				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
-				needToFree = true;
-			}
-			else
-			{
-				unicode = (vuint8_t*)_buffer;
-			}
-
-#if defined VCZH_WCHAR_UTF16
-			if (availableChars > 0)
-			{
-				// a surrogate pair must be written as a whole thing
-				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
-				if ((c & 0xFC00U) == 0xD800U)
-				{
-					availableChars -= 1;
-					availableBytes -= sizeof(wchar_t);
-				}
-			}
-#endif
-
-			// write the buffer
-			if (availableChars > 0)
-			{
-				vint written = WriteString((wchar_t*)unicode, availableChars, needToFree) * sizeof(wchar_t);
-				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
-			}
-
-			// cache the remaining
-			cacheSize = cacheSize + _size - availableBytes;
-			if (cacheSize > 0)
-			{
-				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
-				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
-			}
-
-			return _size;
-		}
-
-/***********************************************************************
-CharDecoder
-***********************************************************************/
-
-		void CharDecoder::Setup(IStream* _stream)
-		{
-			stream=_stream;
-		}
-
-		void CharDecoder::Close()
-		{
-		}
-
-		vint CharDecoder::Read(void* _buffer, vint _size)
-		{
-			vuint8_t* writing = (vuint8_t*)_buffer;
-			vint filledBytes = 0;
-
-			// feed the cache first
-			if (cacheSize > 0)
-			{
-				filledBytes = cacheSize < _size ? cacheSize : _size;
-				memcpy(writing, cacheBuffer, cacheSize);
-				_size -= filledBytes;
-				writing += filledBytes;
-
-				// adjust the cache if it is not fully consumed
-				cacheSize -= filledBytes;
-				if (cacheSize > 0)
-				{
-					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
-				}
-
-				if (_size == 0)
-				{
-					return filledBytes;
-				}
-			}
-
-			// fill the buffer as many as possible
-			while (_size >= sizeof(wchar_t))
-			{
-				vint availableChars = _size / sizeof(wchar_t);
-				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
-				if (readBytes == 0) break;
-				filledBytes += readBytes;
-				_size -= readBytes;
-				writing += readBytes;
-			}
-
-			// cache the remaining wchar_t
-			if (_size < sizeof(wchar_t))
-			{
-				wchar_t c;
-				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
-				if (readChars == sizeof(wchar_t))
-				{
-					vuint8_t* reading = (vuint8_t*)&c;
-					memcpy(writing, reading, _size);
-					filledBytes += _size;
-					cacheSize = sizeof(wchar_t) - _size;
-					memcpy(cacheBuffer, reading + _size, cacheSize);
-				}
-			}
-
-			return filledBytes;
-		}
-
-/***********************************************************************
-UtfGeneralEncoder
-***********************************************************************/
-
-		template<typename T>
-		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
-			while (T c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		template class UtfGeneralEncoder<char8_t>;
-		template class UtfGeneralEncoder<char16_t>;
-		template class UtfGeneralEncoder<char16be_t>;
-		template class UtfGeneralEncoder<char32_t>;
-
-/***********************************************************************
-UtfGeneralDecoder
-***********************************************************************/
-
-		template<typename T>
-		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			reader.Setup(stream);
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-		}
-
-		template class UtfGeneralDecoder<char8_t>;
-		template class UtfGeneralDecoder<char16_t>;
-		template class UtfGeneralDecoder<char16be_t>;
-		template class UtfGeneralDecoder<char32_t>;
-
-/***********************************************************************
-UtfGeneralEncoder<wchar_t>
-***********************************************************************/
-
-		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			vint size = chars * sizeof(wchar_t);
-			vint written = stream->Write(_buffer, size);
-			if (written != size)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-/***********************************************************************
-UtfGeneralDecoder<wchar_t>
-***********************************************************************/
-
-		vint UtfGeneralDecoder<wchar_t>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			return read / sizeof(wchar_t);
-		}
-
-/***********************************************************************
-Mbcs
-***********************************************************************/
-
-		extern bool IsMbcsLeadByte(char c);
-		extern void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars);
-
-		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			char* source = new char[chars * 2];
-			char* reading = source;
-			vint readed = 0;
-			while (readed < chars)
-			{
-				if (stream->Read(reading, 1) != 1)
-				{
-					break;
-				}
-				if (IsMbcsLeadByte(*reading))
-				{
-					if (stream->Read(reading + 1, 1) != 1)
-					{
-						break;
-					}
-					reading += 2;
-				}
-				else
-				{
-					reading++;
-				}
-				readed++;
-			}
-
-			MbcsToWChar(_buffer, chars, readed, source, (vint)(reading - source));
-			delete[] source;
-			return readed;
-		}
-
-/***********************************************************************
-Utf-16-be
-***********************************************************************/
-
-#if defined VCZH_WCHAR_UTF16
-		vint Utf16BEEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
-		{
-			if (freeToUpdate)
-			{
-				SwapBytesForUtf16BE(_buffer, chars);
-				vint size = chars * sizeof(wchar_t);
-				vint written = stream->Write(_buffer, size);
-				SwapBytesForUtf16BE(_buffer, chars);
-				if (written != size)
-				{
-					Close();
-					return 0;
-				}
-				return chars;
-			}
-			else
-			{
-				vint counter = 0;
-				for (vint i = 0; i < chars; i++)
-				{
-					wchar_t c = _buffer[i];
-					SwapByteForUtf16BE(c);
-					vint written = stream->Write(&c, sizeof(c));
-					if (written != sizeof(c))
-					{
-						Close();
-						return 0;
-					}
-					counter++;
-				}
-				return counter;
-			}
-		}
-
-		vint Utf16BEDecoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			vint readChars = read / sizeof(wchar_t);
-			SwapBytesForUtf16BE(_buffer, readChars);
-			return readChars;
-		}
-#endif
-	}
-}
-
-
-/***********************************************************************
-.\STREAM\CHARFORMAT_BOM.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-/***********************************************************************
-BomEncoder
-***********************************************************************/
-
-		BomEncoder::BomEncoder(Encoding _encoding)
-			:encoding(_encoding)
-			,encoder(0)
-		{
-			switch(encoding)
-			{
-			case Mbcs:
-				encoder=new MbcsEncoder;
-				break;
-			case Utf8:
-				encoder=new Utf8Encoder;
-				break;
-			case Utf16:
-				encoder=new Utf16Encoder;
-				break;
-			case Utf16BE:
-				encoder=new Utf16BEEncoder;
-				break;
-			}
-		}
-
-		BomEncoder::~BomEncoder()
-		{
-			Close();
-		}
-
-		void BomEncoder::Setup(IStream* _stream)
-		{
-			switch(encoding)
-			{
-			case Mbcs:
-				break;
-			case Utf8:
-				_stream->Write((void*)"\xEF\xBB\xBF", 3);
-				break;
-			case Utf16:
-				_stream->Write((void*)"\xFF\xFE", 2);
-				break;
-			case Utf16BE:
-				_stream->Write((void*)"\xFE\xFF", 2);
-				break;
-			}
-			encoder->Setup(_stream);
-		}
-
-		void BomEncoder::Close()
-		{
-			if(encoder)
-			{
-				encoder->Close();
-				delete encoder;
-				encoder=0;
-			}
-		}
-
-		vint BomEncoder::Write(void* _buffer, vint _size)
-		{
-			return encoder->Write(_buffer, _size);
-		}
-
-/***********************************************************************
-BomDecoder
-***********************************************************************/
-
-		BomDecoder::BomStream::BomStream(IStream* _stream, char* _bom, vint _bomLength)
-			:stream(_stream)
-			,bomPosition(0)
-			,bomLength(_bomLength)
-		{
-			memcpy(bom, _bom, bomLength);
-		}
-
-		bool BomDecoder::BomStream::CanRead()const
-		{
-			return IsAvailable();
-		}
-
-		bool BomDecoder::BomStream::CanWrite()const
-		{
-			return false;
-		}
-
-		bool BomDecoder::BomStream::CanSeek()const
-		{
-			return false;
-		}
-
-		bool BomDecoder::BomStream::CanPeek()const
-		{
-			return false;
-		}
-
-		bool BomDecoder::BomStream::IsLimited()const
-		{
-			return stream!=0 && stream->IsLimited();
-		}
-
-		bool BomDecoder::BomStream::IsAvailable()const
-		{
-			return stream!=0 && stream->IsAvailable();
-		}
-
-		void BomDecoder::BomStream::Close()
-		{
-			stream=0;
-		}
-
-		pos_t BomDecoder::BomStream::Position()const
-		{
-			return IsAvailable()?bomPosition+stream->Position():-1;
-		}
-
-		pos_t BomDecoder::BomStream::Size()const
-		{
-			return -1;
-		}
-
-		void BomDecoder::BomStream::Seek(pos_t _size)
-		{
-			CHECK_FAIL(L"BomDecoder::BomStream::Seek(pos_t)#Operation not supported.");
-		}
-
-		void BomDecoder::BomStream::SeekFromBegin(pos_t _size)
-		{
-			CHECK_FAIL(L"BomDecoder::BomStream::SeekFromBegin(pos_t)#Operation not supported.");
-		}
-
-		void BomDecoder::BomStream::SeekFromEnd(pos_t _size)
-		{
-			CHECK_FAIL(L"BomDecoder::BomStream::SeekFromEnd(pos_t)#Operation not supported.");
-		}
-
-		vint BomDecoder::BomStream::Read(void* _buffer, vint _size)
-		{
-			vint result=0;
-			unsigned char* buffer=(unsigned char*)_buffer;
-			if(bomPosition<bomLength)
-			{
-				vint remain=bomLength-bomPosition;
-				result=remain<_size?remain:_size;
-				memcpy(buffer, bom+bomPosition, result);
-				buffer+=result;
-				bomPosition+=result;
-				_size-=result;
-			}
-			if(_size)
-			{
-				result+=stream->Read(buffer, _size);
-			}
-			return result;
-		}
-
-		vint BomDecoder::BomStream::Write(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"BomDecoder::BomStream::Write(void*, vint)#Operation not supported.");
-		}
-
-		vint BomDecoder::BomStream::Peek(void* _buffer, vint _size)
-		{
-			CHECK_FAIL(L"BomDecoder::BomStream::Peek(void*, vint)#Operation not supported.");
-		}
-
-		BomDecoder::BomDecoder()
-			:decoder(0)
-		{
-		}
-
-		BomDecoder::~BomDecoder()
-		{
-			Close();
-		}
-
-		void BomDecoder::Setup(IStream* _stream)
-		{
-			char bom[3]={0};
-			vint length=_stream->Read(bom, sizeof(bom));
-			if(strncmp(bom, "\xEF\xBB\xBF", 3)==0)
-			{
-				decoder=new Utf8Decoder;
-				stream=new BomStream(_stream, bom+3, 0);
-			}
-			else if(strncmp(bom, "\xFF\xFE", 2)==0)
-			{
-				decoder=new Utf16Decoder;
-				stream=new BomStream(_stream, bom+2, 1);
-			}
-			else if(strncmp(bom, "\xFE\xFF", 2)==0)
-			{
-				decoder=new Utf16BEDecoder;
-				stream=new BomStream(_stream, bom+2, 1);
-			}
-			else
-			{
-				decoder=new MbcsDecoder;
-				stream=new BomStream(_stream, bom, 3);
-			}
-			decoder->Setup(stream);
-		}
-
-		void BomDecoder::Close()
-		{
-			if(decoder)
-			{
-				decoder->Close();
-				delete decoder;
-				decoder=0;
-				stream->Close();
-				delete stream;
-				stream=0;
-			}
-		}
-
-		vint BomDecoder::Read(void* _buffer, vint _size)
-		{
-			return decoder->Read(_buffer, _size);
-		}
-	}
-}
-
-
-/***********************************************************************
-.\STREAM\CHARFORMAT_TESTENCODING.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-
-		bool CanBeMbcs(unsigned char* buffer, vint size)
-		{
-			for(vint i=0;i<size;i++)
-			{
-				if(buffer[i]==0) return false;
-			}
-			return true;
-		}
-
-		bool CanBeUtf8(unsigned char* buffer, vint size)
-		{
-			for(vint i=0;i<size;i++)
-			{
-				unsigned char c=(unsigned char)buffer[i];
-				if(c==0)
-				{
-					return false;
-				}
-				else
-				{
-					vint count10xxxxxx=0;
-					if((c&0x80)==0x00) /* 0x0xxxxxxx */ count10xxxxxx=0;
-					else if((c&0xE0)==0xC0) /* 0x110xxxxx */ count10xxxxxx=1;
-					else if((c&0xF0)==0xE0) /* 0x1110xxxx */ count10xxxxxx=2;
-					else if((c&0xF8)==0xF0) /* 0x11110xxx */ count10xxxxxx=3;
-					else if((c&0xFC)==0xF8) /* 0x111110xx */ count10xxxxxx=4;
-					else if((c&0xFE)==0xFC) /* 0x1111110x */ count10xxxxxx=5;
-
-					if(size<=i+count10xxxxxx)
-					{
-						return false;
-					}
-					else
-					{
-						for(vint j=0;j<count10xxxxxx;j++)
-						{
-							c=(unsigned char)buffer[i+j+1];
-							if((c&0xC0)!=0x80) /* 0x10xxxxxx */ return false;
-						}
-					}
-					i+=count10xxxxxx;
-				}
-			}
-			return true;
-		}
-
-		bool CanBeUtf16(unsigned char* buffer, vint size, bool& hitSurrogatePairs)
-		{
-			hitSurrogatePairs = false;
-			if (size % 2 != 0) return false;
-			bool needTrail = false;
-			for (vint i = 0; i < size; i += 2)
-			{
-				vuint16_t c = buffer[i] + (buffer[i + 1] << 8);
-				if (c == 0) return false;
-				vint type = 0;
-				if (0xD800 <= c && c <= 0xDBFF) type = 1;
-				else if (0xDC00 <= c && c <= 0xDFFF) type = 2;
-				if (needTrail)
-				{
-					if (type == 2)
-					{
-						needTrail = false;
-					}
-					else
-					{
-						return false;
-					}
-				}
-				else
-				{
-					if (type == 1)
-					{
-						needTrail = true;
-						hitSurrogatePairs = true;
-					}
-					else if (type != 0)
-					{
-						return false;
-					}
-				}
-			}
-			return !needTrail;
-		}
-
-		bool CanBeUtf16BE(unsigned char* buffer, vint size, bool& hitSurrogatePairs)
-		{
-			hitSurrogatePairs = false;
-			if (size % 2 != 0) return false;
-			bool needTrail = false;
-			for (vint i = 0; i < size; i += 2)
-			{
-				vuint16_t c = buffer[i + 1] + (buffer[i] << 8);
-				if (c == 0) return false;
-				vint type = 0;
-				if (0xD800 <= c && c <= 0xDBFF) type = 1;
-				else if (0xDC00 <= c && c <= 0xDFFF) type = 2;
-				if (needTrail)
-				{
-					if (type == 2)
-					{
-						needTrail = false;
-					}
-					else
-					{
-						return false;
-					}
-				}
-				else
-				{
-					if (type == 1)
-					{
-						needTrail = true;
-						hitSurrogatePairs = true;
-					}
-					else if (type != 0)
-					{
-						return false;
-					}
-				}
-			}
-			return !needTrail;
-		}
-		
-/***********************************************************************
-TestEncoding
-***********************************************************************/
-
-		extern void TestEncodingInternal(
-			unsigned char* buffer,
-			vint size,
-			BomEncoder::Encoding& encoding,
-			bool containsBom,
-			bool utf16HitSurrogatePairs,
-			bool utf16BEHitSurrogatePairs,
-			bool roughMbcs,
-			bool roughUtf8,
-			bool roughUtf16,
-			bool roughUtf16BE
-		);
-
-		void TestEncoding(unsigned char* buffer, vint size, BomEncoder::Encoding& encoding, bool& containsBom)
-		{
-			if (size >= 3 && strncmp((char*)buffer, "\xEF\xBB\xBF", 3) == 0)
-			{
-				encoding = BomEncoder::Utf8;
-				containsBom = true;
-			}
-			else if (size >= 2 && strncmp((char*)buffer, "\xFF\xFE", 2) == 0)
-			{
-				encoding = BomEncoder::Utf16;
-				containsBom = true;
-			}
-			else if (size >= 2 && strncmp((char*)buffer, "\xFE\xFF", 2) == 0)
-			{
-				encoding = BomEncoder::Utf16BE;
-				containsBom = true;
-			}
-			else
-			{
-				encoding = BomEncoder::Mbcs;
-				containsBom = false;
-
-				bool utf16HitSurrogatePairs = false;
-				bool utf16BEHitSurrogatePairs = false;
-				bool roughMbcs = CanBeMbcs(buffer, size);
-				bool roughUtf8 = CanBeUtf8(buffer, size);
-				bool roughUtf16 = CanBeUtf16(buffer, size, utf16HitSurrogatePairs);
-				bool roughUtf16BE = CanBeUtf16BE(buffer, size, utf16BEHitSurrogatePairs);
-
-				vint roughCount = (roughMbcs ? 1 : 0) + (roughUtf8 ? 1 : 0) + (roughUtf16 ? 1 : 0) + (roughUtf16BE ? 1 : 0);
-				if (roughCount == 1)
-				{
-					if (roughUtf8) encoding = BomEncoder::Utf8;
-					else if (roughUtf16) encoding = BomEncoder::Utf16;
-					else if (roughUtf16BE) encoding = BomEncoder::Utf16BE;
-				}
-				else if (roughCount > 1)
-				{
-					TestEncodingInternal(buffer, size, encoding, containsBom, utf16HitSurrogatePairs, utf16BEHitSurrogatePairs, roughMbcs, roughUtf8, roughUtf16, roughUtf16BE);
-				}
-			}
-		}
-	}
-}
-
-
-/***********************************************************************
-.\STREAM\COMPRESSIONSTREAM.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-		using namespace collections;
-		using namespace lzw;
-
-/***********************************************************************
-LzwBase
-***********************************************************************/
-
-		void LzwBase::UpdateIndexBits()
-		{
-			if (nextIndex >=2 && (nextIndex & (nextIndex - 1)) == 0)
-			{
-				indexBits++;
-			}
-		}
-
-		lzw::Code* LzwBase::CreateCode(lzw::Code* prefix, vuint8_t byte)
-		{
-			if (nextIndex < MaxDictionarySize)
-			{
-				Code* code = codeAllocator.Create();
-				code->byte = byte;
-				code->code = nextIndex;
-				code->parent = prefix;
-				code->size = prefix->size + 1;
-				prefix->children.Set(byte, code, mapAllocator);
-				nextIndex++;
-
-				return code;
-			}
-			else
-			{
-				return 0;
-			}
-		}
-
-		LzwBase::LzwBase()
-			:codeAllocator(65536)
-			, mapAllocator(1048576)
-		{
-			root = codeAllocator.Create();
-
-			for (vint i = 0; i < 256; i++)
-			{
-				UpdateIndexBits();
-				CreateCode(root, (vuint8_t)i);
-			}
-		}
-
-		LzwBase::LzwBase(bool (&existingBytes)[256])
-		{
-			root = codeAllocator.Create();
-			for (vint i = 0; i < 256; i++)
-			{
-				if (existingBytes[i])
-				{
-					UpdateIndexBits();
-					CreateCode(root, (vuint8_t)i);
-				}
-			}
-
-			if (indexBits < 8)
-			{
-				eofIndex = nextIndex++;
-			}
-		}
-
-		LzwBase::~LzwBase()
-		{
-		}
-
-/***********************************************************************
-LzwEncoder
-***********************************************************************/
-
-		void LzwEncoder::Flush()
-		{
-			vint written = 0;
-			vint bufferUsedSize = bufferUsedBits / 8;
-			if (bufferUsedBits % 8 != 0)
-			{
-				bufferUsedSize++;
-			}
-			while (written < bufferUsedSize)
-			{
-				vint size = stream->Write(buffer + written, bufferUsedSize - written);
-				CHECK_ERROR(size != 0, L"LzwEncoder::Flush()#Failed to flush the lzw buffer.");
-				written += size;
-			}
-			bufferUsedBits = 0;
-		}
-
-		vuint8_t highMarks[9] = { 0x00, 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF };
-		vuint8_t lowMarks[9] = { 0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF };
-
-		void LzwEncoder::WriteNumber(vint number, vint bitSize)
-		{
-			vint bitStart = 0;
-			vint bitStep = 8 - bufferUsedBits % 8;
-			if (bitStep > bitSize)
-			{
-				bitStep = bitSize;
-			}
-			while (bitStart < bitSize)
-			{
-				if(bufferUsedBits == BufferSize * 8)
-				{
-					Flush();
-				}
-
-				vint writeStart = bufferUsedBits % 8;
-				vint byteIndex = bufferUsedBits / 8;
-				vuint8_t byte = buffer[byteIndex];
-				byte &= highMarks[writeStart];
-
-				vuint8_t content = (vuint8_t)((number >> bitStart)&lowMarks[bitStep]) << (8 - writeStart - bitStep);
-				byte |= content;
-
-				buffer[byteIndex] = byte;
-				bufferUsedBits += bitStep;
-
-				bitStart += bitStep;
-				vint remain = bitSize - bitStart;
-				bitStep = remain < 8 ? remain : 8;
-			}
-		}
-
-		LzwEncoder::LzwEncoder()
-		{
-			prefix = root;
-		}
-
-		LzwEncoder::LzwEncoder(bool (&existingBytes)[256])
-			:LzwBase(existingBytes)
-		{
-			prefix = root;
-		}
-
-		LzwEncoder::~LzwEncoder()
-		{
-		}
-
-		void LzwEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void LzwEncoder::Close()
-		{
-			if (prefix != root)
-			{
-				WriteNumber(prefix->code, indexBits);
-				prefix = root;
-			}
-
-			vint remain = 8 - bufferUsedBits % 8;
-			if (remain != 8 && remain >= indexBits)
-			{
-				CHECK_ERROR(eofIndex != -1, L"LzwEncoder::Close()#Internal error.");
-				WriteNumber(eofIndex, indexBits);
-			}
-			Flush();
-		}
-
-		vint LzwEncoder::Write(void* _buffer, vint _size)
-		{
-			vuint8_t* bytes = (vuint8_t*)_buffer;
-			for (vint i = 0; i < _size; i++)
-			{
-				vuint8_t byte = bytes[i];
-				Code* next = prefix->children.Get(byte);
-				if (next)
-				{
-					prefix = next;
-				}
-				else
-				{
-					WriteNumber(prefix->code, indexBits);
-
-					if (nextIndex < MaxDictionarySize)
-					{
-						UpdateIndexBits();
-						CreateCode(prefix, byte);
-					}
-					prefix = root->children.Get(byte);
-				}
-			}
-			return _size;
-		}
-
-/***********************************************************************
-LzwDecoder
-***********************************************************************/
-
-		bool LzwDecoder::ReadNumber(vint& number, vint bitSize)
-		{
-			number = 0;
-			if (inputBufferSize == -1)
-			{
-				return false;
-			}
-
-			vint remainBits = inputBufferSize * 8 - inputBufferUsedBits;
-			vint writtenBits = 0;
-			vint bitStep = 8 - inputBufferUsedBits % 8;
-			if (bitStep > bitSize)
-			{
-				bitStep = bitSize;
-			}
-			while (writtenBits < bitSize)
-			{
-				if (remainBits == 0)
-				{
-					inputBufferSize = stream->Read(inputBuffer, BufferSize);
-					if (inputBufferSize == 0)
-					{
-						inputBufferSize = -1;
-						return false;
-					}
-					remainBits = inputBufferSize * 8;
-					inputBufferUsedBits = 0;
-				}
-
-				vuint8_t byte = inputBuffer[inputBufferUsedBits / 8];
-				byte >>= (8 - inputBufferUsedBits % 8 - bitStep);
-				byte &= lowMarks[bitStep];
-				number |= byte << writtenBits;
-
-				inputBufferUsedBits += bitStep;
-				remainBits -= bitStep;
-				writtenBits += bitStep;
-				vint remain = bitSize - writtenBits;
-				bitStep = remain < 8 ? remain : 8;
-			}
-
-			return true;
-		}
-
-		void LzwDecoder::PrepareOutputBuffer(vint size)
-		{
-			if (outputBuffer.Count() < size)
-			{
-				outputBuffer.Resize(size);
-			}
-			outputBufferSize = size;
-		}
-
-		void LzwDecoder::ExpandCodeToOutputBuffer(lzw::Code* code)
-		{
-			vuint8_t* outputByte = &outputBuffer[0] + code->size;
-			Code* current = code;
-			while (current != root)
-			{
-				*(--outputByte) = current->byte;
-				current = current->parent;
-			}
-			outputBufferUsedBytes = 0;
-		}
-
-		LzwDecoder::LzwDecoder()
-		{
-			for (vint i = 0; i < 256; i++)
-			{
-				dictionary.Add(root->children.Get((vuint8_t)i));
-			}
-		}
-
-		LzwDecoder::LzwDecoder(bool (&existingBytes)[256])
-			:LzwBase(existingBytes)
-		{
-			for (vint i = 0; i < 256; i++)
-			{
-				if (existingBytes[i])
-				{
-					dictionary.Add(root->children.Get((vuint8_t)i));
-				}
-			}
-			if (eofIndex != -1)
-			{
-				dictionary.Add(nullptr);
-			}
-		}
-
-		LzwDecoder::~LzwDecoder()
-		{
-		}
-
-		void LzwDecoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void LzwDecoder::Close()
-		{
-		}
-
-		vint LzwDecoder::Read(void* _buffer, vint _size)
-		{
-			vint written = 0;
-			vuint8_t* bytes = (vuint8_t*)_buffer;
-			while (written < _size)
-			{
-				vint expect = _size - written;
-				vint remain = outputBufferSize - outputBufferUsedBytes;
-				if (remain == 0)
-				{
-					vint index = 0;
-					if (!ReadNumber(index, indexBits) || index == eofIndex)
-					{
-						break;
-					}
-
-					Code* prefix = 0;
-					if (index == dictionary.Count())
-					{
-						prefix = lastCode;
-						PrepareOutputBuffer(prefix->size + 1);
-						ExpandCodeToOutputBuffer(prefix);
-						outputBuffer[outputBufferSize - 1] = outputBuffer[0];
-					}
-					else
-					{
-						prefix = dictionary[index];
-						PrepareOutputBuffer(prefix->size);
-						ExpandCodeToOutputBuffer(prefix);
-					}
-					
-					if (nextIndex < MaxDictionarySize)
-					{
-						if (lastCode)
-						{
-							dictionary.Add(CreateCode(lastCode, outputBuffer[0]));
-						}
-						UpdateIndexBits();
-					}
-					lastCode = dictionary[index];
-				}
-				else
-				{
-					if (remain > expect)
-					{
-						remain = expect;
-					}
-					memcpy(bytes + written, &outputBuffer[outputBufferUsedBytes], remain);
-
-					outputBufferUsedBytes += remain;
-					written += remain;
-				}
-			}
-			return written;
-		}
-
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-
-		vint CopyStream(stream::IStream& inputStream, stream::IStream& outputStream)
-		{
-			vint totalSize = 0;
-			while (true)
-			{
-				char buffer[1024];
-				vint copied = inputStream.Read(buffer, (vint)sizeof(buffer));
-				if (copied == 0)
-				{
-					break;
-				}
-				totalSize += outputStream.Write(buffer, copied);
-			}
-			return totalSize;
-		}
-
-		const vint CompressionFragmentSize = 1048576;
-
-		void CompressStream(stream::IStream& inputStream, stream::IStream& outputStream)
-		{
-			Array<char> buffer(CompressionFragmentSize);
-			while (true)
-			{
-				vint size = inputStream.Read(&buffer[0], buffer.Count());
-				if (size == 0) break;
-
-				MemoryStream compressedStream;
-				{
-					LzwEncoder encoder;
-					EncoderStream encoderStream(compressedStream, encoder);
-					encoderStream.Write(&buffer[0], size);
-				}
-
-				compressedStream.SeekFromBegin(0);
-				{
-					{
-						vint32_t bufferSize = (vint32_t)size;
-						outputStream.Write(&bufferSize, (vint)sizeof(bufferSize));
-					}
-					{
-						vint32_t compressedSize = (vint32_t)compressedStream.Size();
-						outputStream.Write(&compressedSize, (vint)sizeof(compressedSize));
-					}
-					CopyStream(compressedStream, outputStream);
-				}
-			}
-		}
-
-		void DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream)
-		{
-			vint totalSize = 0;
-			vint totalWritten = 0;
-			while (true)
-			{
-				vint32_t bufferSize = 0;
-				if (inputStream.Read(&bufferSize, (vint)sizeof(bufferSize)) != sizeof(bufferSize))
-				{
-					break;
-				}
-
-				vint32_t compressedSize = 0;
-				CHECK_ERROR(inputStream.Read(&compressedSize, (vint)sizeof(compressedSize)) == sizeof(compressedSize), L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
-
-				Array<char> buffer(compressedSize);
-				CHECK_ERROR(inputStream.Read(&buffer[0], compressedSize) == compressedSize, L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
-
-				MemoryWrapperStream compressedStream(&buffer[0], compressedSize);
-				LzwDecoder decoder;
-				DecoderStream decoderStream(compressedStream, decoder);
-				totalWritten += CopyStream(decoderStream, outputStream);
-				totalSize += bufferSize;
-			}
-			CHECK_ERROR(outputStream.Size() == totalSize, L"vl::stream::DecompressStream(MemoryStream&, MemoryStream&)#Incomplete input");
 		}
 	}
 }

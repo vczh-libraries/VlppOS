@@ -1241,7 +1241,27 @@ namespace vl
 			/// <param name="_size">The size of the content that is expected to read.</param>
 			virtual vint					Peek(void* _buffer, vint _size)=0;
 		};
+	}
+}
 
+#endif
+
+/***********************************************************************
+.\ENCODING\ENCODING.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING
+#define VCZH_STREAM_ENCODING
+
+
+namespace vl
+{
+	namespace stream
+	{
 		/// <summary>Encoder interface. This interface defines a writable transformation from one stream to another stream. You can create a [T:vl.stream.EncoderStream] after you have an encoder.</summary>
 		class IEncoder : public Interface
 		{
@@ -1289,153 +1309,15 @@ namespace vl
 #endif
 
 /***********************************************************************
-.\STREAM\BROADCASTSTREAM.H
+.\ENCODING\CHARFORMAT\CHARFORMAT.H
 ***********************************************************************/
 /***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_BROADCASTSTREAM
-#define VCZH_STREAM_BROADCASTSTREAM
-
-
-namespace vl
-{
-	namespace stream
-	{
-		/// <summary>A <b>writable</b> stream that copy the written content to multiple output streams.</summary>
-		/// <remarks>
-		/// When writing happens, the boreadcast stream will only performance one write attempt to each output stream.
-		/// </remarks>
-		class BroadcastStream : public Object, public virtual IStream
-		{
-			typedef collections::List<IStream*>		StreamList;
-		protected:
-			bool					closed;
-			pos_t					position;
-			StreamList				streams;
-		public:
-			/// <summary>Create a boradcast stream.</summary>
-			BroadcastStream();
-			~BroadcastStream();
-
-			/// <summary>
-			/// Get the list of output streams.
-			/// You can change this list to subscribe or unsubscribe.
-			/// </summary>
-			/// <returns>The list of output streams.</returns>
-			StreamList&				Targets();
-			bool					CanRead()const;
-			bool					CanWrite()const;
-			bool					CanSeek()const;
-			bool					CanPeek()const;
-			bool					IsLimited()const;
-			bool					IsAvailable()const;
-			void					Close();
-			pos_t					Position()const;
-			pos_t					Size()const;
-			void					Seek(pos_t _size);
-			void					SeekFromBegin(pos_t _size);
-			void					SeekFromEnd(pos_t _size);
-			vint					Read(void* _buffer, vint _size);
-			vint					Write(void* _buffer, vint _size);
-			vint					Peek(void* _buffer, vint _size);
-		};
-	}
-}
-
-#endif
-
-/***********************************************************************
-.\STREAM\CACHESTREAM.H
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-#ifndef VCZH_STREAM_CACHESTREAM
-#define VCZH_STREAM_CACHESTREAM
-
-
-namespace vl
-{
-	namespace stream
-	{
-		/// <summary>
-		/// <p>
-		/// A potentially <b>readable</b>, <b>peekable</b>, <b>writable</b>, <b>seekable</b> and <b>finite</b> stream that creates on another stream.
-		/// Each feature is available if the target stream has the same feature.
-		/// </p>
-		/// <p>
-		/// When you read from the cache strema,
-		/// it will read a specified size of content from the target stream at once and cache,
-		/// reducing the number of operations on the target stream.
-		/// </p>
-		/// <p>
-		/// When you write to the cache stream,
-		/// it will cache all the data to write,
-		/// and write to the target stream after the cache is full,
-		/// reducing the number of operations on the target stream.
-		/// </p>
-		/// </summary>
-		class CacheStream : public Object, public virtual IStream
-		{
-		protected:
-			IStream*				target;
-			vint					block;
-			pos_t					start;
-			pos_t					position;
-
-			char*					buffer;
-			vint					dirtyStart;
-			vint					dirtyLength;
-			vint					availableLength;
-			pos_t					operatedSize;
-
-			void					Flush();
-			void					Load(pos_t _position);
-			vint					InternalRead(void* _buffer, vint _size);
-			vint					InternalWrite(void* _buffer, vint _size);
-		public:
-			/// <summary>Create a cache stream from a target stream.</summary>
-			/// <param name="_target">The target stream.</param>
-			/// <param name="_block">Size of the cache.</param>
-			CacheStream(IStream& _target, vint _block=65536);
-			~CacheStream();
-
-			bool					CanRead()const;
-			bool					CanWrite()const;
-			bool					CanSeek()const;
-			bool					CanPeek()const;
-			bool					IsLimited()const;
-			bool					IsAvailable()const;
-			void					Close();
-			pos_t					Position()const;
-			pos_t					Size()const;
-			void					Seek(pos_t _size);
-			void					SeekFromBegin(pos_t _size);
-			void					SeekFromEnd(pos_t _size);
-			vint					Read(void* _buffer, vint _size);
-			vint					Write(void* _buffer, vint _size);
-			vint					Peek(void* _buffer, vint _size);
-		};
-	}
-}
-
-#endif
-
-/***********************************************************************
-.\STREAM\CHARFORMAT.H
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-#ifndef VCZH_STREAM_CHARFORMAT
-#define VCZH_STREAM_CHARFORMAT
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT
+#define VCZH_STREAM_ENCODING_CHARFORMAT
 
 
 namespace vl
@@ -1784,6 +1666,226 @@ Encoding Test
 
 
 /***********************************************************************
+.\ENCODING\LZWENCODING.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_COMPRESSIONSTREAM
+#define VCZH_STREAM_COMPRESSIONSTREAM
+
+
+namespace vl
+{
+	namespace stream
+	{
+
+/***********************************************************************
+Compression
+***********************************************************************/
+
+		namespace lzw
+		{
+			static const vint						BufferSize = 1024;
+			static const vint						MaxDictionarySize = 1 << 24;
+
+			struct Code
+			{
+				typedef collections::PushOnlyAllocator<Code>			CodeAllocator;
+				typedef collections::ByteObjectMap<Code>::Allocator		MapAllocator;
+
+				vuint8_t							byte = 0;
+				vint								code = -1;
+				Code*								parent = 0;
+				vint								size = 0;
+				collections::ByteObjectMap<Code>	children;
+			};
+		}
+
+		class LzwBase : public Object
+		{
+		protected:
+			lzw::Code::CodeAllocator				codeAllocator;
+			lzw::Code::MapAllocator					mapAllocator;
+			lzw::Code*								root;
+			vint									eofIndex = -1;
+			vint									nextIndex = 0;
+			vint									indexBits = 1;
+
+			void									UpdateIndexBits();
+			lzw::Code*								CreateCode(lzw::Code* parent, vuint8_t byte);
+
+			LzwBase();
+			LzwBase(bool (&existingBytes)[256]);
+			~LzwBase();
+		};
+
+		/// <summary>An encoder to compress data using the Lzw algorithm.</summary>
+		/// <remarks>
+		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
+		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
+		/// </remarks>
+		class LzwEncoder : public LzwBase, public IEncoder
+		{
+		protected:
+			IStream*								stream = 0;
+
+			vuint8_t								buffer[lzw::BufferSize];
+			vint									bufferUsedBits = 0;
+			lzw::Code*								prefix;
+
+			void									Flush();
+			void									WriteNumber(vint number, vint bitSize);
+		public:
+			/// <summary>Create an encoder.</summary>
+			LzwEncoder();
+			/// <summary>Create an encoder, specifying what bytes will never appear in the data to compress.</summary>
+			/// <param name="existingBytes">
+			/// A filter array
+			/// If existingBytes[x] == true, it means x will possibly appear.
+			/// If existingBytes[x] == false, it means x will never appear.
+			/// </param>
+			/// <remarks>
+			/// The behavior is undefined, if existingBytes[x] == false, but byte x is actually in the data to compress.
+			/// </remarks>
+			LzwEncoder(bool (&existingBytes)[256]);
+			~LzwEncoder();
+
+			void									Setup(IStream* _stream)override;
+			void									Close()override;
+			vint									Write(void* _buffer, vint _size)override;
+		};
+		
+		/// <summary>An decoder to decompress data using the Lzw algorithm.</summary>
+		/// <remarks>
+		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
+		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
+		/// </remarks>
+		class LzwDecoder :public LzwBase, public IDecoder
+		{
+		protected:
+			IStream*								stream = 0;
+			collections::List<lzw::Code*>			dictionary;
+			lzw::Code*								lastCode = 0;
+
+			vuint8_t								inputBuffer[lzw::BufferSize];
+			vint									inputBufferSize = 0;
+			vint									inputBufferUsedBits = 0;
+
+			collections::Array<vuint8_t>			outputBuffer;
+			vint									outputBufferSize = 0;
+			vint									outputBufferUsedBytes = 0;
+
+			bool									ReadNumber(vint& number, vint bitSize);
+			void									PrepareOutputBuffer(vint size);
+			void									ExpandCodeToOutputBuffer(lzw::Code* code);
+		public:
+			/// <summary>Create a decoder.</summary>
+			LzwDecoder();
+			/// <summary>Create an encoder, specifying what bytes will never appear in the decompressed data.</summary>
+			/// <param name="existingBytes">
+			/// A filter array
+			/// If existingBytes[x] == true, it means x will possibly appear.
+			/// If existingBytes[x] == false, it means x will never appear.
+			/// </param>
+			/// <remarks>
+			/// The array "existingBytes" should exactly match the one given to <see cref="LzwEncoder"/>.
+			/// </remarks>
+			LzwDecoder(bool (&existingBytes)[256]);
+			~LzwDecoder();
+
+			void									Setup(IStream* _stream)override;
+			void									Close()override;
+			vint									Read(void* _buffer, vint _size)override;
+		};
+
+/***********************************************************************
+Helper Functions
+***********************************************************************/
+
+		/// <summary>Copy data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
+		extern vint						CopyStream(stream::IStream& inputStream, stream::IStream& outputStream);
+
+		/// <summary>Compress data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
+		/// <remarks>
+		/// Data is compressed in multiple batches,
+		/// the is expected output stream to have data in multiple parts.
+		/// In each part, the first 4 bytes is the data before compression in bytes.
+		/// the rest is the compressed data.
+		/// </remarks>
+		/// <example><![CDATA[
+		/// int main()
+		/// {
+		///     MemoryStream textStream, compressedStream, decompressedStream;
+		///     {
+		///         Utf8Encoder encoder;
+		///         EncoderStream encoderStream(textStream, encoder);
+		///         StreamWriter writer(encoderStream);
+		///         writer.WriteString(L"Some text to compress.");
+		///     }
+		///     textStream.SeekFromBegin(0);
+		///
+		///     CompressStream(textStream, compressedStream);
+		///     compressedStream.SeekFromBegin(0);
+		///     DecompressStream(compressedStream, decompressedStream);
+		///     decompressedStream.SeekFromBegin(0);
+		///
+		///     Utf8Decoder decoder;
+		///     DecoderStream decoderStream(decompressedStream, decoder);
+		///     StreamReader reader(decoderStream);
+		///     Console::WriteLine(reader.ReadToEnd());
+		/// }
+		/// ]]></example>
+		extern void						CompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
+
+		/// <summary>Decompress data from a <b>readable</b> input stream (with compressed data) to a <b>writable</b> output stream (with uncompressed data).</summary>
+		/// <returns>Data copied in bytes.</returns>
+		/// <param name="inputStream">The <b>readable</b> input stream.</param>
+		/// <param name="outputStream">The <b>writable</b> output stream.</param>
+		/// <remarks>
+		/// Data is compressed in multiple batches,
+		/// the is expected input stream to have data in multiple parts.
+		/// In each part, the first 4 bytes is the data before compression in bytes.
+		/// the rest is the compressed data.
+		/// </remarks>
+		/// <example><![CDATA[
+		/// int main()
+		/// {
+		///     MemoryStream textStream, compressedStream, decompressedStream;
+		///     {
+		///         Utf8Encoder encoder;
+		///         EncoderStream encoderStream(textStream, encoder);
+		///         StreamWriter writer(encoderStream);
+		///         writer.WriteString(L"Some text to compress.");
+		///     }
+		///     textStream.SeekFromBegin(0);
+		///
+		///     CompressStream(textStream, compressedStream);
+		///     compressedStream.SeekFromBegin(0);
+		///     DecompressStream(compressedStream, decompressedStream);
+		///     decompressedStream.SeekFromBegin(0);
+		///
+		///     Utf8Decoder decoder;
+		///     DecoderStream decoderStream(decompressedStream, decoder);
+		///     StreamReader reader(decoderStream);
+		///     Console::WriteLine(reader.ReadToEnd());
+		/// }
+		/// ]]></example>
+		extern void						DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
+	}
+}
+
+#endif
+
+/***********************************************************************
 .\FILESYSTEM.H
 ***********************************************************************/
 /***********************************************************************
@@ -2000,220 +2102,138 @@ namespace vl
 
 
 /***********************************************************************
-.\STREAM\COMPRESSIONSTREAM.H
+.\STREAM\BROADCASTSTREAM.H
 ***********************************************************************/
 /***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_COMPRESSIONSTREAM
-#define VCZH_STREAM_COMPRESSIONSTREAM
+#ifndef VCZH_STREAM_BROADCASTSTREAM
+#define VCZH_STREAM_BROADCASTSTREAM
 
 
 namespace vl
 {
 	namespace stream
 	{
+		/// <summary>A <b>writable</b> stream that copy the written content to multiple output streams.</summary>
+		/// <remarks>
+		/// When writing happens, the boreadcast stream will only performance one write attempt to each output stream.
+		/// </remarks>
+		class BroadcastStream : public Object, public virtual IStream
+		{
+			typedef collections::List<IStream*>		StreamList;
+		protected:
+			bool					closed;
+			pos_t					position;
+			StreamList				streams;
+		public:
+			/// <summary>Create a boradcast stream.</summary>
+			BroadcastStream();
+			~BroadcastStream();
+
+			/// <summary>
+			/// Get the list of output streams.
+			/// You can change this list to subscribe or unsubscribe.
+			/// </summary>
+			/// <returns>The list of output streams.</returns>
+			StreamList&				Targets();
+			bool					CanRead()const;
+			bool					CanWrite()const;
+			bool					CanSeek()const;
+			bool					CanPeek()const;
+			bool					IsLimited()const;
+			bool					IsAvailable()const;
+			void					Close();
+			pos_t					Position()const;
+			pos_t					Size()const;
+			void					Seek(pos_t _size);
+			void					SeekFromBegin(pos_t _size);
+			void					SeekFromEnd(pos_t _size);
+			vint					Read(void* _buffer, vint _size);
+			vint					Write(void* _buffer, vint _size);
+			vint					Peek(void* _buffer, vint _size);
+		};
+	}
+}
+
+#endif
 
 /***********************************************************************
-Compression
+.\STREAM\CACHESTREAM.H
 ***********************************************************************/
-
-		namespace lzw
-		{
-			static const vint						BufferSize = 1024;
-			static const vint						MaxDictionarySize = 1 << 24;
-
-			struct Code
-			{
-				typedef collections::PushOnlyAllocator<Code>			CodeAllocator;
-				typedef collections::ByteObjectMap<Code>::Allocator		MapAllocator;
-
-				vuint8_t							byte = 0;
-				vint								code = -1;
-				Code*								parent = 0;
-				vint								size = 0;
-				collections::ByteObjectMap<Code>	children;
-			};
-		}
-
-		class LzwBase : public Object
-		{
-		protected:
-			lzw::Code::CodeAllocator				codeAllocator;
-			lzw::Code::MapAllocator					mapAllocator;
-			lzw::Code*								root;
-			vint									eofIndex = -1;
-			vint									nextIndex = 0;
-			vint									indexBits = 1;
-
-			void									UpdateIndexBits();
-			lzw::Code*								CreateCode(lzw::Code* parent, vuint8_t byte);
-
-			LzwBase();
-			LzwBase(bool (&existingBytes)[256]);
-			~LzwBase();
-		};
-
-		/// <summary>An encoder to compress data using the Lzw algorithm.</summary>
-		/// <remarks>
-		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
-		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
-		/// </remarks>
-		class LzwEncoder : public LzwBase, public IEncoder
-		{
-		protected:
-			IStream*								stream = 0;
-
-			vuint8_t								buffer[lzw::BufferSize];
-			vint									bufferUsedBits = 0;
-			lzw::Code*								prefix;
-
-			void									Flush();
-			void									WriteNumber(vint number, vint bitSize);
-		public:
-			/// <summary>Create an encoder.</summary>
-			LzwEncoder();
-			/// <summary>Create an encoder, specifying what bytes will never appear in the data to compress.</summary>
-			/// <param name="existingBytes">
-			/// A filter array
-			/// If existingBytes[x] == true, it means x will possibly appear.
-			/// If existingBytes[x] == false, it means x will never appear.
-			/// </param>
-			/// <remarks>
-			/// The behavior is undefined, if existingBytes[x] == false, but byte x is actually in the data to compress.
-			/// </remarks>
-			LzwEncoder(bool (&existingBytes)[256]);
-			~LzwEncoder();
-
-			void									Setup(IStream* _stream)override;
-			void									Close()override;
-			vint									Write(void* _buffer, vint _size)override;
-		};
-		
-		/// <summary>An decoder to decompress data using the Lzw algorithm.</summary>
-		/// <remarks>
-		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
-		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
-		/// </remarks>
-		class LzwDecoder :public LzwBase, public IDecoder
-		{
-		protected:
-			IStream*								stream = 0;
-			collections::List<lzw::Code*>			dictionary;
-			lzw::Code*								lastCode = 0;
-
-			vuint8_t								inputBuffer[lzw::BufferSize];
-			vint									inputBufferSize = 0;
-			vint									inputBufferUsedBits = 0;
-
-			collections::Array<vuint8_t>			outputBuffer;
-			vint									outputBufferSize = 0;
-			vint									outputBufferUsedBytes = 0;
-
-			bool									ReadNumber(vint& number, vint bitSize);
-			void									PrepareOutputBuffer(vint size);
-			void									ExpandCodeToOutputBuffer(lzw::Code* code);
-		public:
-			/// <summary>Create a decoder.</summary>
-			LzwDecoder();
-			/// <summary>Create an encoder, specifying what bytes will never appear in the decompressed data.</summary>
-			/// <param name="existingBytes">
-			/// A filter array
-			/// If existingBytes[x] == true, it means x will possibly appear.
-			/// If existingBytes[x] == false, it means x will never appear.
-			/// </param>
-			/// <remarks>
-			/// The array "existingBytes" should exactly match the one given to <see cref="LzwEncoder"/>.
-			/// </remarks>
-			LzwDecoder(bool (&existingBytes)[256]);
-			~LzwDecoder();
-
-			void									Setup(IStream* _stream)override;
-			void									Close()override;
-			vint									Read(void* _buffer, vint _size)override;
-		};
-
 /***********************************************************************
-Helper Functions
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-		/// <summary>Copy data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
-		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream">The <b>readable</b> input stream.</param>
-		/// <param name="outputStream">The <b>writable</b> output stream.</param>
-		extern vint						CopyStream(stream::IStream& inputStream, stream::IStream& outputStream);
+#ifndef VCZH_STREAM_CACHESTREAM
+#define VCZH_STREAM_CACHESTREAM
 
-		/// <summary>Compress data from a <b>readable</b> input stream to a <b>writable</b> output stream.</summary>
-		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream">The <b>readable</b> input stream.</param>
-		/// <param name="outputStream">The <b>writable</b> output stream.</param>
-		/// <remarks>
-		/// Data is compressed in multiple batches,
-		/// the is expected output stream to have data in multiple parts.
-		/// In each part, the first 4 bytes is the data before compression in bytes.
-		/// the rest is the compressed data.
-		/// </remarks>
-		/// <example><![CDATA[
-		/// int main()
-		/// {
-		///     MemoryStream textStream, compressedStream, decompressedStream;
-		///     {
-		///         Utf8Encoder encoder;
-		///         EncoderStream encoderStream(textStream, encoder);
-		///         StreamWriter writer(encoderStream);
-		///         writer.WriteString(L"Some text to compress.");
-		///     }
-		///     textStream.SeekFromBegin(0);
-		///
-		///     CompressStream(textStream, compressedStream);
-		///     compressedStream.SeekFromBegin(0);
-		///     DecompressStream(compressedStream, decompressedStream);
-		///     decompressedStream.SeekFromBegin(0);
-		///
-		///     Utf8Decoder decoder;
-		///     DecoderStream decoderStream(decompressedStream, decoder);
-		///     StreamReader reader(decoderStream);
-		///     Console::WriteLine(reader.ReadToEnd());
-		/// }
-		/// ]]></example>
-		extern void						CompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
 
-		/// <summary>Decompress data from a <b>readable</b> input stream (with compressed data) to a <b>writable</b> output stream (with uncompressed data).</summary>
-		/// <returns>Data copied in bytes.</returns>
-		/// <param name="inputStream">The <b>readable</b> input stream.</param>
-		/// <param name="outputStream">The <b>writable</b> output stream.</param>
-		/// <remarks>
-		/// Data is compressed in multiple batches,
-		/// the is expected input stream to have data in multiple parts.
-		/// In each part, the first 4 bytes is the data before compression in bytes.
-		/// the rest is the compressed data.
-		/// </remarks>
-		/// <example><![CDATA[
-		/// int main()
-		/// {
-		///     MemoryStream textStream, compressedStream, decompressedStream;
-		///     {
-		///         Utf8Encoder encoder;
-		///         EncoderStream encoderStream(textStream, encoder);
-		///         StreamWriter writer(encoderStream);
-		///         writer.WriteString(L"Some text to compress.");
-		///     }
-		///     textStream.SeekFromBegin(0);
-		///
-		///     CompressStream(textStream, compressedStream);
-		///     compressedStream.SeekFromBegin(0);
-		///     DecompressStream(compressedStream, decompressedStream);
-		///     decompressedStream.SeekFromBegin(0);
-		///
-		///     Utf8Decoder decoder;
-		///     DecoderStream decoderStream(decompressedStream, decoder);
-		///     StreamReader reader(decoderStream);
-		///     Console::WriteLine(reader.ReadToEnd());
-		/// }
-		/// ]]></example>
-		extern void						DecompressStream(stream::IStream& inputStream, stream::IStream& outputStream);
+namespace vl
+{
+	namespace stream
+	{
+		/// <summary>
+		/// <p>
+		/// A potentially <b>readable</b>, <b>peekable</b>, <b>writable</b>, <b>seekable</b> and <b>finite</b> stream that creates on another stream.
+		/// Each feature is available if the target stream has the same feature.
+		/// </p>
+		/// <p>
+		/// When you read from the cache strema,
+		/// it will read a specified size of content from the target stream at once and cache,
+		/// reducing the number of operations on the target stream.
+		/// </p>
+		/// <p>
+		/// When you write to the cache stream,
+		/// it will cache all the data to write,
+		/// and write to the target stream after the cache is full,
+		/// reducing the number of operations on the target stream.
+		/// </p>
+		/// </summary>
+		class CacheStream : public Object, public virtual IStream
+		{
+		protected:
+			IStream*				target;
+			vint					block;
+			pos_t					start;
+			pos_t					position;
+
+			char*					buffer;
+			vint					dirtyStart;
+			vint					dirtyLength;
+			vint					availableLength;
+			pos_t					operatedSize;
+
+			void					Flush();
+			void					Load(pos_t _position);
+			vint					InternalRead(void* _buffer, vint _size);
+			vint					InternalWrite(void* _buffer, vint _size);
+		public:
+			/// <summary>Create a cache stream from a target stream.</summary>
+			/// <param name="_target">The target stream.</param>
+			/// <param name="_block">Size of the cache.</param>
+			CacheStream(IStream& _target, vint _block=65536);
+			~CacheStream();
+
+			bool					CanRead()const;
+			bool					CanWrite()const;
+			bool					CanSeek()const;
+			bool					CanPeek()const;
+			bool					IsLimited()const;
+			bool					IsAvailable()const;
+			void					Close();
+			pos_t					Position()const;
+			pos_t					Size()const;
+			void					Seek(pos_t _size);
+			void					SeekFromBegin(pos_t _size);
+			void					SeekFromEnd(pos_t _size);
+			vint					Read(void* _buffer, vint _size);
+			vint					Write(void* _buffer, vint _size);
+			vint					Peek(void* _buffer, vint _size);
+		};
 	}
 }
 

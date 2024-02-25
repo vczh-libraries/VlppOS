@@ -9,5 +9,5 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\HttpUtility.Windows.cpp"
 #include "..\..\Source\Locale.Windows.cpp"
 #include "..\..\Source\Threading.Windows.cpp"
-#include "..\..\Source\Stream\CharFormat.Windows.cpp"
-#include "..\..\Source\Stream\CharFormat_TestEncoding.Windows.cpp"
+#include "..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp"
+#include "..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp"
