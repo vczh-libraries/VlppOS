@@ -90,9 +90,9 @@ Char Encoder and Decoder
 			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream);
-			void							Close();
-			vint							Write(void* _buffer, vint _size);
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+			vint							Write(void* _buffer, vint _size) override;
 		};
 		
 		/// <summary>Base type of all character decoder.</summary>
@@ -106,9 +106,9 @@ Char Encoder and Decoder
 			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream);
-			void							Close();
-			vint							Read(void* _buffer, vint _size);
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+			vint							Read(void* _buffer, vint _size) override;
 		};
 
 /***********************************************************************
@@ -152,6 +152,10 @@ Unicode General
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
 			vint							ReadString(wchar_t* _buffer, vint chars) override;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
 		};
 
 		extern template class UtfGeneralDecoder<char8_t>;

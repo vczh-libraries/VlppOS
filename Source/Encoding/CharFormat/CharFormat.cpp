@@ -180,7 +180,6 @@ UtfGeneralDecoder
 		template<typename T>
 		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
 		{
-			reader.Setup(stream);
 			vint counter = 0;
 			for (vint i = 0; i < chars; i++)
 			{
@@ -190,6 +189,13 @@ UtfGeneralDecoder
 				counter++;
 			}
 			return counter;
+		}
+
+		template<typename T>
+		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
+		{
+			CharDecoder::Setup(_stream);
+			reader.Setup(_stream);
 		}
 
 		template class UtfGeneralDecoder<char8_t>;
