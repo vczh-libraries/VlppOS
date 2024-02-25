@@ -1,7 +1,7 @@
 ﻿#include "../../Source/FileSystem.h"
 #include "../../Source/Locale.h"
 #include "../../Source/Stream/FileStream.h"
-#include "../../Source/Stream/CharFormat.h"
+#include "../../Source/Encoding/CharFormat/CharFormat.h"
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Threading.h"

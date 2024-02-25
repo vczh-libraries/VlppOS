@@ -1,7 +1,7 @@
 ﻿#include "../../Source/Locale.h"
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/EncodingStream.h"
-#include "../../Source/Stream/CharFormat.h"
+#include "../../Source/Encoding/CharFormat/CharFormat.h"
 #include "../../Source/Stream/FileStream.h"
 
 using namespace vl;

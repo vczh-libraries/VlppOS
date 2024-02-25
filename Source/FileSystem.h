@@ -6,8 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_FILESYSTEM
 #define VCZH_FILESYSTEM
 
-#include <Vlpp.h>
-#include "Stream/CharFormat.h"
+#include "Encoding/CharFormat/CharFormat.h"
 
 namespace vl
 {

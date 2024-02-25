@@ -3,10 +3,10 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_CHARFORMAT
-#define VCZH_STREAM_CHARFORMAT
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT
+#define VCZH_STREAM_ENCODING_CHARFORMAT
 
-#include "Interfaces.h"
+#include "../Encoding.h"
 
 namespace vl
 {

@@ -168,6 +168,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp" />
     <ClCompile Include="..\..\..\Source\FileSystem.cpp" />
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -188,24 +189,23 @@
     <ClCompile Include="..\..\..\Source\Stream\Accessor.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\BroadcastStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat.Linux.cpp">
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat.Windows.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat_Bom.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.Linux.cpp">
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Stream\CharFormat_TestEncoding.Windows.cpp" />
-    <ClCompile Include="..\..\..\Source\Stream\CompressionStream.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\MemoryStream.cpp" />
@@ -247,14 +247,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Import\Vlpp.h" />
+    <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h" />
+    <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\HttpUtility.h" />
     <ClInclude Include="..\..\..\Source\Locale.h" />
     <ClInclude Include="..\..\..\Source\Stream\Accessor.h" />
     <ClInclude Include="..\..\..\Source\Stream\BroadcastStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\CacheStream.h" />
-    <ClInclude Include="..\..\..\Source\Stream\CharFormat.h" />
-    <ClInclude Include="..\..\..\Source\Stream\CompressionStream.h" />
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharFormat.h" />
     <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\FileStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\Interfaces.h" />

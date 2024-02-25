@@ -3,10 +3,10 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#include "CompressionStream.h"
-#include "Accessor.h"
-#include "EncodingStream.h"
-#include "MemoryWrapperStream.h"
+#include "LzwEncoding.h"
+#include "../Stream/Accessor.h"
+#include "../Stream/EncodingStream.h"
+#include "../Stream/MemoryWrapperStream.h"
 
 namespace vl
 {

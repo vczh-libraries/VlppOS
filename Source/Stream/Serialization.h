@@ -6,7 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_SERIALIZATION
 #define VCZH_STREAM_SERIALIZATION
 
-#include "CharFormat.h"
+#include "../Encoding/CharFormat/CharFormat.h"
 #include "MemoryWrapperStream.h"
 
 namespace vl

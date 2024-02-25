@@ -1,6 +1,6 @@
 ﻿#include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/EncodingStream.h"
-#include "../../Source/Stream/CharFormat.h"
+#include "../../Source/Encoding/CharFormat/CharFormat.h"
 #include "../../Source/Locale.h"
 
 using namespace vl;

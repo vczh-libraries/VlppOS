@@ -6,7 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_ENCODINGSTREAM
 #define VCZH_STREAM_ENCODINGSTREAM
 
-#include "Interfaces.h"
+#include "../Encoding/Encoding.h"
 
 namespace vl
 {

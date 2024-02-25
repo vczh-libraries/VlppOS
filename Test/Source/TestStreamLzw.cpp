@@ -1,7 +1,7 @@
 ﻿#include "../../Source/Stream/FileStream.h"
 #include "../../Source/Stream/MemoryStream.h"
 #include "../../Source/Stream/EncodingStream.h"
-#include "../../Source/Stream/CompressionStream.h"
+#include "../../Source/Encoding/LzwEncoding.h"
 
 using namespace vl;
 using namespace vl::stream;
