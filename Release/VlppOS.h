@@ -1328,16 +1328,6 @@ namespace vl
 /***********************************************************************
 Helper Functions
 ***********************************************************************/
-
-		template<typename T>
-		void SwapBytesForUtf16BE(T* _buffer, vint chars)
-		{
-			static_assert(sizeof(T) == sizeof(char16_t));
-			for (vint i = 0; i < chars; i++)
-			{
-				SwapByteForUtf16BE(_buffer[i]);
-			}
-		}
 	}
 
 	namespace stream
@@ -1377,7 +1367,7 @@ UtfStreamToStreamReader<TFrom, TTo>
 ***********************************************************************/
 
 		template<typename TFrom, typename TTo>
-		class UtfStreamToStreamReader : public encoding::UtfFrom32ReaderBase<TTo, encoding::UtfReaderConsumer<encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>>>
+		class UtfStreamToStreamReader : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
 		{
 		public:
 			void Setup(IStream* _stream)
@@ -1391,13 +1381,9 @@ UtfStreamToStreamReader<TFrom, TTo>
 			}
 		};
 
-		template<typename TTo>
-		class UtfStreamToStreamReader<char32_t, TTo> : public encoding::UtfFrom32ReaderBase<TTo, UtfStreamConsumer<char32_t>>
-		{
-		};
-
-		template<typename TFrom>
-		class UtfStreamToStreamReader<TFrom, char32_t> : public encoding::UtfTo32ReaderBase<TFrom, UtfStreamConsumer<TFrom>>
+		template<typename TFrom, typename TTo>
+			requires(std::is_same_v<TFrom, char32_t> || std::is_same_v<TTo, char32_t>)
+		class UtfStreamToStreamReader<TFrom, TTo> : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
 		{
 		};
 
@@ -1413,12 +1399,12 @@ Char Encoder and Decoder
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) = 0;
+			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream);
-			void							Close();
-			vint							Write(void* _buffer, vint _size);
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+			vint							Write(void* _buffer, vint _size) override;
 		};
 		
 		/// <summary>Base type of all character decoder.</summary>
@@ -1432,9 +1418,9 @@ Char Encoder and Decoder
 			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream);
-			void							Close();
-			vint							Read(void* _buffer, vint _size);
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+			vint							Read(void* _buffer, vint _size) override;
 		};
 
 /***********************************************************************
@@ -1445,7 +1431,7 @@ Mbcs
 		class MbcsEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 		
 		/// <summary>Decoder to read text in the local code page.</summary>
@@ -1463,7 +1449,7 @@ Unicode General
 		class UtfGeneralEncoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		extern template class UtfGeneralEncoder<char8_t>;
@@ -1478,6 +1464,10 @@ Unicode General
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
 			vint							ReadString(wchar_t* _buffer, vint chars) override;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
 		};
 
 		extern template class UtfGeneralDecoder<char8_t>;
@@ -1493,7 +1483,7 @@ Unicode General (wchar_t)
 		class UtfGeneralEncoder<wchar_t> : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		template<>
@@ -1512,7 +1502,7 @@ Utf-8
 		class Utf8Encoder : public CharEncoder
 		{
 		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate) override;
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 #elif defined VCZH_GCC
 		/// <summary>Encoder to write UTF-8 text.</summary>
@@ -1526,26 +1516,17 @@ Utf-8
 Utf-16 / Utf-16BE / Utf-32
 ***********************************************************************/
 
+		/// <summary>Encoder to write big endian UTF-16 to.</summary>
+		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
+		/// <summary>Decoder to read big endian UTF-16 text.</summary>
+		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
+
 #if defined VCZH_WCHAR_UTF16
 		
 		/// <summary>Encoder to write UTF-16 text.</summary>
 		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
 		/// <summary>Decoder to read UTF-16 text.</summary>
 		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
-		
-		/// <summary>Encoder to write big endian UTF-16 to.</summary>
-		class Utf16BEEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate);
-		};
-		
-		/// <summary>Decoder to read big endian UTF-16 text.</summary>
-		class Utf16BEDecoder : public CharDecoder
-		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars);
-		};
 		
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf32Encoder : public UtfGeneralEncoder<char32_t> {};
@@ -1558,11 +1539,6 @@ Utf-16 / Utf-16BE / Utf-32
 		class Utf16Encoder : public UtfGeneralEncoder<char16_t> {};
 		/// <summary>Decoder to read UTF-16 text.</summary>
 		class Utf16Decoder : public UtfGeneralDecoder<char16_t> {};
-
-		/// <summary>Encoder to write big endian UTF-16 to.</summary>
-		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
-		/// <summary>Decoder to read big endian UTF-16 text.</summary>
-		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
 
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
@@ -2548,7 +2524,7 @@ Text Related
 			WString						ReadLine();
 			WString						ReadToEnd();
 		};
-		
+
 		/// <summary>
 		/// Text reader from a stream storing characters in wchar_t.
 		/// </summary>

@@ -1791,7 +1791,7 @@ namespace vl
 Mbcs
 ***********************************************************************/
 
-		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 			vint length = WideCharToMultiByte(CP_THREAD_ACP, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
 			char* mbcs = new char[length];
@@ -1811,7 +1811,7 @@ Mbcs
 Utf8
 ***********************************************************************/
 
-		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars, bool freeToUpdate)
+		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
 		{
 			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
 			char* mbcs = new char[length];
