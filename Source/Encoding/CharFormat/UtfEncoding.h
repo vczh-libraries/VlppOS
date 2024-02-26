@@ -83,11 +83,6 @@ Unicode General
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
-		extern template class UtfGeneralEncoder<char8_t>;
-		extern template class UtfGeneralEncoder<char16_t>;
-		extern template class UtfGeneralEncoder<char16be_t>;
-		extern template class UtfGeneralEncoder<char32_t>;
-
 		template<typename T>
 		class UtfGeneralDecoder : public CharDecoderBase
 		{
@@ -102,13 +97,8 @@ Unicode General
 			vint							Read(void* _buffer, vint _size) override;
 		};
 
-		extern template class UtfGeneralDecoder<char8_t>;
-		extern template class UtfGeneralDecoder<char16_t>;
-		extern template class UtfGeneralDecoder<char16be_t>;
-		extern template class UtfGeneralDecoder<char32_t>;
-
 /***********************************************************************
-Unicode General (wchar_t)
+Unicode General (without conversion)
 ***********************************************************************/
 
 		template<>
@@ -124,6 +114,20 @@ Unicode General (wchar_t)
 		public:
 			vint							Read(void* _buffer, vint _size) override;
 		};
+
+/***********************************************************************
+Unicode General (extern templates)
+***********************************************************************/
+
+		extern template class UtfGeneralEncoder<char8_t>;
+		extern template class UtfGeneralEncoder<char16_t>;
+		extern template class UtfGeneralEncoder<char16be_t>;
+		extern template class UtfGeneralEncoder<char32_t>;
+
+		extern template class UtfGeneralDecoder<char8_t>;
+		extern template class UtfGeneralDecoder<char16_t>;
+		extern template class UtfGeneralDecoder<char16be_t>;
+		extern template class UtfGeneralDecoder<char32_t>;
 	}
 }
 

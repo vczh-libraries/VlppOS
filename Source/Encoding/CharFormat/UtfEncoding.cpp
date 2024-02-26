@@ -69,11 +69,6 @@ UtfGeneralEncoder
 			return _size;
 		}
 
-		template class UtfGeneralEncoder<char8_t>;
-		template class UtfGeneralEncoder<char16_t>;
-		template class UtfGeneralEncoder<char16be_t>;
-		template class UtfGeneralEncoder<char32_t>;
-
 /***********************************************************************
 UtfGeneralDecoder
 ***********************************************************************/
@@ -146,11 +141,6 @@ UtfGeneralDecoder
 			return filledBytes;
 		}
 
-		template class UtfGeneralDecoder<char8_t>;
-		template class UtfGeneralDecoder<char16_t>;
-		template class UtfGeneralDecoder<char16be_t>;
-		template class UtfGeneralDecoder<char32_t>;
-
 /***********************************************************************
 UtfGeneralEncoder<wchar_t>
 ***********************************************************************/
@@ -168,5 +158,19 @@ UtfGeneralDecoder<wchar_t>
 		{
 			return stream->Read(_buffer, _size);
 		}
+
+/***********************************************************************
+Unicode General (extern templates)
+***********************************************************************/
+
+		template class UtfGeneralEncoder<char8_t>;
+		template class UtfGeneralEncoder<char16_t>;
+		template class UtfGeneralEncoder<char16be_t>;
+		template class UtfGeneralEncoder<char32_t>;
+
+		template class UtfGeneralDecoder<char8_t>;
+		template class UtfGeneralDecoder<char16_t>;
+		template class UtfGeneralDecoder<char16be_t>;
+		template class UtfGeneralDecoder<char32_t>;
 	}
 }
