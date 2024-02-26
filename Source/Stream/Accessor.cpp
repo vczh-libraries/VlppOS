@@ -13,12 +13,13 @@ namespace vl
 		using namespace collections;
 
 /***********************************************************************
-TextReader
+TextReader_<T>
 ***********************************************************************/
 
-		WString TextReader::ReadString(vint length)
+		template<typename T>
+		ObjectString<T> TextReader_<T>::ReadString(vint length)
 		{
-			wchar_t* buffer=new wchar_t[length+1];
+			T* buffer=new T[length+1];
 			vint i=0;
 			for(;i<length;i++)
 			{
@@ -28,20 +29,21 @@ TextReader
 				}
 			}
 			buffer[i]=L'\0';
-			WString result(buffer);
+			ObjectString<T> result(buffer);
 			delete[] buffer;
 			return result;
 		}
 
-		WString TextReader::ReadLine()
+		template<typename T>
+		ObjectString<T> TextReader_<T>::ReadLine()
 		{
-			WString result;
-			auto buffer = new wchar_t[65537];
+			ObjectString<T> result;
+			auto buffer = new T[65537];
 			buffer[0]=L'\0';
 			vint i=0;
 			while(true)
 			{
-				wchar_t c=ReadChar();
+				T c=ReadChar();
 				if(c==L'\n' || c==L'\0')
 				{
 					buffer[i]=L'\0';
@@ -74,15 +76,16 @@ TextReader
 			}
 		}
 
-		WString TextReader::ReadToEnd()
+		template<typename T>
+		ObjectString<T> TextReader_<T>::ReadToEnd()
 		{
-			WString result;
-			auto buffer = new wchar_t[65537];
+			ObjectString<T> result;
+			auto buffer = new T[65537];
 			buffer[0]=L'\0';
 			vint i=0;
 			while(true)
 			{
-				wchar_t c=ReadChar();
+				T c=ReadChar();
 				if(c==L'\0')
 				{
 					buffer[i]=L'\0';
@@ -109,10 +112,11 @@ TextReader
 		}
 
 /***********************************************************************
-TextWriter
+TextWriter_<T>
 ***********************************************************************/
 
-		void TextWriter::WriteString(const wchar_t* string, vint charCount)
+		template<typename T>
+		void TextWriter_<T>::WriteString(const T* string, vint charCount)
 		{
 			while(*string)
 			{
@@ -120,12 +124,14 @@ TextWriter
 			}
 		}
 
-		void TextWriter::WriteString(const wchar_t* string)
+		template<typename T>
+		void TextWriter_<T>::WriteString(const T* string)
 		{
 			WriteString(string, (vint)wcslen(string));
 		}
 
-		void TextWriter::WriteString(const WString& string)
+		template<typename T>
+		void TextWriter_<T>::WriteString(const ObjectString<T>& string)
 		{
 			if(string.Length())
 			{
@@ -133,19 +139,22 @@ TextWriter
 			}
 		}
 
-		void TextWriter::WriteLine(const wchar_t* string, vint charCount)
+		template<typename T>
+		void TextWriter_<T>::WriteLine(const T* string, vint charCount)
 		{
 			WriteString(string, charCount);
 			WriteString(L"\r\n", 2);
 		}
 
-		void TextWriter::WriteLine(const wchar_t* string)
+		template<typename T>
+		void TextWriter_<T>::WriteLine(const T* string)
 		{
 			WriteString(string);
 			WriteString(L"\r\n", 2);
 		}
 
-		void TextWriter::WriteLine(const WString& string)
+		template<typename T>
+		void TextWriter_<T>::WriteLine(const ObjectString<T>& string)
 		{
 			WriteString(string);
 			WriteString(L"\r\n", 2);
@@ -153,7 +162,8 @@ TextWriter
 
 		namespace monospace_tabling
 		{
-			void WriteBorderLine(TextWriter& writer, Array<vint>& columnWidths, vint columns)
+			template<typename T>
+			void WriteBorderLine(TextWriter_<T>& writer, Array<vint>& columnWidths, vint columns)
 			{
 				writer.WriteChar(L'+');
 				for(vint i=0;i<columns;i++)
@@ -168,7 +178,8 @@ TextWriter
 				writer.WriteLine(L"");
 			}
 
-			void WriteContentLine(TextWriter& writer, Array<vint>& columnWidths, vint rowHeight, vint columns, Array<WString>& tableByRow, vint startRow)
+			template<typename T>
+			void WriteContentLine(TextWriter_<T>& writer, Array<vint>& columnWidths, vint rowHeight, vint columns, Array<ObjectString<T>>& tableByRow, vint startRow)
 			{
 				vint cellStart=startRow*columns;
 				for(vint r=0;r<rowHeight;r++)
@@ -176,7 +187,7 @@ TextWriter
 					writer.WriteChar(L'|');
 					for(vint c=0;c<columns;c++)
 					{
-						const wchar_t* cell=tableByRow[cellStart+c].Buffer();
+						const T* cell=tableByRow[cellStart+c].Buffer();
 						for(vint i=0;i<r;i++)
 						{
 							if(cell) cell=::wcsstr(cell, L"\r\n");
@@ -187,7 +198,7 @@ TextWriter
 						vint length=0;
 						if(cell)
 						{
-							const wchar_t* end=::wcsstr(cell, L"\r\n");
+							const T* end=::wcsstr(cell, L"\r\n");
 							length=end?end-cell:(vint)wcslen(cell);
 							writer.WriteString(cell, length);
 						}
@@ -204,7 +215,8 @@ TextWriter
 		}
 		using namespace monospace_tabling;
 
-		void TextWriter::WriteMonospacedEnglishTable(collections::Array<WString>& tableByRow, vint rows, vint columns)
+		template<typename T>
+		void TextWriter_<T>::WriteMonospacedEnglishTable(collections::Array<ObjectString<T>>& tableByRow, vint rows, vint columns)
 		{
 			Array<vint> rowHeights(rows);
 			Array<vint> columnWidths(columns);
@@ -215,15 +227,15 @@ TextWriter
 			{
 				for(vint j=0;j<columns;j++)
 				{
-					WString text=tableByRow[i*columns+j];
-					const wchar_t* reading=text.Buffer();
+					ObjectString<T> text=tableByRow[i*columns+j];
+					const T* reading=text.Buffer();
 					vint width=0;
 					vint height=0;
 
 					while(reading)
 					{
 						height++;
-						const wchar_t* crlf=::wcsstr(reading, L"\r\n");
+						const T* crlf=::wcsstr(reading, L"\r\n");
 						if(crlf)
 						{
 							vint length=crlf-reading+2;
@@ -252,10 +264,11 @@ TextWriter
 		}
 
 /***********************************************************************
-StringReader
+StringReader_<T>
 ***********************************************************************/
 
-		void StringReader::PrepareIfLastCallIsReadLine()
+		template<typename T>
+		void StringReader_<T>::PrepareIfLastCallIsReadLine()
 		{
 			if(lastCallIsReadLine)
 			{
@@ -265,19 +278,22 @@ StringReader
 			}
 		}
 
-		StringReader::StringReader(const WString& _string)
+		template<typename T>
+		StringReader_<T>::StringReader_(const ObjectString<T>& _string)
 			:string(_string)
 			,current(0)
 			,lastCallIsReadLine(false)
 		{
 		}
 
-		bool StringReader::IsEnd()
+		template<typename T>
+		bool StringReader_<T>::IsEnd()
 		{
 			return current==string.Length();
 		}
 
-		wchar_t StringReader::ReadChar()
+		template<typename T>
+		T StringReader_<T>::ReadChar()
 		{
 			PrepareIfLastCallIsReadLine();
 			if(IsEnd())
@@ -290,7 +306,8 @@ StringReader
 			}
 		}
 
-		WString StringReader::ReadString(vint length)
+		template<typename T>
+		ObjectString<T> StringReader_<T>::ReadString(vint length)
 		{
 			PrepareIfLastCallIsReadLine();
 			if(IsEnd())
@@ -301,13 +318,14 @@ StringReader
 			{
 				vint remain=string.Length()-current;
 				if(length>remain) length=remain;
-				WString result=string.Sub(current, length);
+				ObjectString<T> result=string.Sub(current, length);
 				current+=length;
 				return result;
 			}
 		}
 
-		WString StringReader::ReadLine()
+		template<typename T>
+		ObjectString<T> StringReader_<T>::ReadLine()
 		{
 			PrepareIfLastCallIsReadLine();
 			if(IsEnd())
@@ -319,41 +337,45 @@ StringReader
 				vint lineEnd=current;
 				while(lineEnd<string.Length())
 				{
-					wchar_t c=string[lineEnd];
+					T c=string[lineEnd];
 					if(c==L'\r' || c==L'\n') break;
 					lineEnd++;
 				}
-				WString result=string.Sub(current, lineEnd-current);
+				ObjectString<T> result=string.Sub(current, lineEnd-current);
 				current=lineEnd;
 				lastCallIsReadLine=true;
 				return result;
 			}
 		}
 
-		WString StringReader::ReadToEnd()
+		template<typename T>
+		ObjectString<T> StringReader_<T>::ReadToEnd()
 		{
 			return ReadString(string.Length()-current);
 		}
 
 /***********************************************************************
-StreamReader
+StreamReader_<T>
 ***********************************************************************/
 
-		StreamReader::StreamReader(IStream& _stream)
+		template<typename T>
+		StreamReader_<T>::StreamReader_(IStream& _stream)
 			:stream(&_stream)
 		{
 		}
 
-		bool StreamReader::IsEnd()
+		template<typename T>
+		bool StreamReader_<T>::IsEnd()
 		{
 			return stream==0;
 		}
 
-		wchar_t StreamReader::ReadChar()
+		template<typename T>
+		T StreamReader_<T>::ReadChar()
 		{
 			if(stream)
 			{
-				wchar_t buffer=0;
+				T buffer=0;
 				if(stream->Read(&buffer, sizeof(buffer))==0)
 				{
 					stream=0;
@@ -371,20 +393,23 @@ StreamReader
 		}
 
 /***********************************************************************
-StreamWriter
+StreamWriter_<T>
 ***********************************************************************/
 
-		StreamWriter::StreamWriter(IStream& _stream)
+		template<typename T>
+		StreamWriter_<T>::StreamWriter_(IStream& _stream)
 			:stream(&_stream)
 		{
 		}
 
-		void StreamWriter::WriteChar(wchar_t c)
+		template<typename T>
+		void StreamWriter_<T>::WriteChar(T c)
 		{
 			stream->Write(&c, sizeof(c));
 		}
 
-		void StreamWriter::WriteString(const wchar_t* string, vint charCount)
+		template<typename T>
+		void StreamWriter_<T>::WriteString(const T* string, vint charCount)
 		{
 			stream->Write((void*)string, charCount*sizeof(*string));
 		}
