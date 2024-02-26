@@ -22,6 +22,12 @@
     <Filter Include="Import">
       <UniqueIdentifier>{f2b75d6f-510b-43a2-a249-bf08fc5e8147}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\Encoding">
+      <UniqueIdentifier>{2b7c4044-fe5b-4999-9e23-0b399a59e43e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\Encoding\CharFormat">
+      <UniqueIdentifier>{9b8e7dd7-d560-48af-92fe-eae76a82879c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
@@ -60,15 +66,6 @@
     <ClCompile Include="..\..\..\Source\Stream\BroadcastStream.cpp">
       <Filter>Common\Stream</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Stream\CompressionStream.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp">
       <Filter>Common\Stream</Filter>
     </ClCompile>
@@ -102,12 +99,6 @@
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp">
       <Filter>Common\Stream</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Import\Vlpp.Linux.cpp">
       <Filter>Import</Filter>
     </ClCompile>
@@ -123,23 +114,38 @@
     <ClCompile Include="..\..\..\Source\Threading.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp">
-      <Filter>Common\Stream</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp">
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp">
-      <Filter>Common\Stream</Filter>
+    <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Linux.cpp">
-      <Filter>Common\Stream</Filter>
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp">
+      <Filter>Common\Encoding</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -159,15 +165,6 @@
       <Filter>Common\Stream</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Stream\BroadcastStream.h">
-      <Filter>Common\Stream</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Source\Stream\CacheStream.h">
-      <Filter>Common\Stream</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharFormat.h">
-      <Filter>Common\Stream</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Source\Stream\CompressionStream.h">
       <Filter>Common\Stream</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Stream\FileStream.h">
@@ -193,6 +190,18 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h">
       <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\CacheStream.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharFormat.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\Encoding.h">
+      <Filter>Common\Encoding</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h">
+      <Filter>Common\Encoding</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
