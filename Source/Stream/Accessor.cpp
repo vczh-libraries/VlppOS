@@ -127,7 +127,35 @@ TextWriter_<T>
 		template<typename T>
 		void TextWriter_<T>::WriteString(const T* string)
 		{
-			WriteString(string, (vint)wcslen(string));
+			vint len = 0;
+			if constexpr (std::is_same_v<T, char>)
+			{
+				len = strlen(string);
+			}
+			else if constexpr (std::is_same_v<T, char8_t>)
+			{
+				len = strlen((const char*)string);
+			}
+			else if constexpr (std::is_same_v<T, wchar_t>)
+			{
+				len = wcslen(string);
+			}
+#if defined VCZH_WCHAR_UTF16
+			else if constexpr (std::is_same_v<T, char16_t>)
+			{
+				len = wcslen((const wchar_t*)string);
+			}
+#elif defined VCZH_WCHAR_UTF32
+			else if constexpr (std::is_same_v<T, char32_t>)
+			{
+				len = wcslen((const wchar_t*)string);
+			}
+#endif
+			else
+			{
+				len = WString::Unmanaged(string).Length();
+			}
+			WriteString(string, len);
 		}
 
 		template<typename T>
@@ -418,29 +446,29 @@ StreamWriter_<T>
 Extern Templates
 ***********************************************************************/
 
-		extern template class TextReader_<wchar_t>;
-		extern template class TextReader_<char8_t>;
-		extern template class TextReader_<char16_t>;
-		extern template class TextReader_<char32_t>;
+		template class TextReader_<wchar_t>;
+		template class TextReader_<char8_t>;
+		template class TextReader_<char16_t>;
+		template class TextReader_<char32_t>;
 
-		extern template class TextWriter_<wchar_t>;
-		extern template class TextWriter_<char8_t>;
-		extern template class TextWriter_<char16_t>;
-		extern template class TextWriter_<char32_t>;
+		template class TextWriter_<wchar_t>;
+		template class TextWriter_<char8_t>;
+		template class TextWriter_<char16_t>;
+		template class TextWriter_<char32_t>;
 
-		extern template class StringReader_<wchar_t>;
-		extern template class StringReader_<char8_t>;
-		extern template class StringReader_<char16_t>;
-		extern template class StringReader_<char32_t>;
+		template class StringReader_<wchar_t>;
+		template class StringReader_<char8_t>;
+		template class StringReader_<char16_t>;
+		template class StringReader_<char32_t>;
 
-		extern template class StreamReader_<wchar_t>;
-		extern template class StreamReader_<char8_t>;
-		extern template class StreamReader_<char16_t>;
-		extern template class StreamReader_<char32_t>;
+		template class StreamReader_<wchar_t>;
+		template class StreamReader_<char8_t>;
+		template class StreamReader_<char16_t>;
+		template class StreamReader_<char32_t>;
 
-		extern template class StreamWriter_<wchar_t>;
-		extern template class StreamWriter_<char8_t>;
-		extern template class StreamWriter_<char16_t>;
-		extern template class StreamWriter_<char32_t>;
+		template class StreamWriter_<wchar_t>;
+		template class StreamWriter_<char8_t>;
+		template class StreamWriter_<char16_t>;
+		template class StreamWriter_<char32_t>;
 	}
 }
