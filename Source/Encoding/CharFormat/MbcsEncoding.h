@@ -3,8 +3,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_ENCODING_MBCSENCODING
-#define VCZH_STREAM_ENCODING_MBCSENCODING
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
+#define VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
 
 #include "../Encoding.h"
 
