@@ -10,4 +10,3 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Locale.Windows.cpp"
 #include "..\..\Source\Threading.Windows.cpp"
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp"
-#include "..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp"

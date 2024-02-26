@@ -1037,282 +1037,7 @@ Helper Functions
 }
 
 /***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-		using namespace vl::encoding;
-
-/***********************************************************************
-CharEncoder
-***********************************************************************/
-
-		void CharEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void CharEncoder::Close()
-		{
-		}
-
-		vint CharEncoder::Write(void* _buffer, vint _size)
-		{
-			// prepare a buffer for input
-			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
-			vint availableBytes = availableChars * sizeof(wchar_t);
-			bool needToFree = false;
-			vuint8_t* unicode = nullptr;
-			if (cacheSize > 0)
-			{
-				unicode = new vuint8_t[cacheSize + _size];
-				memcpy(unicode, cacheBuffer, cacheSize);
-				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
-				needToFree = true;
-			}
-			else
-			{
-				unicode = (vuint8_t*)_buffer;
-			}
-
-#if defined VCZH_WCHAR_UTF16
-			if (availableChars > 0)
-			{
-				// a surrogate pair must be written as a whole thing
-				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
-				if ((c & 0xFC00U) == 0xD800U)
-				{
-					availableChars -= 1;
-					availableBytes -= sizeof(wchar_t);
-				}
-			}
-#endif
-
-			// write the buffer
-			if (availableChars > 0)
-			{
-				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
-				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
-			}
-
-			// cache the remaining
-			cacheSize = cacheSize + _size - availableBytes;
-			if (cacheSize > 0)
-			{
-				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
-				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
-			}
-
-			if (needToFree) delete[] unicode;
-			return _size;
-		}
-
-/***********************************************************************
-CharDecoder
-***********************************************************************/
-
-		void CharDecoder::Setup(IStream* _stream)
-		{
-			stream=_stream;
-		}
-
-		void CharDecoder::Close()
-		{
-		}
-
-		vint CharDecoder::Read(void* _buffer, vint _size)
-		{
-			vuint8_t* writing = (vuint8_t*)_buffer;
-			vint filledBytes = 0;
-
-			// feed the cache first
-			if (cacheSize > 0)
-			{
-				filledBytes = cacheSize < _size ? cacheSize : _size;
-				memcpy(writing, cacheBuffer, cacheSize);
-				_size -= filledBytes;
-				writing += filledBytes;
-
-				// adjust the cache if it is not fully consumed
-				cacheSize -= filledBytes;
-				if (cacheSize > 0)
-				{
-					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
-				}
-
-				if (_size == 0)
-				{
-					return filledBytes;
-				}
-			}
-
-			// fill the buffer as many as possible
-			while (_size >= sizeof(wchar_t))
-			{
-				vint availableChars = _size / sizeof(wchar_t);
-				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
-				if (readBytes == 0) break;
-				filledBytes += readBytes;
-				_size -= readBytes;
-				writing += readBytes;
-			}
-
-			// cache the remaining wchar_t
-			if (_size < sizeof(wchar_t))
-			{
-				wchar_t c;
-				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
-				if (readChars == sizeof(wchar_t))
-				{
-					vuint8_t* reading = (vuint8_t*)&c;
-					memcpy(writing, reading, _size);
-					filledBytes += _size;
-					cacheSize = sizeof(wchar_t) - _size;
-					memcpy(cacheBuffer, reading + _size, cacheSize);
-				}
-			}
-
-			return filledBytes;
-		}
-
-/***********************************************************************
-UtfGeneralEncoder
-***********************************************************************/
-
-		template<typename T>
-		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars)
-		{
-			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
-			while (T c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		template class UtfGeneralEncoder<char8_t>;
-		template class UtfGeneralEncoder<char16_t>;
-		template class UtfGeneralEncoder<char16be_t>;
-		template class UtfGeneralEncoder<char32_t>;
-
-/***********************************************************************
-UtfGeneralDecoder
-***********************************************************************/
-
-		template<typename T>
-		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-		}
-
-		template<typename T>
-		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
-		{
-			CharDecoder::Setup(_stream);
-			reader.Setup(_stream);
-		}
-
-		template class UtfGeneralDecoder<char8_t>;
-		template class UtfGeneralDecoder<char16_t>;
-		template class UtfGeneralDecoder<char16be_t>;
-		template class UtfGeneralDecoder<char32_t>;
-
-/***********************************************************************
-UtfGeneralEncoder<wchar_t>
-***********************************************************************/
-
-		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars)
-		{
-			vint size = chars * sizeof(wchar_t);
-			vint written = stream->Write(_buffer, size);
-			if (written != size)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-/***********************************************************************
-UtfGeneralDecoder<wchar_t>
-***********************************************************************/
-
-		vint UtfGeneralDecoder<wchar_t>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
-			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
-			return read / sizeof(wchar_t);
-		}
-
-/***********************************************************************
-Mbcs
-***********************************************************************/
-
-		extern bool IsMbcsLeadByte(char c);
-		extern void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars);
-
-		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
-		{
-			char* source = new char[chars * 2];
-			char* reading = source;
-			vint readed = 0;
-			while (readed < chars)
-			{
-				if (stream->Read(reading, 1) != 1)
-				{
-					break;
-				}
-				if (IsMbcsLeadByte(*reading))
-				{
-					if (stream->Read(reading + 1, 1) != 1)
-					{
-						break;
-					}
-					reading += 2;
-				}
-				else
-				{
-					reading++;
-				}
-				readed++;
-			}
-
-			MbcsToWChar(_buffer, chars, readed, source, (vint)(reading - source));
-			delete[] source;
-			return readed;
-		}
-	}
-}
-
-
-/***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT_BOM.CPP
+.\ENCODING\CHARFORMAT\BOMENCODING.CPP
 ***********************************************************************/
 /***********************************************************************
 Author: Zihan Chen (vczh)
@@ -1549,7 +1274,49 @@ BomDecoder
 
 
 /***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT_TESTENCODING.CPP
+.\ENCODING\CHARFORMAT\CHARENCODINGBASE.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+CharEncoderBase
+***********************************************************************/
+
+		void CharEncoderBase::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void CharEncoderBase::Close()
+		{
+		}
+
+/***********************************************************************
+CharDecoderBase
+***********************************************************************/
+
+		void CharDecoderBase::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void CharDecoderBase::Close()
+		{
+		}
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARFORMAT.CPP
 ***********************************************************************/
 /***********************************************************************
 Author: Zihan Chen (vczh)
@@ -1747,6 +1514,399 @@ TestEncoding
 					TestEncodingInternal(buffer, size, encoding, containsBom, utf16HitSurrogatePairs, utf16BEHitSurrogatePairs, roughMbcs, roughUtf8, roughUtf16, roughUtf16BE);
 				}
 			}
+		}
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\MBCSENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+MbcsDecoder::ReadString
+***********************************************************************/
+
+		extern bool IsMbcsLeadByte(char c);
+		extern void MbcsToWChar(wchar_t* wideBuffer, vint wideChars, vint wideReaded, char* mbcsBuffer, vint mbcsChars);
+
+		vint MbcsDecoder::ReadString(wchar_t* _buffer, vint chars)
+		{
+			char* source = new char[chars * 2];
+			char* reading = source;
+			vint readed = 0;
+			while (readed < chars)
+			{
+				if (stream->Read(reading, 1) != 1)
+				{
+					break;
+				}
+				if (IsMbcsLeadByte(*reading))
+				{
+					if (stream->Read(reading + 1, 1) != 1)
+					{
+						break;
+					}
+					reading += 2;
+				}
+				else
+				{
+					reading++;
+				}
+				readed++;
+			}
+
+			MbcsToWChar(_buffer, chars, readed, source, (vint)(reading - source));
+			delete[] source;
+			return readed;
+		}
+
+/***********************************************************************
+MbcsEncoder
+***********************************************************************/
+
+		vint MbcsEncoder::Write(void* _buffer, vint _size)
+		{
+			// prepare a buffer for input
+			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
+			vint availableBytes = availableChars * sizeof(wchar_t);
+			bool needToFree = false;
+			vuint8_t* unicode = nullptr;
+			if (cacheSize > 0)
+			{
+				unicode = new vuint8_t[cacheSize + _size];
+				memcpy(unicode, cacheBuffer, cacheSize);
+				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
+				needToFree = true;
+			}
+			else
+			{
+				unicode = (vuint8_t*)_buffer;
+			}
+
+#if defined VCZH_WCHAR_UTF16
+			if (availableChars > 0)
+			{
+				// a surrogate pair must be written as a whole thing
+				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
+				if ((c & 0xFC00U) == 0xD800U)
+				{
+					availableChars -= 1;
+					availableBytes -= sizeof(wchar_t);
+				}
+			}
+#endif
+
+			// write the buffer
+			if (availableChars > 0)
+			{
+				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
+				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			}
+
+			// cache the remaining
+			cacheSize = cacheSize + _size - availableBytes;
+			if (cacheSize > 0)
+			{
+				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
+				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
+			}
+
+			if (needToFree) delete[] unicode;
+			return _size;
+		}
+
+/***********************************************************************
+MbcsDecoder::WriteString
+***********************************************************************/
+
+		// implemented in platform dependent files
+
+/***********************************************************************
+MbcsDecoder
+***********************************************************************/
+
+		vint MbcsDecoder::Read(void* _buffer, vint _size)
+		{
+			vuint8_t* writing = (vuint8_t*)_buffer;
+			vint filledBytes = 0;
+
+			// feed the cache first
+			if (cacheSize > 0)
+			{
+				filledBytes = cacheSize < _size ? cacheSize : _size;
+				memcpy(writing, cacheBuffer, cacheSize);
+				_size -= filledBytes;
+				writing += filledBytes;
+
+				// adjust the cache if it is not fully consumed
+				cacheSize -= filledBytes;
+				if (cacheSize > 0)
+				{
+					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
+				}
+
+				if (_size == 0)
+				{
+					return filledBytes;
+				}
+			}
+
+			// fill the buffer as many as possible
+			while (_size >= sizeof(wchar_t))
+			{
+				vint availableChars = _size / sizeof(wchar_t);
+				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
+				if (readBytes == 0) break;
+				filledBytes += readBytes;
+				_size -= readBytes;
+				writing += readBytes;
+			}
+
+			// cache the remaining wchar_t
+			if (_size < sizeof(wchar_t))
+			{
+				wchar_t c;
+				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
+				if (readChars == sizeof(wchar_t))
+				{
+					vuint8_t* reading = (vuint8_t*)&c;
+					memcpy(writing, reading, _size);
+					filledBytes += _size;
+					cacheSize = sizeof(wchar_t) - _size;
+					memcpy(cacheBuffer, reading + _size, cacheSize);
+				}
+			}
+
+			return filledBytes;
+		}
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\UTFENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+		using namespace vl::encoding;
+
+/***********************************************************************
+CharEncoder
+***********************************************************************/
+
+		vint CharEncoder::Write(void* _buffer, vint _size)
+		{
+			// prepare a buffer for input
+			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
+			vint availableBytes = availableChars * sizeof(wchar_t);
+			bool needToFree = false;
+			vuint8_t* unicode = nullptr;
+			if (cacheSize > 0)
+			{
+				unicode = new vuint8_t[cacheSize + _size];
+				memcpy(unicode, cacheBuffer, cacheSize);
+				memcpy((vuint8_t*)unicode + cacheSize, _buffer, _size);
+				needToFree = true;
+			}
+			else
+			{
+				unicode = (vuint8_t*)_buffer;
+			}
+
+#if defined VCZH_WCHAR_UTF16
+			if (availableChars > 0)
+			{
+				// a surrogate pair must be written as a whole thing
+				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
+				if ((c & 0xFC00U) == 0xD800U)
+				{
+					availableChars -= 1;
+					availableBytes -= sizeof(wchar_t);
+				}
+			}
+#endif
+
+			// write the buffer
+			if (availableChars > 0)
+			{
+				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
+				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+			}
+
+			// cache the remaining
+			cacheSize = cacheSize + _size - availableBytes;
+			if (cacheSize > 0)
+			{
+				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
+				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
+			}
+
+			if (needToFree) delete[] unicode;
+			return _size;
+		}
+
+/***********************************************************************
+CharDecoder
+***********************************************************************/
+
+		vint CharDecoder::Read(void* _buffer, vint _size)
+		{
+			vuint8_t* writing = (vuint8_t*)_buffer;
+			vint filledBytes = 0;
+
+			// feed the cache first
+			if (cacheSize > 0)
+			{
+				filledBytes = cacheSize < _size ? cacheSize : _size;
+				memcpy(writing, cacheBuffer, cacheSize);
+				_size -= filledBytes;
+				writing += filledBytes;
+
+				// adjust the cache if it is not fully consumed
+				cacheSize -= filledBytes;
+				if (cacheSize > 0)
+				{
+					memcpy(cacheBuffer, cacheBuffer + filledBytes, cacheSize);
+				}
+
+				if (_size == 0)
+				{
+					return filledBytes;
+				}
+			}
+
+			// fill the buffer as many as possible
+			while (_size >= sizeof(wchar_t))
+			{
+				vint availableChars = _size / sizeof(wchar_t);
+				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
+				if (readBytes == 0) break;
+				filledBytes += readBytes;
+				_size -= readBytes;
+				writing += readBytes;
+			}
+
+			// cache the remaining wchar_t
+			if (_size < sizeof(wchar_t))
+			{
+				wchar_t c;
+				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
+				if (readChars == sizeof(wchar_t))
+				{
+					vuint8_t* reading = (vuint8_t*)&c;
+					memcpy(writing, reading, _size);
+					filledBytes += _size;
+					cacheSize = sizeof(wchar_t) - _size;
+					memcpy(cacheBuffer, reading + _size, cacheSize);
+				}
+			}
+
+			return filledBytes;
+		}
+
+/***********************************************************************
+UtfGeneralEncoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars)
+		{
+			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
+			while (T c = reader.Read())
+			{
+				vint written = stream->Write(&c, sizeof(c));
+				if (written != sizeof(c))
+				{
+					Close();
+					return 0;
+				}
+			}
+			if (reader.HasIllegalChar())
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+		template class UtfGeneralEncoder<char8_t>;
+		template class UtfGeneralEncoder<char16_t>;
+		template class UtfGeneralEncoder<char16be_t>;
+		template class UtfGeneralEncoder<char32_t>;
+
+/***********************************************************************
+UtfGeneralDecoder
+***********************************************************************/
+
+		template<typename T>
+		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			vint counter = 0;
+			for (vint i = 0; i < chars; i++)
+			{
+				wchar_t c = reader.Read();
+				if (!c) break;
+				_buffer[i] = c;
+				counter++;
+			}
+			return counter;
+		}
+
+		template<typename T>
+		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
+		{
+			CharDecoder::Setup(_stream);
+			reader.Setup(_stream);
+		}
+
+		template class UtfGeneralDecoder<char8_t>;
+		template class UtfGeneralDecoder<char16_t>;
+		template class UtfGeneralDecoder<char16be_t>;
+		template class UtfGeneralDecoder<char32_t>;
+
+/***********************************************************************
+UtfGeneralEncoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralEncoder<wchar_t>::WriteString(wchar_t* _buffer, vint chars)
+		{
+			vint size = chars * sizeof(wchar_t);
+			vint written = stream->Write(_buffer, size);
+			if (written != size)
+			{
+				Close();
+				return 0;
+			}
+			return chars;
+		}
+
+/***********************************************************************
+UtfGeneralDecoder<wchar_t>
+***********************************************************************/
+
+		vint UtfGeneralDecoder<wchar_t>::ReadString(wchar_t* _buffer, vint chars)
+		{
+			vint read = stream->Read(_buffer, chars * sizeof(wchar_t));
+			CHECK_ERROR(read % sizeof(wchar_t) == 0, L"Utf16Decoder::ReadString(wchar_t*, vint)#Failed to read complete wchar_t characters.");
+			return read / sizeof(wchar_t);
 		}
 	}
 }

@@ -1309,244 +1309,21 @@ namespace vl
 #endif
 
 /***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT.H
+.\ENCODING\CHARFORMAT\BOMENCODING.H
 ***********************************************************************/
 /***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_ENCODING_CHARFORMAT
-#define VCZH_STREAM_ENCODING_CHARFORMAT
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_BOMENCODING
+#define VCZH_STREAM_ENCODING_CHARFORMAT_BOMENCODING
 
 
 namespace vl
 {
-	namespace encoding
-	{
-
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-	}
-
 	namespace stream
 	{
-
-/***********************************************************************
-UtfStreamConsumer<T>
-***********************************************************************/
-
-		template<typename T>
-		class UtfStreamConsumer : public Object
-		{
-		protected:
-			IStream*				stream = nullptr;
-
-			T Consume()
-			{
-				T c;
-				vint size = stream->Read(&c, sizeof(c));
-				if (size != sizeof(c)) return 0;
-				return c;
-			}
-		public:
-			void Setup(IStream* _stream)
-			{
-				stream = _stream;
-			}
-
-			bool HasIllegalChar() const
-			{
-				return false;
-			}
-		};
-
-/***********************************************************************
-UtfStreamToStreamReader<TFrom, TTo>
-***********************************************************************/
-
-		template<typename TFrom, typename TTo>
-		class UtfStreamToStreamReader : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
-		{
-		public:
-			void Setup(IStream* _stream)
-			{
-				this->internalReader.Setup(_stream);
-			}
-
-			encoding::UtfCharCluster SourceCluster() const
-			{
-				return this->internalReader.SourceCluster();
-			}
-		};
-
-		template<typename TFrom, typename TTo>
-			requires(std::is_same_v<TFrom, char32_t> || std::is_same_v<TTo, char32_t>)
-		class UtfStreamToStreamReader<TFrom, TTo> : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
-		{
-		};
-
-/***********************************************************************
-Char Encoder and Decoder
-***********************************************************************/
-
-		/// <summary>Base type of all character encoder.</summary>
-		class CharEncoder : public Object, public IEncoder
-		{
-		protected:
-			IStream*						stream = nullptr;
-			vuint8_t						cacheBuffer[sizeof(char32_t)];
-			vint							cacheSize = 0;
-
-			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
-		public:
-
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
-			vint							Write(void* _buffer, vint _size) override;
-		};
-		
-		/// <summary>Base type of all character decoder.</summary>
-		class CharDecoder : public Object, public IDecoder
-		{
-		protected:
-			IStream*						stream = nullptr;
-			vuint8_t						cacheBuffer[sizeof(wchar_t)];
-			vint							cacheSize = 0;
-
-			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
-		public:
-
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
-			vint							Read(void* _buffer, vint _size) override;
-		};
-
-/***********************************************************************
-Mbcs
-***********************************************************************/
-		
-		/// <summary>Encoder to write text in the local code page.</summary>
-		class MbcsEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-		
-		/// <summary>Decoder to read text in the local code page.</summary>
-		class MbcsDecoder : public CharDecoder
-		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
-		};
-
-/***********************************************************************
-Unicode General
-***********************************************************************/
-
-		template<typename T>
-		class UtfGeneralEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-
-		extern template class UtfGeneralEncoder<char8_t>;
-		extern template class UtfGeneralEncoder<char16_t>;
-		extern template class UtfGeneralEncoder<char16be_t>;
-		extern template class UtfGeneralEncoder<char32_t>;
-
-		template<typename T>
-		class UtfGeneralDecoder : public CharDecoder
-		{
-		protected:
-			UtfStreamToStreamReader<T, wchar_t>		reader;
-
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
-
-		public:
-
-			void							Setup(IStream* _stream) override;
-		};
-
-		extern template class UtfGeneralDecoder<char8_t>;
-		extern template class UtfGeneralDecoder<char16_t>;
-		extern template class UtfGeneralDecoder<char16be_t>;
-		extern template class UtfGeneralDecoder<char32_t>;
-
-/***********************************************************************
-Unicode General (wchar_t)
-***********************************************************************/
-
-		template<>
-		class UtfGeneralEncoder<wchar_t> : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-
-		template<>
-		class UtfGeneralDecoder<wchar_t> : public CharDecoder
-		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
-		};
-
-/***********************************************************************
-Utf-8
-***********************************************************************/
-		
-#if defined VCZH_MSVC
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf8Encoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-#elif defined VCZH_GCC
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
-#endif
-		
-		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
-
-/***********************************************************************
-Utf-16 / Utf-16BE / Utf-32
-***********************************************************************/
-
-		/// <summary>Encoder to write big endian UTF-16 to.</summary>
-		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
-		/// <summary>Decoder to read big endian UTF-16 text.</summary>
-		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
-
-#if defined VCZH_WCHAR_UTF16
-		
-		/// <summary>Encoder to write UTF-16 text.</summary>
-		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
-		/// <summary>Decoder to read UTF-16 text.</summary>
-		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
-		
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf32Encoder : public UtfGeneralEncoder<char32_t> {};
-		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf32Decoder : public UtfGeneralDecoder<char32_t> {};
-
-#elif defined VCZH_WCHAR_UTF32
-		
-		/// <summary>Encoder to write UTF-16 text.</summary>
-		class Utf16Encoder : public UtfGeneralEncoder<char16_t> {};
-		/// <summary>Decoder to read UTF-16 text.</summary>
-		class Utf16Decoder : public UtfGeneralDecoder<char16_t> {};
-
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
-		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf32Decoder : public UtfGeneralDecoder<wchar_t> {};
-
-#endif
-
 /***********************************************************************
 Bom
 ***********************************************************************/
@@ -1624,6 +1401,343 @@ Bom
 			void							Close();
 			vint							Read(void* _buffer, vint _size);
 		};
+	}
+}
+
+#endif
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARENCODINGBASE.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_CHARENCODINGBASE
+#define VCZH_STREAM_ENCODING_CHARFORMAT_CHARENCODINGBASE
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+CharEncoderBase and CharDecoderBase
+***********************************************************************/
+
+		/// <summary>Base type of all character encoder.</summary>
+		class CharEncoderBase : public Object, public IEncoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+		};
+		
+		/// <summary>Base type of all character decoder.</summary>
+		class CharDecoderBase : public Object, public IDecoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+		};
+	}
+}
+
+#endif
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\MBCSENCODING.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
+#define VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+MbcsEncoder
+***********************************************************************/
+
+		/// <summary>Encoder to write text in the local code page.</summary>
+		class MbcsEncoder : public CharEncoderBase
+		{
+		protected:
+			vuint8_t						cacheBuffer[sizeof(char32_t)];
+			vint							cacheSize = 0;
+
+			vint							WriteString(wchar_t* _buffer, vint chars);
+		public:
+
+			vint							Write(void* _buffer, vint _size) override;
+		};
+
+/***********************************************************************
+MbcsDecoder
+***********************************************************************/
+
+		/// <summary>Decoder to read text in the local code page.</summary>
+		class MbcsDecoder : public CharDecoderBase
+		{
+		protected:
+			vuint8_t						cacheBuffer[sizeof(wchar_t)];
+			vint							cacheSize = 0;
+
+			vint							ReadString(wchar_t* _buffer, vint chars);
+		public:
+
+			vint							Read(void* _buffer, vint _size) override;
+		};
+	}
+}
+
+#endif
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\UTFENCODING.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
+#define VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
+
+
+namespace vl
+{
+	namespace stream
+	{
+
+/***********************************************************************
+UtfStreamConsumer<T>
+***********************************************************************/
+
+		template<typename T>
+		class UtfStreamConsumer : public Object
+		{
+		protected:
+			IStream*				stream = nullptr;
+
+			T Consume()
+			{
+				T c;
+				vint size = stream->Read(&c, sizeof(c));
+				if (size != sizeof(c)) return 0;
+				return c;
+			}
+		public:
+			void Setup(IStream* _stream)
+			{
+				stream = _stream;
+			}
+
+			bool HasIllegalChar() const
+			{
+				return false;
+			}
+		};
+
+/***********************************************************************
+UtfStreamToStreamReader<TFrom, TTo>
+***********************************************************************/
+
+		template<typename TFrom, typename TTo>
+		class UtfStreamToStreamReader : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
+		{
+		public:
+			void Setup(IStream* _stream)
+			{
+				this->internalReader.Setup(_stream);
+			}
+
+			encoding::UtfCharCluster SourceCluster() const
+			{
+				return this->internalReader.SourceCluster();
+			}
+		};
+
+		template<typename TFrom, typename TTo>
+			requires(std::is_same_v<TFrom, char32_t> || std::is_same_v<TTo, char32_t>)
+		class UtfStreamToStreamReader<TFrom, TTo> : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
+		{
+		};
+
+/***********************************************************************
+Char Encoder and Decoder
+***********************************************************************/
+
+		/// <summary>Base type of all character encoder.</summary>
+		class CharEncoder : public CharEncoderBase
+		{
+		protected:
+			vuint8_t						cacheBuffer[sizeof(char32_t)];
+			vint							cacheSize = 0;
+
+			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
+		public:
+
+			vint							Write(void* _buffer, vint _size) override;
+		};
+		
+		/// <summary>Base type of all character decoder.</summary>
+		class CharDecoder : public CharDecoderBase
+		{
+		protected:
+			vuint8_t						cacheBuffer[sizeof(wchar_t)];
+			vint							cacheSize = 0;
+
+			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
+		public:
+
+			vint							Read(void* _buffer, vint _size) override;
+		};
+
+/***********************************************************************
+Unicode General
+***********************************************************************/
+
+		template<typename T>
+		class UtfGeneralEncoder : public CharEncoder
+		{
+		protected:
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
+		};
+
+		extern template class UtfGeneralEncoder<char8_t>;
+		extern template class UtfGeneralEncoder<char16_t>;
+		extern template class UtfGeneralEncoder<char16be_t>;
+		extern template class UtfGeneralEncoder<char32_t>;
+
+		template<typename T>
+		class UtfGeneralDecoder : public CharDecoder
+		{
+		protected:
+			UtfStreamToStreamReader<T, wchar_t>		reader;
+
+			vint							ReadString(wchar_t* _buffer, vint chars) override;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+		};
+
+		extern template class UtfGeneralDecoder<char8_t>;
+		extern template class UtfGeneralDecoder<char16_t>;
+		extern template class UtfGeneralDecoder<char16be_t>;
+		extern template class UtfGeneralDecoder<char32_t>;
+
+/***********************************************************************
+Unicode General (wchar_t)
+***********************************************************************/
+
+		template<>
+		class UtfGeneralEncoder<wchar_t> : public CharEncoder
+		{
+		protected:
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
+		};
+
+		template<>
+		class UtfGeneralDecoder<wchar_t> : public CharDecoder
+		{
+		protected:
+			vint							ReadString(wchar_t* _buffer, vint chars) override;
+		};
+	}
+}
+
+#endif
+
+
+/***********************************************************************
+.\ENCODING\CHARFORMAT\CHARFORMAT.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING_CHARFORMAT
+#define VCZH_STREAM_ENCODING_CHARFORMAT
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+Utf-8
+***********************************************************************/
+		
+#if defined VCZH_MSVC
+		/// <summary>Encoder to write UTF-8 text.</summary>
+		class Utf8Encoder : public CharEncoder
+		{
+		protected:
+			vint							WriteString(wchar_t* _buffer, vint chars) override;
+		};
+#elif defined VCZH_GCC
+		/// <summary>Encoder to write UTF-8 text.</summary>
+		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
+#endif
+		
+		/// <summary>Decoder to read UTF-8 text.</summary>
+		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
+
+/***********************************************************************
+Utf-16 / Utf-16BE / Utf-32
+***********************************************************************/
+
+		/// <summary>Encoder to write big endian UTF-16 to.</summary>
+		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
+		/// <summary>Decoder to read big endian UTF-16 text.</summary>
+		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
+
+#if defined VCZH_WCHAR_UTF16
+		
+		/// <summary>Encoder to write UTF-16 text.</summary>
+		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
+		/// <summary>Decoder to read UTF-16 text.</summary>
+		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
+		
+		/// <summary>Encoder to write UTF-8 text.</summary>
+		class Utf32Encoder : public UtfGeneralEncoder<char32_t> {};
+		/// <summary>Decoder to read UTF-8 text.</summary>
+		class Utf32Decoder : public UtfGeneralDecoder<char32_t> {};
+
+#elif defined VCZH_WCHAR_UTF32
+		
+		/// <summary>Encoder to write UTF-16 text.</summary>
+		class Utf16Encoder : public UtfGeneralEncoder<char16_t> {};
+		/// <summary>Decoder to read UTF-16 text.</summary>
+		class Utf16Decoder : public UtfGeneralDecoder<char16_t> {};
+
+		/// <summary>Encoder to write UTF-8 text.</summary>
+		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
+		/// <summary>Decoder to read UTF-8 text.</summary>
+		class Utf32Decoder : public UtfGeneralDecoder<wchar_t> {};
+
+#endif
 
 /***********************************************************************
 Encoding Test

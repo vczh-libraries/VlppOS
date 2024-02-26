@@ -1573,7 +1573,7 @@ namespace vl
 		}
 
 /***********************************************************************
-Mbcs
+MbcsEncoder
 ***********************************************************************/
 
 		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
@@ -1590,27 +1590,7 @@ Mbcs
 			}
 			return chars;
 		}
-	}
-}
 
-
-/***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT_TESTENCODING.LINUX.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
-
-namespace vl
-{
-	namespace stream
-	{
 /***********************************************************************
 Helper Functions
 ***********************************************************************/

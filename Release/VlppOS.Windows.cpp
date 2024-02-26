@@ -1788,7 +1788,7 @@ namespace vl
 		}
 
 /***********************************************************************
-Mbcs
+MbcsEncoder
 ***********************************************************************/
 
 		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)
@@ -1808,7 +1808,7 @@ Mbcs
 		}
 
 /***********************************************************************
-Utf8
+Utf8Encoder
 ***********************************************************************/
 
 		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
@@ -1825,27 +1825,7 @@ Utf8
 			}
 			return chars;
 		}
-	}
-}
 
-
-/***********************************************************************
-.\ENCODING\CHARFORMAT\CHARFORMAT_TESTENCODING.WINDOWS.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-#ifndef VCZH_MSVC
-static_assert(false, "Do not build this file for non-Windows applications.");
-#endif
-
-namespace vl
-{
-	namespace stream
-	{
 /***********************************************************************
 Helper Functions
 ***********************************************************************/

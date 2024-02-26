@@ -9,4 +9,3 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Locale.Linux.cpp"
 #include "..\..\Source\Threading.Linux.cpp"
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Linux.cpp"
-#include "..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp"
