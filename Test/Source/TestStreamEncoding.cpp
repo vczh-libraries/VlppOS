@@ -206,7 +206,7 @@ namespace TestStreamEncoding_TestObjects
 				vint zero = decoderStream.Read(bytes, 1);
 				TEST_ASSERT(zero == 0);
 			}
-			buffer[ExpectLength] = 0;
+			buffer[TextLength] = 0;
 			auto read = ObjectString<TExpect>::TakeOver(buffer, TextLength);
 			TEST_ASSERT(read == text);
 		}
