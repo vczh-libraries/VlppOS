@@ -19,15 +19,13 @@ namespace TestStreamEncoding_TestObjects
 		}
 	}
 
+	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithStreamReaderWriter(
 		IEncoder& encoder,
 		IDecoder& decoder,
-		BomEncoder::Encoding encoding,
-		const wchar_t* text,
+		const TExpect(&text)[ExpectLength],
 		vint decodedBomOffset,
-		const void* decodedBytes,
-		vint decodedByteLength,
-		bool testEncoding
+		const TNative(&decodedText)[NativeLength]
 		)
 	{
 		// encode the text
@@ -80,12 +78,12 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
+	template<typename TNative, typename TExpect, typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithEncoderDecoderStream(
 		IEncoder& encoder,
 		IDecoder& decoder,
-		const wchar_t* text,
-		const void* decodedBytes,
-		vint decodedByteLength
+		const TExpect(&text)[ExpectLength],
+		const TNative(&decodedText)[NativeLength]
 	)
 	{
 		WString input = WString::Unmanaged(text);
@@ -124,12 +122,12 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
+	template<typename TNative, typename TExpect, typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithEncoderDecoderStreamPerByte(
 		IEncoder& encoder,
 		IDecoder& decoder,
-		const wchar_t* text,
-		const void* decodedBytes,
-		vint decodedByteLength
+		const TExpect(&text)[ExpectLength],
+		const TNative(&decodedText)[NativeLength]
 	)
 	{
 		WString input = WString::Unmanaged(text);
@@ -180,72 +178,41 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
-	template<typename TEncoder, typename TDecoder>
+	template<typename TNative, typename TExpect, typename TEncoder, typename TDecoder, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithoutBOM(
-		BomEncoder::Encoding encoding,
-		const wchar_t* text,
-		const void* decodedBytes,
-		vint decodedByteLength,
-		bool testEncoding
+		const TExpect(&text)[ExpectLength],
+		const TNative(&decodedText)[NativeLength]
 	)
 	{
 		{
 			TEncoder encoder;
 			TDecoder decoder;
-			TestEncodingWithStreamReaderWriter(encoder, decoder, encoding, text, 0, decodedBytes, decodedByteLength, testEncoding);
+			TestEncodingWithStreamReaderWriter(encoder, decoder, text, 0, decodedText);
 		}
 		{
 			TEST_PRINT(L"Encoder Decoder");
 			TEncoder encoder;
 			TDecoder decoder;
-			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedBytes, decodedByteLength);
+			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedText);
 		}
 		{
 			TEST_PRINT(L"Per Byte");
 			TEncoder encoder;
 			TDecoder decoder;
-			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedBytes, decodedByteLength);
+			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedText);
 		}
 	}
 
-	template<typename TEncoder, typename TDecoder>
-	void TestEncodingWithoutBOMWithoutTestEncoding(
-		const wchar_t* text,
-		const void* decodedBytes,
-		vint decodedByteLength
-	)
-	{
-		{
-			TEncoder encoder;
-			TDecoder decoder;
-			TestEncodingWithStreamReaderWriter(encoder, decoder, BomEncoder::Mbcs, text, 0, decodedBytes, decodedByteLength, false);
-		}
-		{
-			TEST_PRINT(L"Encoder Decoder");
-			TEncoder encoder;
-			TDecoder decoder;
-			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedBytes, decodedByteLength);
-		}
-		{
-			TEST_PRINT(L"Per Byte");
-			TEncoder encoder;
-			TDecoder decoder;
-			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedBytes, decodedByteLength);
-		}
-	}
-
+	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithBOM(
-		BomEncoder::Encoding encoding,
-		const wchar_t* text,
+		const TExpect(&text)[ExpectLength],
 		vint decodedBomOffset,
-		const void* decodedBytes,
-		vint decodedByteLength,
-		bool testEncoding
+		const TNative(&decodedText)[NativeLength]
 	)
 	{
 		BomEncoder encoder(encoding);
 		BomDecoder decoder;
-		TestEncodingWithStreamReaderWriter(encoder, decoder, encoding, text, decodedBomOffset, decodedBytes, decodedByteLength, testEncoding);
+		TestEncodingWithStreamReaderWriter(encoder, decoder, text, decodedBomOffset, decodedText);
 	}
 }
 using namespace TestStreamEncoding_TestObjects;
@@ -259,17 +226,20 @@ TEST_FILE
 	const wchar_t text1L[] = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char8_t text1U8[] = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char16_t text1U16[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-	const char16_t text1U16BE[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
+	const char16be_t text1U16BE[sizeof(text1U16) / sizeof(*text1U16)];
 	const char32_t text1U32[] = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 
 	const wchar_t text2L[] = L"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char text2A[] = "ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char8_t text2U8[] = u8"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char16_t text2U16BE[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
+	const char16be_t text2U16BE[sizeof(text2U16) / sizeof(*text2U16)];
 	const char32_t text2U32[] = U"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
+	memcpy((void*)text1U16BE, text1U16, sizeof(text1U16));
 	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
+
+	memcpy((void*)text2U16BE, text2U16, sizeof(text2U16));
 	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
 
 	/***********************************************************************
@@ -280,51 +250,38 @@ TEST_FILE
 	{
 		TEST_CASE(L"<MBCS, NO-BOM>")
 		{
-			TestEncodingWithoutBOM<MbcsEncoder, MbcsDecoder>(
-				BomEncoder::Mbcs,
+			TestEncodingWithoutBOM<char, wchar_t, MbcsEncoder, MbcsDecoder>(
 				text2L,
-				text2A,
-				(sizeof(text2A) - sizeof(*text2A)),
-				false
+				text2A
 				);
 		});
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
 			return;
-			TestEncodingWithoutBOM<Utf8Encoder, Utf8Decoder>(
-				BomEncoder::Utf8,
+			TestEncodingWithoutBOM<char8_t, wchar_t, Utf8Encoder, Utf8Decoder>(
 				text1L,
-				text1U8,
-				(sizeof(text1U8) - sizeof(*text1U8)),
-				true
+				text1U8
 				);
 		});
 		TEST_CASE(L"<UTF16, NO-BOM>")
 		{
-			TestEncodingWithoutBOM<Utf16Encoder, Utf16Decoder>(
-				BomEncoder::Utf16,
+			TestEncodingWithoutBOM<char16_t, wchar_t, Utf16Encoder, Utf16Decoder>(
 				text1L,
-				text1U16,
-				(sizeof(text1U16) - sizeof(*text1U16)),
-				true
+				text1U16
 				);
 		});
 		TEST_CASE(L"<UTF16_BE, NO-BOM>")
 		{
-			TestEncodingWithoutBOM<Utf16BEEncoder, Utf16BEDecoder>(
-				BomEncoder::Utf16BE,
+			TestEncodingWithoutBOM<char16be_t, wchar_t, Utf16BEEncoder, Utf16BEDecoder>(
 				text1L,
-				text1U16BE,
-				(sizeof(text1U16BE) - sizeof(*text1U16BE)),
-				true
+				text1U16BE
 				);
 		});
 		TEST_CASE(L"<UTF32, NO-BOM>")
 		{
-			TestEncodingWithoutBOMWithoutTestEncoding<Utf32Encoder, Utf32Decoder>(
+			TestEncodingWithoutBOM<char32_t, wchar_t, Utf32Encoder, Utf32Decoder>(
 				text1L,
-				text1U32,
-				(sizeof(text1U32) - sizeof(*text1U32))
+				text1U32
 				);
 		});
 	});
@@ -333,46 +290,34 @@ TEST_FILE
 	{
 		TEST_CASE(L"<MBCS, BOM>")
 		{
-			TestEncodingWithBOM(
-				BomEncoder::Mbcs,
+			TestEncodingWithBOM<char, wchar_t>(
 				text2L,
 				0,
-				text2A,
-				(sizeof(text2A) - sizeof(*text2A)),
-				false
+				text2A
 				);
 		});
 		TEST_CASE(L"<UTF8, BOM>")
 		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf8,
+			TestEncodingWithBOM<char8_t, wchar_t>(
 				text2L,
 				3,
-				text2U8,
-				(sizeof(text2U8) - sizeof(*text2U8)),
-				false
+				text2U8
 				);
 		});
 		TEST_CASE(L"<UTF16, BOM>")
 		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf16,
+			TestEncodingWithBOM<char16_t, wchar_t>(
 				text2L,
 				2,
-				text2U16,
-				(sizeof(text2U16) - sizeof(*text2U16)),
-				false
+				text2U16
 				);
 		});
 		TEST_CASE(L"<UTF16_BE, BOM>")
 		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf16BE,
+			TestEncodingWithBOM<char16be_t, wchar_t>(
 				text2L,
 				2,
-				text2U16BE,
-				(sizeof(text2U16BE) - sizeof(*text2U16BE)),
-				false
+				text2U16BE
 				);
 		});
 	});
