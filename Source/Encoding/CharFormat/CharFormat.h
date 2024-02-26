@@ -18,29 +18,24 @@ namespace vl
 Utf-8
 ***********************************************************************/
 		
-#if defined VCZH_MSVC
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf8Encoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-#elif defined VCZH_GCC
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
-#endif
 		
 		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
 
 /***********************************************************************
-Utf-16 / Utf-16BE / Utf-32
+Utf-16BE
 ***********************************************************************/
 
 		/// <summary>Encoder to write big endian UTF-16 to.</summary>
 		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
 		/// <summary>Decoder to read big endian UTF-16 text.</summary>
 		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
+
+/***********************************************************************
+Utf-16 / Utf-32
+***********************************************************************/
 
 #if defined VCZH_WCHAR_UTF16
 		

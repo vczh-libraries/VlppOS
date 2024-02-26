@@ -45,25 +45,6 @@ MbcsEncoder
 		}
 
 /***********************************************************************
-Utf8Encoder
-***********************************************************************/
-
-		vint Utf8Encoder::WriteString(wchar_t* _buffer, vint chars)
-		{
-			vint length = WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, NULL, NULL, NULL, NULL);
-			char* mbcs = new char[length];
-			WideCharToMultiByte(CP_UTF8, 0, _buffer, (int)chars, mbcs, (int)length, NULL, NULL);
-			vint result = stream->Write(mbcs, length);
-			delete[] mbcs;
-			if (result != length)
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-/***********************************************************************
 Helper Functions
 ***********************************************************************/
 

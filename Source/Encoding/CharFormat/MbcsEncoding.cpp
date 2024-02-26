@@ -87,14 +87,14 @@ MbcsEncoder
 			if (availableChars > 0)
 			{
 				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
-				CHECK_ERROR(written == availableBytes, L"CharEncoder::Write(void*, vint)#Failed to write a complete string.");
+				CHECK_ERROR(written == availableBytes, L"MbcsEncoder::Write(void*, vint)#Failed to write a complete string.");
 			}
 
 			// cache the remaining
 			cacheSize = cacheSize + _size - availableBytes;
 			if (cacheSize > 0)
 			{
-				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"CharEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
+				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"MbcsEncoder::Write(void*, vint)#Unwritten text is too large to cache.");
 				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
 			}
 

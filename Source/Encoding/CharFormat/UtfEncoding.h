@@ -68,44 +68,20 @@ UtfStreamToStreamReader<TFrom, TTo>
 		};
 
 /***********************************************************************
-Char Encoder and Decoder
+Unicode General
 ***********************************************************************/
 
-		/// <summary>Base type of all character encoder.</summary>
-		class CharEncoder : public CharEncoderBase
+		template<typename T>
+		class UtfGeneralEncoder : public CharEncoderBase
 		{
 		protected:
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
+			vint							WriteString(wchar_t* _buffer, vint chars);
 		public:
 
 			vint							Write(void* _buffer, vint _size) override;
-		};
-		
-		/// <summary>Base type of all character decoder.</summary>
-		class CharDecoder : public CharDecoderBase
-		{
-		protected:
-			vuint8_t						cacheBuffer[sizeof(wchar_t)];
-			vint							cacheSize = 0;
-
-			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
-		public:
-
-			vint							Read(void* _buffer, vint _size) override;
-		};
-
-/***********************************************************************
-Unicode General
-***********************************************************************/
-
-		template<typename T>
-		class UtfGeneralEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		extern template class UtfGeneralEncoder<char8_t>;
@@ -114,16 +90,19 @@ Unicode General
 		extern template class UtfGeneralEncoder<char32_t>;
 
 		template<typename T>
-		class UtfGeneralDecoder : public CharDecoder
+		class UtfGeneralDecoder : public CharDecoderBase
 		{
 		protected:
+			vuint8_t								cacheBuffer[sizeof(wchar_t)];
+			vint									cacheSize = 0;
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
+			vint							ReadString(wchar_t* _buffer, vint chars);
 
 		public:
 
 			void							Setup(IStream* _stream) override;
+			vint							Read(void* _buffer, vint _size) override;
 		};
 
 		extern template class UtfGeneralDecoder<char8_t>;
@@ -136,17 +115,17 @@ Unicode General (wchar_t)
 ***********************************************************************/
 
 		template<>
-		class UtfGeneralEncoder<wchar_t> : public CharEncoder
+		class UtfGeneralEncoder<wchar_t> : public CharEncoderBase
 		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
+		public:
+			vint							Write(void* _buffer, vint _size) override;
 		};
 
 		template<>
-		class UtfGeneralDecoder<wchar_t> : public CharDecoder
+		class UtfGeneralDecoder<wchar_t> : public CharDecoderBase
 		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
+		public:
+			vint							Read(void* _buffer, vint _size) override;
 		};
 	}
 }
