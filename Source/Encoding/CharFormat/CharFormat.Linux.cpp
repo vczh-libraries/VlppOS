@@ -29,7 +29,7 @@ namespace vl
 		}
 
 /***********************************************************************
-Mbcs
+MbcsEncoder
 ***********************************************************************/
 
 		vint MbcsEncoder::WriteString(wchar_t* _buffer, vint chars)

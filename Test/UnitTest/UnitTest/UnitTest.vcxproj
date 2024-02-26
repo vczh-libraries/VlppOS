@@ -168,6 +168,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\MbcsEncoding.cpp" />
     <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp" />
     <ClCompile Include="..\..\..\Source\FileSystem.cpp" />
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
@@ -247,6 +248,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Import\Vlpp.h" />
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\MbcsEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />

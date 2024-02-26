@@ -6,18 +6,10 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_ENCODING_CHARFORMAT
 #define VCZH_STREAM_ENCODING_CHARFORMAT
 
-#include "../Encoding.h"
+#include "MbcsEncoding.h"
 
 namespace vl
 {
-	namespace encoding
-	{
-
-/***********************************************************************
-Helper Functions
-***********************************************************************/
-	}
-
 	namespace stream
 	{
 
@@ -109,24 +101,6 @@ Char Encoder and Decoder
 			void							Setup(IStream* _stream) override;
 			void							Close() override;
 			vint							Read(void* _buffer, vint _size) override;
-		};
-
-/***********************************************************************
-Mbcs
-***********************************************************************/
-		
-		/// <summary>Encoder to write text in the local code page.</summary>
-		class MbcsEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-		
-		/// <summary>Decoder to read text in the local code page.</summary>
-		class MbcsDecoder : public CharDecoder
-		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
 		};
 
 /***********************************************************************
