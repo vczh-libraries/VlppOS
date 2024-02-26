@@ -1583,44 +1583,20 @@ UtfStreamToStreamReader<TFrom, TTo>
 		};
 
 /***********************************************************************
-Char Encoder and Decoder
+Unicode General
 ***********************************************************************/
 
-		/// <summary>Base type of all character encoder.</summary>
-		class CharEncoder : public CharEncoderBase
+		template<typename T>
+		class UtfGeneralEncoder : public CharEncoderBase
 		{
 		protected:
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
-			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
+			vint							WriteString(wchar_t* _buffer, vint chars);
 		public:
 
 			vint							Write(void* _buffer, vint _size) override;
-		};
-		
-		/// <summary>Base type of all character decoder.</summary>
-		class CharDecoder : public CharDecoderBase
-		{
-		protected:
-			vuint8_t						cacheBuffer[sizeof(wchar_t)];
-			vint							cacheSize = 0;
-
-			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
-		public:
-
-			vint							Read(void* _buffer, vint _size) override;
-		};
-
-/***********************************************************************
-Unicode General
-***********************************************************************/
-
-		template<typename T>
-		class UtfGeneralEncoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
 		};
 
 		extern template class UtfGeneralEncoder<char8_t>;
@@ -1629,16 +1605,19 @@ Unicode General
 		extern template class UtfGeneralEncoder<char32_t>;
 
 		template<typename T>
-		class UtfGeneralDecoder : public CharDecoder
+		class UtfGeneralDecoder : public CharDecoderBase
 		{
 		protected:
+			vuint8_t								cacheBuffer[sizeof(wchar_t)];
+			vint									cacheSize = 0;
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
+			vint							ReadString(wchar_t* _buffer, vint chars);
 
 		public:
 
 			void							Setup(IStream* _stream) override;
+			vint							Read(void* _buffer, vint _size) override;
 		};
 
 		extern template class UtfGeneralDecoder<char8_t>;
@@ -1651,17 +1630,17 @@ Unicode General (wchar_t)
 ***********************************************************************/
 
 		template<>
-		class UtfGeneralEncoder<wchar_t> : public CharEncoder
+		class UtfGeneralEncoder<wchar_t> : public CharEncoderBase
 		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
+		public:
+			vint							Write(void* _buffer, vint _size) override;
 		};
 
 		template<>
-		class UtfGeneralDecoder<wchar_t> : public CharDecoder
+		class UtfGeneralDecoder<wchar_t> : public CharDecoderBase
 		{
-		protected:
-			vint							ReadString(wchar_t* _buffer, vint chars) override;
+		public:
+			vint							Read(void* _buffer, vint _size) override;
 		};
 	}
 }
@@ -1689,29 +1668,24 @@ namespace vl
 Utf-8
 ***********************************************************************/
 		
-#if defined VCZH_MSVC
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf8Encoder : public CharEncoder
-		{
-		protected:
-			vint							WriteString(wchar_t* _buffer, vint chars) override;
-		};
-#elif defined VCZH_GCC
 		/// <summary>Encoder to write UTF-8 text.</summary>
 		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
-#endif
 		
 		/// <summary>Decoder to read UTF-8 text.</summary>
 		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
 
 /***********************************************************************
-Utf-16 / Utf-16BE / Utf-32
+Utf-16BE
 ***********************************************************************/
 
 		/// <summary>Encoder to write big endian UTF-16 to.</summary>
 		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
 		/// <summary>Decoder to read big endian UTF-16 text.</summary>
 		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
+
+/***********************************************************************
+Utf-16 / Utf-32
+***********************************************************************/
 
 #if defined VCZH_WCHAR_UTF16
 		
