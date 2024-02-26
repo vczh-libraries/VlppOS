@@ -98,20 +98,6 @@ UtfGeneralDecoder
 ***********************************************************************/
 
 		template<typename T>
-		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-		}
-
-		template<typename T>
 		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
 		{
 			CharDecoderBase::Setup(_stream);
@@ -149,7 +135,14 @@ UtfGeneralDecoder
 			while (_size >= sizeof(wchar_t))
 			{
 				vint availableChars = _size / sizeof(wchar_t);
-				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
+				vint readBytes = 0;
+				for (vint i = 0; i < availableChars; i++)
+				{
+					wchar_t c = reader.Read();
+					if (!c) break;
+					((wchar_t*)_buffer)[i] = c;
+					readBytes += sizeof(wchar_t);
+				}
 				if (readBytes == 0) break;
 				filledBytes += readBytes;
 				_size -= readBytes;
@@ -159,9 +152,7 @@ UtfGeneralDecoder
 			// cache the remaining wchar_t
 			if (_size < sizeof(wchar_t))
 			{
-				wchar_t c;
-				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
-				if (readChars == sizeof(wchar_t))
+				if (wchar_t c = reader.Read())
 				{
 					vuint8_t* reading = (vuint8_t*)&c;
 					memcpy(writing, reading, _size);

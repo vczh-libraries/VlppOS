@@ -97,8 +97,6 @@ Unicode General
 			vint									cacheSize = 0;
 			UtfStreamToStreamReader<T, wchar_t>		reader;
 
-			vint							ReadString(wchar_t* _buffer, vint chars);
-
 		public:
 
 			void							Setup(IStream* _stream) override;
