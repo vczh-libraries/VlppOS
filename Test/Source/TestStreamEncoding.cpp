@@ -28,6 +28,11 @@ namespace TestStreamEncoding_TestObjects
 		const TNative(&decodedText)[NativeLength]
 		)
 	{
+		constexpr vint TextLength = ExpectLength - 1;
+		constexpr vint TextBytes = TextLength * sizeof(TExpect);
+		constexpr vint DecodedLength = NativeLength - 1;
+		constexpr vint DecodedBytes = DecodedLength * sizeof(TNative);
+
 		// encode the text
 		MemoryStream memoryStream;
 		{
@@ -86,7 +91,11 @@ namespace TestStreamEncoding_TestObjects
 		const TNative(&decodedText)[NativeLength]
 	)
 	{
-		WString input = WString::Unmanaged(text);
+		constexpr vint TextLength = ExpectLength - 1;
+		constexpr vint TextBytes = TextLength * sizeof(TExpect);
+		constexpr vint DecodedLength = NativeLength - 1;
+		constexpr vint DecodedBytes = DecodedLength * sizeof(TNative);
+
 		// encode the text
 		MemoryStream memoryStream;
 		{
@@ -122,7 +131,7 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
-	template<typename TNative, typename TExpect, typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
+	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithEncoderDecoderStreamPerByte(
 		IEncoder& encoder,
 		IDecoder& decoder,
@@ -130,14 +139,17 @@ namespace TestStreamEncoding_TestObjects
 		const TNative(&decodedText)[NativeLength]
 	)
 	{
-		WString input = WString::Unmanaged(text);
+		constexpr vint TextLength = ExpectLength - 1;
+		constexpr vint TextBytes = TextLength * sizeof(TExpect);
+		constexpr vint DecodedLength = NativeLength - 1;
+		constexpr vint DecodedBytes = DecodedLength * sizeof(TNative);
+
 		// encode the text
 		MemoryStream memoryStream;
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
-			vint size = input.Length() * sizeof(wchar_t);
-			char* bytes = (char*)input.Buffer();
-			for (vint i = 0; i < size; i++)
+			auto bytes = (const char*)text;
+			for (vint i = 0; i < TextBytes; i++)
 			{
 				vint written = encoderStream.Write(bytes + i, 1);
 				TEST_ASSERT(written == 1);
@@ -153,18 +165,17 @@ namespace TestStreamEncoding_TestObjects
 			memoryStream.SeekFromBegin(0);
 
 			// compare the encoded data to the expected data
-			TEST_ASSERT(buffer.Count() == decodedByteLength);
-			TEST_ASSERT(memcmp(&buffer[0], decodedBytes, decodedByteLength) == 0);
+			TEST_ASSERT(buffer.Count() == DecodedBytes);
+			TEST_ASSERT(memcmp(&buffer[0], decodedText, DecodedBytes) == 0);
 		}
 
 		// test the encoding and decode
 		{
 			DecoderStream decoderStream(memoryStream, decoder);
-			wchar_t* buffer = new wchar_t[input.Length() + 1];
+			TExpect* buffer = new wchar_t[ExpectLength];
 			{
-				vint size = input.Length() * sizeof(wchar_t);
 				char* bytes = (char*)buffer;
-				for (vint i = 0; i < size; i++)
+				for (vint i = 0; i < TextBytes; i++)
 				{
 					vint read = decoderStream.Read(bytes + i, 1);
 					TEST_ASSERT(read == 1);
@@ -172,8 +183,8 @@ namespace TestStreamEncoding_TestObjects
 				vint zero = decoderStream.Read(bytes, 1);
 				TEST_ASSERT(zero == 0);
 			}
-			buffer[input.Length()] = 0;
-			WString read = WString::TakeOver(buffer, input.Length());
+			buffer[ExpectLength] = 0;
+			auto read = ObjectString<TExpect>::TakeOver(buffer, TextLength);
 			TEST_ASSERT(read == text);
 		}
 	};
@@ -226,20 +237,20 @@ TEST_FILE
 	const wchar_t text1L[] = L"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char8_t text1U8[] = u8"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 	const char16_t text1U16[] = u"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
-	const char16be_t text1U16BE[sizeof(text1U16) / sizeof(*text1U16)];
+	char16be_t text1U16BE[sizeof(text1U16) / sizeof(*text1U16)];
 	const char32_t text1U32[] = U"𩰪㦲𦰗𠀼 𣂕𣴑𣱳𦁚 Vczh is genius!@我是天才";
 
 	const wchar_t text2L[] = L"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char text2A[] = "ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char8_t text2U8[] = u8"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 	const char16_t text2U16[] = u"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
-	const char16be_t text2U16BE[sizeof(text2U16) / sizeof(*text2U16)];
+	char16be_t text2U16BE[sizeof(text2U16) / sizeof(*text2U16)];
 	const char32_t text2U32[] = U"ABCDEFG-HIJKLMN-OPQRST-UVWXYZ";
 
-	memcpy((void*)text1U16BE, text1U16, sizeof(text1U16));
+	memcpy(text1U16BE, text1U16, sizeof(text1U16));
 	SwapBytesForUtf16BE(text1U16BE, sizeof(text1U16BE) / sizeof(*text1U16BE));
 
-	memcpy((void*)text2U16BE, text2U16, sizeof(text2U16));
+	memcpy(text2U16BE, text2U16, sizeof(text2U16));
 	SwapBytesForUtf16BE(text2U16BE, sizeof(text2U16BE) / sizeof(*text2U16BE));
 
 	/***********************************************************************
