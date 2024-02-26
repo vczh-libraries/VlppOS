@@ -77,8 +77,6 @@ Text Related
 			/// <summary>Write a string with a CRLF.</summary>
 			/// <param name="string">The string to write.</param>
 			virtual void				WriteLine(const ObjectString<T>& string);
-
-			virtual void				WriteMonospacedEnglishTable(collections::Array<ObjectString<T>>& tableByRow, vint rows, vint columns);
 		};
 
 		/// <summary>Text reader from a string.</summary>
@@ -209,6 +207,8 @@ Helper Functions
 		using StringReader = StringReader_<wchar_t>;
 		using StreamReader = StreamReader_<wchar_t>;
 		using StreamWriter = StreamWriter_<wchar_t>;
+
+		void WriteMonospacedEnglishTable(TextWriter& writer, collections::Array<WString>& tableByRow, vint rows, vint columns);
 
 		/// <summary>
 		/// Build a big string using <see cref="StreamWriter"/>.
