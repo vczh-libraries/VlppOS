@@ -9,6 +9,5 @@
   - Need to affect `FileStream`.
 - Base64 read/write from text reader/writer.
   - Implement Base64 encoding as any string types <-> binary.
-- Refactor `ITextReader/Writer` to accept all string types.
 
 ## Optional
