@@ -100,8 +100,8 @@ namespace TestStreamEncoding_TestObjects
 		MemoryStream memoryStream;
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
-			vint size = encoderStream.Write((void*)input.Buffer(), input.Length() * sizeof(wchar_t));
-			TEST_ASSERT(size == input.Length() * sizeof(wchar_t));
+			vint size = encoderStream.Write(text, TextBytes);
+			TEST_ASSERT(size == TextBytes);
 		}
 		memoryStream.SeekFromBegin(0);
 
@@ -113,20 +113,20 @@ namespace TestStreamEncoding_TestObjects
 			memoryStream.SeekFromBegin(0);
 
 			// compare the encoded data to the expected data
-			TEST_ASSERT(buffer.Count() == decodedByteLength);
-			TEST_ASSERT(memcmp(&buffer[0], decodedBytes, decodedByteLength) == 0);
+			TEST_ASSERT(buffer.Count() == DecodedBytes);
+			TEST_ASSERT(memcmp(&buffer[0], decodedText, DecodedBytes) == 0);
 		}
 
 		// test the encoding and decode
 		{
 			DecoderStream decoderStream(memoryStream, decoder);
-			wchar_t* buffer = new wchar_t[input.Length() + 1];
-			vint size = decoderStream.Read(buffer, input.Length() * sizeof(wchar_t));
-			TEST_ASSERT(size == input.Length() * sizeof(wchar_t));
+			TExpect* buffer = new TExpect[ExpectLength];
+			vint size = decoderStream.Read(buffer, TextBytes);
+			TEST_ASSERT(size == TextBytes);
 			vint zero = decoderStream.Read(buffer, 1);
 			TEST_ASSERT(zero == 0);
-			buffer[input.Length()] = 0;
-			WString read = WString::TakeOver(buffer, input.Length());
+			buffer[TextLength] = 0;
+			auto read = ObjectString<TExpect>::TakeOver(buffer, TextLength);
 			TEST_ASSERT(read == text);
 		}
 	};
@@ -172,7 +172,7 @@ namespace TestStreamEncoding_TestObjects
 		// test the encoding and decode
 		{
 			DecoderStream decoderStream(memoryStream, decoder);
-			TExpect* buffer = new wchar_t[ExpectLength];
+			TExpect* buffer = new TExpect[ExpectLength];
 			{
 				char* bytes = (char*)buffer;
 				for (vint i = 0; i < TextBytes; i++)
