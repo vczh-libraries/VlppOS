@@ -7,8 +7,7 @@ CPP_REMOVES=(
     "../../Source/HttpUtility.Windows.cpp"
     "../../Source/Locale.Windows.cpp"
     "../../Source/Threading.Windows.cpp"
-    "../../Source/Stream/CharFormat.Windows.cpp"
-    "../../Source/Stream/CharFormat_TestEncoding.Windows.cpp"
+    "../../Source/Encoding/CharFormat/CharFormat.Windows.cpp"
     "../Source/TestLocale.cpp"
     "../UnitTest/UnitTest/Main.cpp"
     )
