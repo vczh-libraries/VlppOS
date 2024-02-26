@@ -51,15 +51,6 @@ MbcsDecoder::ReadString
 MbcsEncoder
 ***********************************************************************/
 
-		void MbcsEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void MbcsEncoder::Close()
-		{
-		}
-
 		vint MbcsEncoder::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
@@ -120,15 +111,6 @@ MbcsDecoder::WriteString
 /***********************************************************************
 MbcsDecoder
 ***********************************************************************/
-
-		void MbcsDecoder::Setup(IStream* _stream)
-		{
-			stream=_stream;
-		}
-
-		void MbcsDecoder::Close()
-		{
-		}
 
 		vint MbcsDecoder::Read(void* _buffer, vint _size)
 		{

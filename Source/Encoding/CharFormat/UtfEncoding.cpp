@@ -15,15 +15,6 @@ namespace vl
 CharEncoder
 ***********************************************************************/
 
-		void CharEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void CharEncoder::Close()
-		{
-		}
-
 		vint CharEncoder::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
@@ -78,15 +69,6 @@ CharEncoder
 /***********************************************************************
 CharDecoder
 ***********************************************************************/
-
-		void CharDecoder::Setup(IStream* _stream)
-		{
-			stream=_stream;
-		}
-
-		void CharDecoder::Close()
-		{
-		}
 
 		vint CharDecoder::Read(void* _buffer, vint _size)
 		{

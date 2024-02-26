@@ -6,7 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
 #define VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
 
-#include "../Encoding.h"
+#include "CharEncodingBase.h"
 
 namespace vl
 {
@@ -72,34 +72,28 @@ Char Encoder and Decoder
 ***********************************************************************/
 
 		/// <summary>Base type of all character encoder.</summary>
-		class CharEncoder : public Object, public IEncoder
+		class CharEncoder : public CharEncoderBase
 		{
 		protected:
-			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
 			virtual vint					WriteString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
 			vint							Write(void* _buffer, vint _size) override;
 		};
 		
 		/// <summary>Base type of all character decoder.</summary>
-		class CharDecoder : public Object, public IDecoder
+		class CharDecoder : public CharDecoderBase
 		{
 		protected:
-			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
 			vint							cacheSize = 0;
 
 			virtual vint					ReadString(wchar_t* _buffer, vint chars) = 0;
 		public:
 
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
 			vint							Read(void* _buffer, vint _size) override;
 		};
 

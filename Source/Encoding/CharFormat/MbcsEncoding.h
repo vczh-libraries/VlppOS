@@ -6,7 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
 #define VCZH_STREAM_ENCODING_CHARFORMAT_MBCSENCODING
 
-#include "../Encoding.h"
+#include "CharEncodingBase.h"
 
 namespace vl
 {
@@ -17,18 +17,15 @@ MbcsEncoder
 ***********************************************************************/
 
 		/// <summary>Encoder to write text in the local code page.</summary>
-		class MbcsEncoder : public Object, public IEncoder
+		class MbcsEncoder : public CharEncoderBase
 		{
 		protected:
-			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
 			vint							cacheSize = 0;
 
 			vint							WriteString(wchar_t* _buffer, vint chars);
 		public:
 
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
@@ -37,18 +34,15 @@ MbcsDecoder
 ***********************************************************************/
 
 		/// <summary>Decoder to read text in the local code page.</summary>
-		class MbcsDecoder : public Object, public IDecoder
+		class MbcsDecoder : public CharDecoderBase
 		{
 		protected:
-			IStream*						stream = nullptr;
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
 			vint							cacheSize = 0;
 
 			vint							ReadString(wchar_t* _buffer, vint chars);
 		public:
 
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
 			vint							Read(void* _buffer, vint _size) override;
 		};
 	}
