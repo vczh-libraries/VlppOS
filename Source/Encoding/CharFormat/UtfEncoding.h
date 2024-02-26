@@ -75,10 +75,9 @@ Unicode General
 		class UtfGeneralEncoder : public CharEncoderBase
 		{
 		protected:
-			vuint8_t						cacheBuffer[sizeof(char32_t)];
+			vuint8_t						cacheBuffer[sizeof(wchar_t) * encoding::UtfConversion<wchar_t>::BufferLength];
 			vint							cacheSize = 0;
 
-			vint							WriteString(wchar_t* _buffer, vint chars);
 		public:
 
 			vint							Write(void* _buffer, vint _size) override;

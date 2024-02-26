@@ -16,27 +16,6 @@ UtfGeneralEncoder
 ***********************************************************************/
 
 		template<typename T>
-		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars)
-		{
-			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
-			while (T c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		template<typename T>
 		vint UtfGeneralEncoder<T>::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
@@ -56,24 +35,26 @@ UtfGeneralEncoder
 				unicode = (vuint8_t*)_buffer;
 			}
 
-#if defined VCZH_WCHAR_UTF16
-			if (availableChars > 0)
-			{
-				// a surrogate pair must be written as a whole thing
-				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
-				if ((c & 0xFC00U) == 0xD800U)
-				{
-					availableChars -= 1;
-					availableBytes -= sizeof(wchar_t);
-				}
-			}
-#endif
-
 			// write the buffer
 			if (availableChars > 0)
 			{
-				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
-				CHECK_ERROR(written == availableBytes, L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+				UtfStringRangeToStringRangeReader<wchar_t, T> reader((wchar_t*)unicode, availableChars);
+				while (T c = reader.Read())
+				{
+					vint written = stream->Write(&c, sizeof(c));
+					if (written != sizeof(c))
+					{
+						Close();
+						CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+					}
+				}
+				if (reader.HasIllegalChar())
+				{
+					Close();
+					CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+				}
+				availableChars = reader.ReadingIndex();
+				availableBytes = availableChars * sizeof(wchar_t);
 			}
 
 			// cache the remaining
