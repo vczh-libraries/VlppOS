@@ -120,9 +120,6 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp">
-      <Filter>Common\Encoding\CharFormat</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
@@ -146,6 +143,9 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp">
       <Filter>Common\Encoding</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\CacheStream.cpp">
+      <Filter>Common\Stream</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -191,9 +191,6 @@
     <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h">
       <Filter>Common\Stream</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Source\Stream\CacheStream.h">
-      <Filter>Common\Encoding\CharFormat</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharFormat.h">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClInclude>
@@ -202,6 +199,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h">
       <Filter>Common\Encoding</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\CacheStream.h">
+      <Filter>Common\Stream</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
