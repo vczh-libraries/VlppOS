@@ -12,6 +12,28 @@ namespace vl
 	{
 		using namespace collections;
 
+		template<typename T>
+		struct VCRLF_ {};
+
+		template<> struct VCRLF_<wchar_t> { static constexpr const wchar_t* Value = L"\r\n"; };
+		template<> struct VCRLF_<char8_t> { static constexpr const char8_t* Value = u8"\r\n"; };
+		template<> struct VCRLF_<char16_t> { static constexpr const char16_t* Value = u"\r\n"; };
+		template<> struct VCRLF_<char32_t> { static constexpr const char32_t* Value = U"\r\n"; };
+
+		template<typename T>
+		constexpr const T* VCRLF = VCRLF_<T>::Value;
+
+		template<typename T>
+		struct VEMPTYSTR_ {};
+
+		template<> struct VEMPTYSTR_<wchar_t> { static constexpr const wchar_t* Value = L""; };
+		template<> struct VEMPTYSTR_<char8_t> { static constexpr const char8_t* Value = u8""; };
+		template<> struct VEMPTYSTR_<char16_t> { static constexpr const char16_t* Value = u""; };
+		template<> struct VEMPTYSTR_<char32_t> { static constexpr const char32_t* Value = U""; };
+
+		template<typename T>
+		constexpr const T* VEMPTYSTR = VEMPTYSTR_<T>::Value;
+
 /***********************************************************************
 TextReader_<T>
 ***********************************************************************/
@@ -153,7 +175,7 @@ TextWriter_<T>
 #endif
 			else
 			{
-				len = WString::Unmanaged(string).Length();
+				len = ObjectString<T>::Unmanaged(string).Length();
 			}
 			WriteString(string, len);
 		}
@@ -171,21 +193,21 @@ TextWriter_<T>
 		void TextWriter_<T>::WriteLine(const T* string, vint charCount)
 		{
 			WriteString(string, charCount);
-			WriteString(L"\r\n", 2);
+			WriteString(VCRLF<T>, 2);
 		}
 
 		template<typename T>
 		void TextWriter_<T>::WriteLine(const T* string)
 		{
 			WriteString(string);
-			WriteString(L"\r\n", 2);
+			WriteString(VCRLF<T>, 2);
 		}
 
 		template<typename T>
 		void TextWriter_<T>::WriteLine(const ObjectString<T>& string)
 		{
 			WriteString(string);
-			WriteString(L"\r\n", 2);
+			WriteString(VCRLF<T>, 2);
 		}
 
 		namespace monospace_tabling
@@ -203,7 +225,7 @@ TextWriter_<T>
 					}
 					writer.WriteChar(L'+');
 				}
-				writer.WriteLine(L"");
+				writer.WriteLine(VEMPTYSTR<T>);
 			}
 
 			template<typename T>
@@ -218,7 +240,7 @@ TextWriter_<T>
 						const T* cell = tableByRow[cellStart + c].Buffer();
 						for (vint i = 0; i < r; i++)
 						{
-							if (cell) cell = ::wcsstr(cell, L"\r\n");
+							if (cell) cell = ::wcsstr(cell, VCRLF<T>);
 							if (cell) cell += 2;
 						}
 
@@ -226,7 +248,7 @@ TextWriter_<T>
 						vint length = 0;
 						if (cell)
 						{
-							const T* end = ::wcsstr(cell, L"\r\n");
+							const T* end = ::wcsstr(cell, VCRLF<T>);
 							length = end ? end - cell : (vint)wcslen(cell);
 							writer.WriteString(cell, length);
 						}
@@ -237,7 +259,7 @@ TextWriter_<T>
 						}
 						writer.WriteChar(L'|');
 					}
-					writer.WriteLine(L"");
+					writer.WriteLine(VEMPTYSTR<T>);
 				}
 			}
 		}
@@ -263,7 +285,7 @@ TextWriter_<T>
 					while (reading)
 					{
 						height++;
-						const T* crlf = ::wcsstr(reading, L"\r\n");
+						const T* crlf = ::wcsstr(reading, VCRLF<T>);
 						if (crlf)
 						{
 							vint length = crlf - reading + 2;
@@ -272,7 +294,7 @@ TextWriter_<T>
 						}
 						else
 						{
-							vint length = (vint)wcslen(reading) + 2;
+							vint length = ObjectString<T>::Unmanaged(reading).Length() + 2;
 							if (width < length) width = length;
 							reading = 0;
 						}
@@ -340,7 +362,7 @@ StringReader_<T>
 			PrepareIfLastCallIsReadLine();
 			if (IsEnd())
 			{
-				return L"";
+				return VEMPTYSTR<T>;
 			}
 			else
 			{
@@ -358,7 +380,7 @@ StringReader_<T>
 			PrepareIfLastCallIsReadLine();
 			if (IsEnd())
 			{
-				return L"";
+				return VEMPTYSTR<T>;
 			}
 			else
 			{
