@@ -212,17 +212,24 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
+	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
+	void TestEncodingWithBOM(
+		const TExpect(&text)[ExpectLength],
+		vint decodedBomOffset,
+		const TNative(&decodedText)[NativeLength]
+	)
+	{
+		BomEncoder encoder(EncodingOf<TNative>);
+		BomDecoder decoder;
+		TestEncodingWithStreamReaderWriter(encoder, decoder, text, decodedBomOffset, decodedText);
+	}
+
 	template<typename TNative, typename TExpect, typename TEncoder, typename TDecoder, size_t NativeLength, size_t ExpectLength>
-	void TestEncodingWithoutBOM(
+	void TestEncodingUnrelatedToBOM(
 		const TExpect(&text)[ExpectLength],
 		const TNative(&decodedText)[NativeLength]
 	)
 	{
-		{
-			TEncoder encoder;
-			TDecoder decoder;
-			TestEncodingWithStreamReaderWriter(encoder, decoder, text, 0, decodedText);
-		}
 		{
 			TEST_PRINT(L"Encoder Decoder");
 			TEncoder encoder;
@@ -237,16 +244,18 @@ namespace TestStreamEncoding_TestObjects
 		}
 	}
 
-	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
-	void TestEncodingWithBOM(
+	template<typename TNative, typename TExpect, typename TEncoder, typename TDecoder, size_t NativeLength, size_t ExpectLength>
+	void TestEncodingWithoutBOM(
 		const TExpect(&text)[ExpectLength],
-		vint decodedBomOffset,
 		const TNative(&decodedText)[NativeLength]
 	)
 	{
-		BomEncoder encoder(EncodingOf<TNative>);
-		BomDecoder decoder;
-		TestEncodingWithStreamReaderWriter(encoder, decoder, text, decodedBomOffset, decodedText);
+		{
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithStreamReaderWriter(encoder, decoder, text, 0, decodedText);
+		}
+		TestEncodingUnrelatedToBOM<TNative, TExpect, TEncoder, TDecoder>(text, decodedText);
 	}
 }
 using namespace TestStreamEncoding_TestObjects;
@@ -291,7 +300,6 @@ TEST_FILE
 		});
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
-			return;
 			TestEncodingWithoutBOM<char8_t, wchar_t, Utf8Encoder, Utf8Decoder>(
 				text1L,
 				text1U8
@@ -354,5 +362,39 @@ TEST_FILE
 				text2U16BE
 				);
 		});
+	});
+
+	TEST_CATEGORY(L"General UTF Encoding")
+	{
+#define BUFFER_wchar_t text1L
+#define BUFFER_char8_t text1U8
+#define BUFFER_char16_t text1U16
+#define BUFFER_char16be_t text1U16BE
+#define BUFFER_char32_t text1U32
+
+#define UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, SECOND)\
+		TEST_CASE(L"Native:" L ## #FIRST L" Expect:" L ## #SECOND)\
+		{\
+			TestEncodingUnrelatedToBOM<FIRST, SECOND, UtfGeneralEncoder<FIRST, SECOND>, UtfGeneralDecoder<FIRST, SECOND>>(\
+				BUFFER_ ## SECOND,\
+				BUFFER_ ## FIRST\
+				);\
+		});\
+
+#define UTF_ENCODING_TEST_FIRST_CHAR_TYPE(FIRST)\
+		UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, wchar_t)\
+		UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, char8_t)\
+		UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, char16_t)\
+		UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, char16be_t)\
+		UTF_ENCODING_TEST_SECOND_CHAR_TYPE(FIRST, char32_t)\
+
+#define UTF_ENCODING_TEST\
+		UTF_ENCODING_TEST_FIRST_CHAR_TYPE(wchar_t)\
+		UTF_ENCODING_TEST_FIRST_CHAR_TYPE(char8_t)\
+		UTF_ENCODING_TEST_FIRST_CHAR_TYPE(char16_t)\
+		UTF_ENCODING_TEST_FIRST_CHAR_TYPE(char16be_t)\
+		UTF_ENCODING_TEST_FIRST_CHAR_TYPE(char32_t)\
+
+		UTF_ENCODING_TEST
 	});
 }
