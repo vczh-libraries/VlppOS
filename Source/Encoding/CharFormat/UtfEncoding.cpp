@@ -53,7 +53,7 @@ UtfGeneralEncoder
 					Close();
 					CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
 				}
-				availableChars = reader.ReadingIndex();
+				availableChars = reader.SourceCluster().index;
 				availableBytes = availableChars * sizeof(wchar_t);
 			}
 
