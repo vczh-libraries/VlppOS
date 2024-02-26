@@ -19,6 +19,36 @@ namespace TestStreamEncoding_TestObjects
 		}
 	}
 
+	template<typename T> constexpr BomEncoder::Encoding EncodingOf = BomEncoder::Mbcs;
+	template<> constexpr BomEncoder::Encoding EncodingOf<char8_t> = BomEncoder::Utf8;
+	template<> constexpr BomEncoder::Encoding EncodingOf<char16_t> = BomEncoder::Utf16;
+	template<> constexpr BomEncoder::Encoding EncodingOf<char16be_t> = BomEncoder::Utf16BE;
+
+	template<typename TNative>
+	void TestEncoding(
+		vint decodedBomOffset,
+		Array<vuint8_t>& buffer
+	)
+	{
+		BomEncoder::Encoding resultEncoding;
+		bool resultContainsBom;
+		TestEncoding(&buffer[0], buffer.Count(), resultEncoding, resultContainsBom);
+		TEST_ASSERT(EncodingOf<TNative> == resultEncoding);
+		TEST_ASSERT((decodedBomOffset != 0) == resultContainsBom);
+	}
+
+	template<>
+	void TestEncoding<char>(
+		vint decodedBomOffset,
+		Array<vuint8_t>& buffer
+		) {}
+
+	template<>
+	void TestEncoding<char32_t>(
+		vint decodedBomOffset,
+		Array<vuint8_t>& buffer
+		) {}
+
 	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithStreamReaderWriter(
 		IEncoder& encoder,
@@ -37,7 +67,7 @@ namespace TestStreamEncoding_TestObjects
 		MemoryStream memoryStream;
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
-			StreamWriter writer(encoderStream);
+			StreamWriter_<TExpect> writer(encoderStream);
 			writer.WriteString(text);
 		}
 		memoryStream.SeekFromBegin(0);
@@ -62,28 +92,21 @@ namespace TestStreamEncoding_TestObjects
 		}
 
 		// compare the encoded data to the expected data
-		TEST_ASSERT(buffer.Count() == decodedBomOffset + decodedByteLength);
-		TEST_ASSERT(memcmp(&buffer[decodedBomOffset], decodedBytes, decodedByteLength) == 0);
+		TEST_ASSERT(buffer.Count() == decodedBomOffset + DecodedBytes);
+		TEST_ASSERT(memcmp(&buffer[decodedBomOffset], decodedText, DecodedBytes) == 0);
 
 		// test the encoding and decode
 		{
-			if (testEncoding)
-			{
-				BomEncoder::Encoding resultEncoding;
-				bool resultContainsBom;
-				TestEncoding(&buffer[0], buffer.Count(), resultEncoding, resultContainsBom);
-				TEST_ASSERT(encoding == resultEncoding);
-				TEST_ASSERT((decodedBomOffset != 0) == resultContainsBom);
-			}
+			TestEncoding<TNative>(decodedBomOffset, buffer);
 
 			DecoderStream decoderStream(memoryStream, decoder);
-			StreamReader reader(decoderStream);
-			WString read = reader.ReadToEnd();
+			StreamReader_<TExpect> reader(decoderStream);
+			auto read = reader.ReadToEnd();
 			TEST_ASSERT(read == text);
 		}
 	};
 
-	template<typename TNative, typename TExpect, typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
+	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithEncoderDecoderStream(
 		IEncoder& encoder,
 		IDecoder& decoder,
@@ -100,7 +123,7 @@ namespace TestStreamEncoding_TestObjects
 		MemoryStream memoryStream;
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
-			vint size = encoderStream.Write(text, TextBytes);
+			vint size = encoderStream.Write((void*)text, TextBytes);
 			TEST_ASSERT(size == TextBytes);
 		}
 		memoryStream.SeekFromBegin(0);
@@ -151,7 +174,7 @@ namespace TestStreamEncoding_TestObjects
 			auto bytes = (const char*)text;
 			for (vint i = 0; i < TextBytes; i++)
 			{
-				vint written = encoderStream.Write(bytes + i, 1);
+				vint written = encoderStream.Write((void*)(bytes + i), 1);
 				TEST_ASSERT(written == 1);
 			}
 		}
@@ -221,7 +244,7 @@ namespace TestStreamEncoding_TestObjects
 		const TNative(&decodedText)[NativeLength]
 	)
 	{
-		BomEncoder encoder(encoding);
+		BomEncoder encoder(EncodingOf<TNative>);
 		BomDecoder decoder;
 		TestEncodingWithStreamReaderWriter(encoder, decoder, text, decodedBomOffset, decodedText);
 	}
