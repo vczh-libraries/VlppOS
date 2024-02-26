@@ -1590,10 +1590,9 @@ Unicode General
 		class UtfGeneralEncoder : public CharEncoderBase
 		{
 		protected:
-			vuint8_t						cacheBuffer[sizeof(char32_t)];
+			vuint8_t						cacheBuffer[sizeof(wchar_t) * encoding::UtfConversion<wchar_t>::BufferLength];
 			vint							cacheSize = 0;
 
-			vint							WriteString(wchar_t* _buffer, vint chars);
 		public:
 
 			vint							Write(void* _buffer, vint _size) override;
@@ -1611,8 +1610,6 @@ Unicode General
 			vuint8_t								cacheBuffer[sizeof(wchar_t)];
 			vint									cacheSize = 0;
 			UtfStreamToStreamReader<T, wchar_t>		reader;
-
-			vint							ReadString(wchar_t* _buffer, vint chars);
 
 		public:
 

@@ -1713,27 +1713,6 @@ UtfGeneralEncoder
 ***********************************************************************/
 
 		template<typename T>
-		vint UtfGeneralEncoder<T>::WriteString(wchar_t* _buffer, vint chars)
-		{
-			UtfStringRangeToStringRangeReader<wchar_t, T> reader(_buffer, chars);
-			while (T c = reader.Read())
-			{
-				vint written = stream->Write(&c, sizeof(c));
-				if (written != sizeof(c))
-				{
-					Close();
-					return 0;
-				}
-			}
-			if (reader.HasIllegalChar())
-			{
-				Close();
-				return 0;
-			}
-			return chars;
-		}
-
-		template<typename T>
 		vint UtfGeneralEncoder<T>::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
@@ -1753,24 +1732,26 @@ UtfGeneralEncoder
 				unicode = (vuint8_t*)_buffer;
 			}
 
-#if defined VCZH_WCHAR_UTF16
-			if (availableChars > 0)
-			{
-				// a surrogate pair must be written as a whole thing
-				vuint16_t c = (vuint16_t)((wchar_t*)unicode)[availableChars - 1];
-				if ((c & 0xFC00U) == 0xD800U)
-				{
-					availableChars -= 1;
-					availableBytes -= sizeof(wchar_t);
-				}
-			}
-#endif
-
 			// write the buffer
 			if (availableChars > 0)
 			{
-				vint written = WriteString((wchar_t*)unicode, availableChars) * sizeof(wchar_t);
-				CHECK_ERROR(written == availableBytes, L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+				UtfStringRangeToStringRangeReader<wchar_t, T> reader((wchar_t*)unicode, availableChars);
+				while (T c = reader.Read())
+				{
+					vint written = stream->Write(&c, sizeof(c));
+					if (written != sizeof(c))
+					{
+						Close();
+						CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+					}
+				}
+				if (reader.HasIllegalChar())
+				{
+					Close();
+					CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
+				}
+				availableChars = reader.SourceCluster().index;
+				availableBytes = availableChars * sizeof(wchar_t);
 			}
 
 			// cache the remaining
@@ -1793,20 +1774,6 @@ UtfGeneralEncoder
 /***********************************************************************
 UtfGeneralDecoder
 ***********************************************************************/
-
-		template<typename T>
-		vint UtfGeneralDecoder<T>::ReadString(wchar_t* _buffer, vint chars)
-		{
-			vint counter = 0;
-			for (vint i = 0; i < chars; i++)
-			{
-				wchar_t c = reader.Read();
-				if (!c) break;
-				_buffer[i] = c;
-				counter++;
-			}
-			return counter;
-		}
 
 		template<typename T>
 		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
@@ -1846,7 +1813,14 @@ UtfGeneralDecoder
 			while (_size >= sizeof(wchar_t))
 			{
 				vint availableChars = _size / sizeof(wchar_t);
-				vint readBytes = ReadString((wchar_t*)writing, availableChars) * sizeof(wchar_t);
+				vint readBytes = 0;
+				for (vint i = 0; i < availableChars; i++)
+				{
+					wchar_t c = reader.Read();
+					if (!c) break;
+					((wchar_t*)_buffer)[i] = c;
+					readBytes += sizeof(wchar_t);
+				}
 				if (readBytes == 0) break;
 				filledBytes += readBytes;
 				_size -= readBytes;
@@ -1856,9 +1830,7 @@ UtfGeneralDecoder
 			// cache the remaining wchar_t
 			if (_size < sizeof(wchar_t))
 			{
-				wchar_t c;
-				vint readChars = ReadString(&c, 1) * sizeof(wchar_t);
-				if (readChars == sizeof(wchar_t))
+				if (wchar_t c = reader.Read())
 				{
 					vuint8_t* reading = (vuint8_t*)&c;
 					memcpy(writing, reading, _size);
