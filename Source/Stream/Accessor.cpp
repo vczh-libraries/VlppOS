@@ -23,12 +23,12 @@ TextReader_<T>
 			vint i=0;
 			for(;i<length;i++)
 			{
-				if((buffer[i]=ReadChar())==L'\0')
+				if((buffer[i]=ReadChar())==0)
 				{
 					break;
 				}
 			}
-			buffer[i]=L'\0';
+			buffer[i]=0;
 			ObjectString<T> result(buffer);
 			delete[] buffer;
 			return result;
@@ -39,16 +39,16 @@ TextReader_<T>
 		{
 			ObjectString<T> result;
 			auto buffer = new T[65537];
-			buffer[0]=L'\0';
+			buffer[0]=0;
 			vint i=0;
 			while(true)
 			{
 				T c=ReadChar();
-				if(c==L'\n' || c==L'\0')
+				if(c==L'\n' || c==0)
 				{
-					buffer[i]=L'\0';
+					buffer[i]=0;
 					result+=buffer;
-					buffer[0]=L'\0';
+					buffer[0]=0;
 					i=0;
 					break;
 				}
@@ -56,9 +56,9 @@ TextReader_<T>
 				{
 					if(i==65536)
 					{
-						buffer[i]=L'\0';
+						buffer[i]=0;
 						result+=buffer;
-						buffer[0]=L'\0';
+						buffer[0]=0;
 						i=0;
 					}
 					buffer[i++]=c;
@@ -81,16 +81,16 @@ TextReader_<T>
 		{
 			ObjectString<T> result;
 			auto buffer = new T[65537];
-			buffer[0]=L'\0';
+			buffer[0]=0;
 			vint i=0;
 			while(true)
 			{
 				T c=ReadChar();
-				if(c==L'\0')
+				if(c==0)
 				{
-					buffer[i]=L'\0';
+					buffer[i]=0;
 					result+=buffer;
-					buffer[0]=L'\0';
+					buffer[0]=0;
 					i=0;
 					break;
 				}
@@ -98,9 +98,9 @@ TextReader_<T>
 				{
 					if(i==65536)
 					{
-						buffer[i]=L'\0';
+						buffer[i]=0;
 						result+=buffer;
-						buffer[0]=L'\0';
+						buffer[0]=0;
 						i=0;
 					}
 					buffer[i++]=c;
@@ -326,7 +326,7 @@ StringReader_<T>
 			PrepareIfLastCallIsReadLine();
 			if(IsEnd())
 			{
-				return L'\0';
+				return 0;
 			}
 			else
 			{
@@ -416,7 +416,7 @@ StreamReader_<T>
 			}
 			else
 			{
-				return L'\0';
+				return 0;
 			}
 		}
 
