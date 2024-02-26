@@ -3,6 +3,7 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+#include "BomENcoding.h"
 #include "CharFormat.h"
 
 namespace vl

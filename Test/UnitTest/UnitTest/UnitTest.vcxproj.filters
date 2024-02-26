@@ -129,7 +129,7 @@
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp">
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp">
@@ -204,6 +204,9 @@
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Encoding\CharFormat\UtfEncoding.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.h">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClInclude>
   </ItemGroup>

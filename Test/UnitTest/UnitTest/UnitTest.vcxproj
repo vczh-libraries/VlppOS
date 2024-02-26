@@ -199,7 +199,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp" />
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp" />
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\MemoryStream.cpp" />
@@ -241,6 +241,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Import\Vlpp.h" />
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\CharFormat\MbcsEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\CharFormat\UtfEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h" />
