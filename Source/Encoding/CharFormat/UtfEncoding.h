@@ -86,6 +86,7 @@ Unicode General
 		template<typename TNative, typename TExpect>
 		class UtfGeneralEncoder : public CharEncoderBase
 		{
+			using TStringRangeReader = encoding::UtfStringRangeToStringRangeReader<TExpect, TNative>;
 		protected:
 			vuint8_t						cacheBuffer[sizeof(TExpect) * MaxPossibleCodePoints<TExpect>::Value];
 			vint							cacheSize = 0;

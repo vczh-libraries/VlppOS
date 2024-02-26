@@ -9,8 +9,6 @@ namespace vl
 {
 	namespace stream
 	{
-		using namespace vl::encoding;
-
 /***********************************************************************
 UtfGeneralEncoder
 ***********************************************************************/
@@ -19,8 +17,8 @@ UtfGeneralEncoder
 		vint UtfGeneralEncoder<TNative, TExpect>::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
-			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
-			vint availableBytes = availableChars * sizeof(wchar_t);
+			vint availableChars = (cacheSize + _size) / sizeof(TExpect);
+			vint availableBytes = availableChars * sizeof(TExpect);
 			bool needToFree = false;
 			vuint8_t* unicode = nullptr;
 			if (cacheSize > 0)
@@ -38,8 +36,8 @@ UtfGeneralEncoder
 			// write the buffer
 			if (availableChars > 0)
 			{
-				UtfStringRangeToStringRangeReader<wchar_t, T> reader((wchar_t*)unicode, availableChars);
-				while (T c = reader.Read())
+				TStringRangeReader reader((TExpect*)unicode, availableChars);
+				while (TNative c = reader.Read())
 				{
 					vint written = stream->Write(&c, sizeof(c));
 					if (written != sizeof(c))
@@ -54,14 +52,14 @@ UtfGeneralEncoder
 					CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
 				}
 				availableChars = reader.SourceCluster().index;
-				availableBytes = availableChars * sizeof(wchar_t);
+				availableBytes = availableChars * sizeof(TExpect);
 			}
 
 			// cache the remaining
 			cacheSize = cacheSize + _size - availableBytes;
 			if (cacheSize > 0)
 			{
-				CHECK_ERROR(cacheSize <= sizeof(char32_t), L"UtfGeneralEncoder<T>::Write(void*, vint)#Unwritten text is too large to cache.");
+				CHECK_ERROR(cacheSize <= sizeof(cacheBuffer), L"UtfGeneralEncoder<T>::Write(void*, vint)#Unwritten text is too large to cache.");
 				memcpy(cacheBuffer, unicode + availableBytes, cacheSize);
 			}
 
@@ -108,16 +106,16 @@ UtfGeneralDecoder
 			}
 
 			// fill the buffer as many as possible
-			while (_size >= sizeof(wchar_t))
+			while (_size >= sizeof(TExpect))
 			{
-				vint availableChars = _size / sizeof(wchar_t);
+				vint availableChars = _size / sizeof(TExpect);
 				vint readBytes = 0;
 				for (vint i = 0; i < availableChars; i++)
 				{
-					wchar_t c = reader.Read();
+					TExpect c = reader.Read();
 					if (!c) break;
-					((wchar_t*)_buffer)[i] = c;
-					readBytes += sizeof(wchar_t);
+					((TExpect*)_buffer)[i] = c;
+					readBytes += sizeof(TExpect);
 				}
 				if (readBytes == 0) break;
 				filledBytes += readBytes;
@@ -125,15 +123,15 @@ UtfGeneralDecoder
 				writing += readBytes;
 			}
 
-			// cache the remaining wchar_t
-			if (_size < sizeof(wchar_t))
+			// cache the remaining TExpect
+			if (_size < sizeof(TExpect))
 			{
-				if (wchar_t c = reader.Read())
+				if (TExpect c = reader.Read())
 				{
 					vuint8_t* reading = (vuint8_t*)&c;
 					memcpy(writing, reading, _size);
 					filledBytes += _size;
-					cacheSize = sizeof(wchar_t) - _size;
+					cacheSize = sizeof(TExpect) - _size;
 					memcpy(cacheBuffer, reading + _size, cacheSize);
 				}
 			}
