@@ -276,8 +276,18 @@ TEST_FILE
 	Encoding
 	***********************************************************************/
 
-	TEST_CATEGORY(L"Encoding Unicode")
+	TEST_CATEGORY(L"Predefined UTF Encoding")
 	{
+		TEST_CASE(L"<MBCS, NO-BOM>")
+		{
+			TestEncodingWithoutBOM<MbcsEncoder, MbcsDecoder>(
+				BomEncoder::Mbcs,
+				text2L,
+				text2A,
+				(sizeof(text2A) - sizeof(*text2A)),
+				false
+				);
+		});
 		TEST_CASE(L"<UTF8, NO-BOM>")
 		{
 			return;
@@ -317,93 +327,10 @@ TEST_FILE
 				(sizeof(text1U32) - sizeof(*text1U32))
 				);
 		});
-
-		TEST_CASE(L"<UTF8, BOM>")
-		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf8,
-				text1L,
-				3,
-				text1U8,
-				(sizeof(text1U8) - sizeof(*text1U8)),
-				true
-				);
-		});
-		TEST_CASE(L"<UTF16, BOM>")
-		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf16,
-				text1L,
-				2,
-				text1U16,
-				(sizeof(text1U16) - sizeof(*text1U16)),
-				true
-				);
-		});
-		TEST_CASE(L"<UTF16_BE, BOM>")
-		{
-			TestEncodingWithBOM(
-				BomEncoder::Utf16BE,
-				text1L,
-				2,
-				text1U16BE,
-				(sizeof(text1U16BE) - sizeof(*text1U16BE)),
-				true
-				);
-		});
 	});
 
-	TEST_CATEGORY(L"Encoding Ansi")
+	TEST_CATEGORY(L"BOM Encoding")
 	{
-		TEST_CASE(L"<MBCS, NO-BOM>")
-		{
-			TestEncodingWithoutBOM<MbcsEncoder, MbcsDecoder>(
-				BomEncoder::Mbcs,
-				text2L,
-				text2A,
-				(sizeof(text2A) - sizeof(*text2A)),
-				false
-				);
-		});
-		TEST_CASE(L"<UTF8, NO-BOM>")
-		{
-			TestEncodingWithoutBOM<Utf8Encoder, Utf8Decoder>(
-				BomEncoder::Utf8,
-				text2L,
-				text2U8,
-				(sizeof(text2U8) - sizeof(*text2U8)),
-				false
-				);
-		});
-		TEST_CASE(L"<UTF16, NO-BOM>")
-		{
-			TestEncodingWithoutBOM<Utf16Encoder, Utf16Decoder>(
-				BomEncoder::Utf16,
-				text2L,
-				text2U16,
-				(sizeof(text2U16) - sizeof(*text2U16)),
-				false
-				);
-		});
-		TEST_CASE(L"<UTF16_BE, NO-BOM>")
-		{
-			TestEncodingWithoutBOM<Utf16BEEncoder, Utf16BEDecoder>(
-				BomEncoder::Utf16BE,
-				text2L,
-				text2U16BE,
-				(sizeof(text2U16BE) - sizeof(*text2U16BE)),
-				false
-				);
-		});
-		TEST_CASE(L"<UTF32, NO-BOM>")
-		{
-			TestEncodingWithoutBOMWithoutTestEncoding<Utf32Encoder, Utf32Decoder>(
-				text2L,
-				text2U32,
-				(sizeof(text2U32) - sizeof(*text2U32))
-				);
-		});
-
 		TEST_CASE(L"<MBCS, BOM>")
 		{
 			TestEncodingWithBOM(

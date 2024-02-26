@@ -1587,10 +1587,23 @@ Unicode General
 ***********************************************************************/
 
 		template<typename T>
+		struct MaxPossibleCodePoints
+		{
+			static const vint		Value = encoding::UtfConversion<T>::BufferLength;
+		};
+
+		template<>
+		struct MaxPossibleCodePoints<char32_t>
+		{
+			static const vint		Value = 1;
+		};
+
+		template<typename TNative, typename TExpect>
 		class UtfGeneralEncoder : public CharEncoderBase
 		{
+			using TStringRangeReader = encoding::UtfStringRangeToStringRangeReader<TExpect, TNative>;
 		protected:
-			vuint8_t						cacheBuffer[sizeof(wchar_t) * encoding::UtfConversion<wchar_t>::BufferLength];
+			vuint8_t						cacheBuffer[sizeof(TExpect) * MaxPossibleCodePoints<TExpect>::Value];
 			vint							cacheSize = 0;
 
 		public:
@@ -1598,18 +1611,14 @@ Unicode General
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
-		extern template class UtfGeneralEncoder<char8_t>;
-		extern template class UtfGeneralEncoder<char16_t>;
-		extern template class UtfGeneralEncoder<char16be_t>;
-		extern template class UtfGeneralEncoder<char32_t>;
-
-		template<typename T>
+		template<typename TNative, typename TExpect>
 		class UtfGeneralDecoder : public CharDecoderBase
 		{
+			using TStreamReader = UtfStreamToStreamReader<TNative, TExpect>;
 		protected:
-			vuint8_t								cacheBuffer[sizeof(wchar_t)];
-			vint									cacheSize = 0;
-			UtfStreamToStreamReader<T, wchar_t>		reader;
+			vuint8_t						cacheBuffer[sizeof(TExpect)];
+			vint							cacheSize = 0;
+			TStreamReader					reader;
 
 		public:
 
@@ -1617,28 +1626,105 @@ Unicode General
 			vint							Read(void* _buffer, vint _size) override;
 		};
 
-		extern template class UtfGeneralDecoder<char8_t>;
-		extern template class UtfGeneralDecoder<char16_t>;
-		extern template class UtfGeneralDecoder<char16be_t>;
-		extern template class UtfGeneralDecoder<char32_t>;
-
 /***********************************************************************
-Unicode General (wchar_t)
+Unicode General (without conversion)
 ***********************************************************************/
 
-		template<>
-		class UtfGeneralEncoder<wchar_t> : public CharEncoderBase
+		template<typename T>
+		class UtfGeneralEncoder<T, T> : public CharEncoderBase
 		{
 		public:
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
-		template<>
-		class UtfGeneralDecoder<wchar_t> : public CharDecoderBase
+		template<typename T>
+		class UtfGeneralDecoder<T, T> : public CharDecoderBase
 		{
 		public:
 			vint							Read(void* _buffer, vint _size) override;
 		};
+
+#if defined VCZH_WCHAR_UTF16
+
+		template<>
+		class UtfGeneralEncoder<char16_t, wchar_t> : public UtfGeneralEncoder<wchar_t, wchar_t> {};
+
+		template<>
+		class UtfGeneralEncoder<wchar_t, char16_t> : public UtfGeneralEncoder<wchar_t, wchar_t> {};
+
+#elif defined VCZH_WCHAR_UTF32
+
+		template<>
+		class UtfGeneralEncoder<char32_t, wchar_t> : public UtfGeneralEncoder<wchar_t, wchar_t> {};
+
+		template<>
+		class UtfGeneralEncoder<wchar_t, char32_t> : public UtfGeneralEncoder<wchar_t, wchar_t> {};
+
+#endif
+
+/***********************************************************************
+Unicode General (extern templates)
+***********************************************************************/
+
+		extern template class UtfGeneralEncoder<wchar_t, wchar_t>;
+		extern template class UtfGeneralEncoder<wchar_t, char8_t>;
+		extern template class UtfGeneralEncoder<wchar_t, char16_t>;
+		extern template class UtfGeneralEncoder<wchar_t, char16be_t>;
+		extern template class UtfGeneralEncoder<wchar_t, char32_t>;
+
+		extern template class UtfGeneralEncoder<char8_t, wchar_t>;
+		extern template class UtfGeneralEncoder<char8_t, char8_t>;
+		extern template class UtfGeneralEncoder<char8_t, char16_t>;
+		extern template class UtfGeneralEncoder<char8_t, char16be_t>;
+		extern template class UtfGeneralEncoder<char8_t, char32_t>;
+
+		extern template class UtfGeneralEncoder<char16_t, wchar_t>;
+		extern template class UtfGeneralEncoder<char16_t, char8_t>;
+		extern template class UtfGeneralEncoder<char16_t, char16_t>;
+		extern template class UtfGeneralEncoder<char16_t, char16be_t>;
+		extern template class UtfGeneralEncoder<char16_t, char32_t>;
+
+		extern template class UtfGeneralEncoder<char16be_t, wchar_t>;
+		extern template class UtfGeneralEncoder<char16be_t, char8_t>;
+		extern template class UtfGeneralEncoder<char16be_t, char16_t>;
+		extern template class UtfGeneralEncoder<char16be_t, char16be_t>;
+		extern template class UtfGeneralEncoder<char16be_t, char32_t>;
+
+		extern template class UtfGeneralEncoder<char32_t, wchar_t>;
+		extern template class UtfGeneralEncoder<char32_t, char8_t>;
+		extern template class UtfGeneralEncoder<char32_t, char16_t>;
+		extern template class UtfGeneralEncoder<char32_t, char16be_t>;
+		extern template class UtfGeneralEncoder<char32_t, char32_t>;
+
+		extern template class UtfGeneralDecoder<wchar_t, wchar_t>;
+		extern template class UtfGeneralDecoder<wchar_t, char8_t>;
+		extern template class UtfGeneralDecoder<wchar_t, char16_t>;
+		extern template class UtfGeneralDecoder<wchar_t, char16be_t>;
+		extern template class UtfGeneralDecoder<wchar_t, char32_t>;
+
+		extern template class UtfGeneralDecoder<char8_t, wchar_t>;
+		extern template class UtfGeneralDecoder<char8_t, char8_t>;
+		extern template class UtfGeneralDecoder<char8_t, char16_t>;
+		extern template class UtfGeneralDecoder<char8_t, char16be_t>;
+		extern template class UtfGeneralDecoder<char8_t, char32_t>;
+
+		extern template class UtfGeneralDecoder<char16_t, wchar_t>;
+		extern template class UtfGeneralDecoder<char16_t, char8_t>;
+		extern template class UtfGeneralDecoder<char16_t, char16_t>;
+		extern template class UtfGeneralDecoder<char16_t, char16be_t>;
+		extern template class UtfGeneralDecoder<char16_t, char32_t>;
+
+		extern template class UtfGeneralDecoder<char16be_t, wchar_t>;
+		extern template class UtfGeneralDecoder<char16be_t, char8_t>;
+		extern template class UtfGeneralDecoder<char16be_t, char16_t>;
+		extern template class UtfGeneralDecoder<char16be_t, char16be_t>;
+		extern template class UtfGeneralDecoder<char16be_t, char32_t>;
+
+		extern template class UtfGeneralDecoder<char32_t, wchar_t>;
+		extern template class UtfGeneralDecoder<char32_t, char8_t>;
+		extern template class UtfGeneralDecoder<char32_t, char16_t>;
+		extern template class UtfGeneralDecoder<char32_t, char16be_t>;
+		extern template class UtfGeneralDecoder<char32_t, char32_t>;
 	}
 }
 
@@ -1666,49 +1752,36 @@ Utf-8
 ***********************************************************************/
 		
 		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf8Encoder : public UtfGeneralEncoder<char8_t> {};
-		
+		class Utf8Encoder : public UtfGeneralEncoder<char8_t, wchar_t> {};
 		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf8Decoder : public UtfGeneralDecoder<char8_t> {};
+		class Utf8Decoder : public UtfGeneralDecoder<char8_t, wchar_t> {};
+
+/***********************************************************************
+Utf-16
+***********************************************************************/
+		
+		/// <summary>Encoder to write UTF-16 text.</summary>
+		class Utf16Encoder : public UtfGeneralEncoder<char16_t, wchar_t> {};
+		/// <summary>Decoder to read UTF-16 text.</summary>
+		class Utf16Decoder : public UtfGeneralDecoder<char16_t, wchar_t> {};
 
 /***********************************************************************
 Utf-16BE
 ***********************************************************************/
 
 		/// <summary>Encoder to write big endian UTF-16 to.</summary>
-		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t> {};
+		class Utf16BEEncoder : public UtfGeneralEncoder<char16be_t, wchar_t> {};
 		/// <summary>Decoder to read big endian UTF-16 text.</summary>
-		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t> {};
+		class Utf16BEDecoder : public UtfGeneralDecoder<char16be_t, wchar_t> {};
 
 /***********************************************************************
-Utf-16 / Utf-32
+Utf-32
 ***********************************************************************/
 
-#if defined VCZH_WCHAR_UTF16
-		
-		/// <summary>Encoder to write UTF-16 text.</summary>
-		class Utf16Encoder : public UtfGeneralEncoder<wchar_t> {};
-		/// <summary>Decoder to read UTF-16 text.</summary>
-		class Utf16Decoder : public UtfGeneralDecoder<wchar_t> {};
-		
 		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf32Encoder : public UtfGeneralEncoder<char32_t> {};
+		class Utf32Encoder : public UtfGeneralEncoder<char32_t, wchar_t> {};
 		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf32Decoder : public UtfGeneralDecoder<char32_t> {};
-
-#elif defined VCZH_WCHAR_UTF32
-		
-		/// <summary>Encoder to write UTF-16 text.</summary>
-		class Utf16Encoder : public UtfGeneralEncoder<char16_t> {};
-		/// <summary>Decoder to read UTF-16 text.</summary>
-		class Utf16Decoder : public UtfGeneralDecoder<char16_t> {};
-
-		/// <summary>Encoder to write UTF-8 text.</summary>
-		class Utf32Encoder : public UtfGeneralEncoder<wchar_t> {};
-		/// <summary>Decoder to read UTF-8 text.</summary>
-		class Utf32Decoder : public UtfGeneralDecoder<wchar_t> {};
-
-#endif
+		class Utf32Decoder : public UtfGeneralDecoder<char32_t, wchar_t> {};
 
 /***********************************************************************
 Encoding Test
