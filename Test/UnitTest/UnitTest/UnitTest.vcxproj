@@ -200,14 +200,6 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp" />
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.cpp" />
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\MemoryStream.cpp" />

@@ -132,15 +132,6 @@
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_Bom.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.cpp">
-      <Filter>Common\Encoding\CharFormat</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Linux.cpp">
-      <Filter>Common\Encoding\CharFormat</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat_TestEncoding.Windows.cpp">
-      <Filter>Common\Encoding\CharFormat</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\LzwEncoding.cpp">
       <Filter>Common\Encoding</Filter>
     </ClCompile>
