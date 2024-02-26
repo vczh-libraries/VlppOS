@@ -388,5 +388,34 @@ StreamWriter
 		{
 			stream->Write((void*)string, charCount*sizeof(*string));
 		}
+
+/***********************************************************************
+Extern Templates
+***********************************************************************/
+
+		extern template class TextReader_<wchar_t>;
+		extern template class TextReader_<char8_t>;
+		extern template class TextReader_<char16_t>;
+		extern template class TextReader_<char32_t>;
+
+		extern template class TextWriter_<wchar_t>;
+		extern template class TextWriter_<char8_t>;
+		extern template class TextWriter_<char16_t>;
+		extern template class TextWriter_<char32_t>;
+
+		extern template class StringReader_<wchar_t>;
+		extern template class StringReader_<char8_t>;
+		extern template class StringReader_<char16_t>;
+		extern template class StringReader_<char32_t>;
+
+		extern template class StreamReader_<wchar_t>;
+		extern template class StreamReader_<char8_t>;
+		extern template class StreamReader_<char16_t>;
+		extern template class StreamReader_<char32_t>;
+
+		extern template class StreamWriter_<wchar_t>;
+		extern template class StreamWriter_<char8_t>;
+		extern template class StreamWriter_<char16_t>;
+		extern template class StreamWriter_<char32_t>;
 	}
 }
