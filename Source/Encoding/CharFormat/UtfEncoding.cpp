@@ -15,8 +15,8 @@ namespace vl
 UtfGeneralEncoder
 ***********************************************************************/
 
-		template<typename T>
-		vint UtfGeneralEncoder<T>::Write(void* _buffer, vint _size)
+		template<typename TNative, typename TExpect>
+		vint UtfGeneralEncoder<TNative, TExpect>::Write(void* _buffer, vint _size)
 		{
 			// prepare a buffer for input
 			vint availableChars = (cacheSize + _size) / sizeof(wchar_t);
@@ -73,15 +73,15 @@ UtfGeneralEncoder
 UtfGeneralDecoder
 ***********************************************************************/
 
-		template<typename T>
-		void UtfGeneralDecoder<T>::Setup(IStream* _stream)
+		template<typename TNative, typename TExpect>
+		void UtfGeneralDecoder<TNative, TExpect>::Setup(IStream* _stream)
 		{
 			CharDecoderBase::Setup(_stream);
 			reader.Setup(_stream);
 		}
 
-		template<typename T>
-		vint UtfGeneralDecoder<T>::Read(void* _buffer, vint _size)
+		template<typename TNative, typename TExpect>
+		vint UtfGeneralDecoder<TNative, TExpect>::Read(void* _buffer, vint _size)
 		{
 			vuint8_t* writing = (vuint8_t*)_buffer;
 			vint filledBytes = 0;
@@ -142,19 +142,21 @@ UtfGeneralDecoder
 		}
 
 /***********************************************************************
-UtfGeneralEncoder<wchar_t>
+UtfGeneralEncoder<T, T>
 ***********************************************************************/
 
-		vint UtfGeneralEncoder<wchar_t>::Write(void* _buffer, vint _size)
+		template<typename T>
+		vint UtfGeneralEncoder<T, T>::Write(void* _buffer, vint _size)
 		{
 			return stream->Write(_buffer, _size);
 		}
 
 /***********************************************************************
-UtfGeneralDecoder<wchar_t>
+UtfGeneralDecoder<T, T>
 ***********************************************************************/
 
-		vint UtfGeneralDecoder<wchar_t>::Read(void* _buffer, vint _size)
+		template<typename T>
+		vint UtfGeneralDecoder<T, T>::Read(void* _buffer, vint _size)
 		{
 			return stream->Read(_buffer, _size);
 		}
@@ -163,14 +165,64 @@ UtfGeneralDecoder<wchar_t>
 Unicode General (extern templates)
 ***********************************************************************/
 
-		template class UtfGeneralEncoder<char8_t>;
-		template class UtfGeneralEncoder<char16_t>;
-		template class UtfGeneralEncoder<char16be_t>;
-		template class UtfGeneralEncoder<char32_t>;
+		template class UtfGeneralEncoder<wchar_t, wchar_t>;
+		template class UtfGeneralEncoder<wchar_t, char8_t>;
+		template class UtfGeneralEncoder<wchar_t, char16_t>;
+		template class UtfGeneralEncoder<wchar_t, char16be_t>;
+		template class UtfGeneralEncoder<wchar_t, char32_t>;
 
-		template class UtfGeneralDecoder<char8_t>;
-		template class UtfGeneralDecoder<char16_t>;
-		template class UtfGeneralDecoder<char16be_t>;
-		template class UtfGeneralDecoder<char32_t>;
+		template class UtfGeneralEncoder<char8_t, wchar_t>;
+		template class UtfGeneralEncoder<char8_t, char8_t>;
+		template class UtfGeneralEncoder<char8_t, char16_t>;
+		template class UtfGeneralEncoder<char8_t, char16be_t>;
+		template class UtfGeneralEncoder<char8_t, char32_t>;
+
+		template class UtfGeneralEncoder<char16_t, wchar_t>;
+		template class UtfGeneralEncoder<char16_t, char8_t>;
+		template class UtfGeneralEncoder<char16_t, char16_t>;
+		template class UtfGeneralEncoder<char16_t, char16be_t>;
+		template class UtfGeneralEncoder<char16_t, char32_t>;
+
+		template class UtfGeneralEncoder<char16be_t, wchar_t>;
+		template class UtfGeneralEncoder<char16be_t, char8_t>;
+		template class UtfGeneralEncoder<char16be_t, char16_t>;
+		template class UtfGeneralEncoder<char16be_t, char16be_t>;
+		template class UtfGeneralEncoder<char16be_t, char32_t>;
+
+		template class UtfGeneralEncoder<char32_t, wchar_t>;
+		template class UtfGeneralEncoder<char32_t, char8_t>;
+		template class UtfGeneralEncoder<char32_t, char16_t>;
+		template class UtfGeneralEncoder<char32_t, char16be_t>;
+		template class UtfGeneralEncoder<char32_t, char32_t>;
+
+		template class UtfGeneralDecoder<wchar_t, wchar_t>;
+		template class UtfGeneralDecoder<wchar_t, char8_t>;
+		template class UtfGeneralDecoder<wchar_t, char16_t>;
+		template class UtfGeneralDecoder<wchar_t, char16be_t>;
+		template class UtfGeneralDecoder<wchar_t, char32_t>;
+
+		template class UtfGeneralDecoder<char8_t, wchar_t>;
+		template class UtfGeneralDecoder<char8_t, char8_t>;
+		template class UtfGeneralDecoder<char8_t, char16_t>;
+		template class UtfGeneralDecoder<char8_t, char16be_t>;
+		template class UtfGeneralDecoder<char8_t, char32_t>;
+
+		template class UtfGeneralDecoder<char16_t, wchar_t>;
+		template class UtfGeneralDecoder<char16_t, char8_t>;
+		template class UtfGeneralDecoder<char16_t, char16_t>;
+		template class UtfGeneralDecoder<char16_t, char16be_t>;
+		template class UtfGeneralDecoder<char16_t, char32_t>;
+
+		template class UtfGeneralDecoder<char16be_t, wchar_t>;
+		template class UtfGeneralDecoder<char16be_t, char8_t>;
+		template class UtfGeneralDecoder<char16be_t, char16_t>;
+		template class UtfGeneralDecoder<char16be_t, char16be_t>;
+		template class UtfGeneralDecoder<char16be_t, char32_t>;
+
+		template class UtfGeneralDecoder<char32_t, wchar_t>;
+		template class UtfGeneralDecoder<char32_t, char8_t>;
+		template class UtfGeneralDecoder<char32_t, char16_t>;
+		template class UtfGeneralDecoder<char32_t, char16be_t>;
+		template class UtfGeneralDecoder<char32_t, char32_t>;
 	}
 }

@@ -10,6 +10,5 @@
 - Base64 read/write from text reader/writer.
   - Implement Base64 encoding as any string types <-> binary.
 - Refactor `ITextReader/Writer` to accept all string types.
-- Refactor encoders/decoders to convert between all string types.
 
 ## Optional
