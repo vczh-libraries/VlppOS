@@ -32,16 +32,17 @@ Utf8Base64Encoder
 Utf8Base64Decoder
 ***********************************************************************/
 
-		class Utf8Base64EDecoder : public DecoderBase
+		class Utf8Base64Decoder : public DecoderBase
 		{
 		protected:
 			uint8_t					cache[3];
 			vint					cacheSize = 0;
 
 			vint					ReadBytes(char8_t(&fromChars)[4], uint8_t* toBytes);
+			vint					ReadCycle(uint8_t*& writing, vint& _size);
+			void					ReadCache(uint8_t*& writing, vint& _size);
 		public:
 			vint					Read(void* _buffer, vint _size) override;
-			void					Close() override;
 		};
 	}
 }

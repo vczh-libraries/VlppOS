@@ -34,19 +34,60 @@ Utf8Base64Encoder
 Utf8Base64EDecoder
 ***********************************************************************/
 
-		vint Utf8Base64EDecoder::ReadBytes(char8_t(&fromChars)[4], uint8_t* toBytes)
+		vint Utf8Base64Decoder::ReadBytes(char8_t(&fromChars)[4], uint8_t* toBytes)
 		{
 			CHECK_FAIL(L"Not Implemented!");
 		}
 
-		vint Utf8Base64EDecoder::Read(void* _buffer, vint _size)
+		vint Utf8Base64Decoder::ReadCycle(uint8_t*& writing, vint& _size)
 		{
-			CHECK_FAIL(L"Not Implemented!");
+			char8_t chars[4];
+			vint readChars = stream->Read((void*)chars, 4);
+			if (readChars == 0) return 0;
+			CHECK_ERROR(readChars == 4, L"vl::stream::Utf8Base64EDecoder::ReadCycle(uint8_t*&, vint&)#The underlying stream failed to provide enough base64 characters.");
+
+			vint readBytes = ReadBytes(chars, writing);
+			writing += readBytes;
+			_size -= readBytes;
+			return readBytes;
 		}
 
-		void Utf8Base64EDecoder::Close()
+		void Utf8Base64Decoder::ReadCache(uint8_t*& writing, vint& _size)
 		{
-			CHECK_FAIL(L"Not Implemented!");
+			if (cacheSize > 0)
+			{
+				vint copiedBytes = cacheSize;
+				if (copiedBytes > _size) copiedBytes = _size;
+				memcpy(writing, cache, copiedBytes);
+				writing += copiedBytes;
+				_size -= copiedBytes;
+				cacheSize -= copiedBytes;
+			}
+		}
+
+		vint Utf8Base64Decoder::Read(void* _buffer, vint _size)
+		{
+			uint8_t* writing = (uint8_t*)_buffer;
+
+			// write cache to buffer if any
+			ReadCache(writing, _size);
+
+			// run Base64 decoding
+			while (_size >= 3)
+			{
+				if (ReadCycle(writing, _size) == 0) goto FINISHED_READING;
+			}
+
+			// run the last Base64 decoding cycle and write a prefix to buffer
+			if (_size > 0)
+			{
+				uint8_t* cacheWriting = cache;
+				vint temp = 0;
+				if ((cacheSize = ReadCycle(cacheWriting, temp)) == 0) goto FINISHED_READING;
+				ReadCache(writing, _size);
+			}
+		FINISHED_READING:
+			return writing - (uint8_t*)_buffer;
 		}
 	}
 }
