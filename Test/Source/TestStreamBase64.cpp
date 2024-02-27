@@ -11,37 +11,28 @@ namespace TestStreamBase64_TestObjects
 	template<size_t Bytes, size_t Chars>
 	void TestBase64OnBytes(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
 	{
+		MemoryStream memoryStream;
 		{
-			MemoryStream memoryStream;
-			{
-				Utf8Base64Encoder encoder;
-				EncoderStream encoderStream(memoryStream, encoder);
-				vint written = encoderStream.Write((void*)bytes, Bytes);
-				TEST_ASSERT(written == Bytes);
-			}
-			memoryStream.SeekFromBegin(0);
-			{
-				StreamReader_<char8_t> reader(memoryStream);
-				auto base64 = reader.ReadToEnd();
-				TEST_ASSERT(base64 == chars);
-			}
+			Utf8Base64Encoder encoder;
+			EncoderStream encoderStream(memoryStream, encoder);
+			vint written = encoderStream.Write((void*)bytes, Bytes);
+			TEST_ASSERT(written == Bytes);
 		}
+		memoryStream.SeekFromBegin(0);
 		{
-			MemoryStream memoryStream;
-			{
-				Utf8Base64Decoder decoder;
-				DecoderStream decoderStream(memoryStream, decoder);
-				StreamWriter_<char8_t> writer(decoderStream);
-				writer.WriteString(chars);
-			}
-			memoryStream.SeekFromBegin(0);
-			TEST_ASSERT(memoryStream.Size() == Bytes);
-			{
-				uint8_t buffer[Bytes];
-				vint read = memoryStream.Read(buffer, Bytes);
-				TEST_ASSERT(read == Bytes);
-				TEST_ASSERT(memcmp(buffer, bytes, Bytes) == 0);
-			}
+			StreamReader_<char8_t> reader(memoryStream);
+			auto base64 = reader.ReadToEnd();
+			TEST_ASSERT(base64 == chars);
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			Utf8Base64Decoder decoder;
+			DecoderStream decoderStream(memoryStream, decoder);
+			uint8_t buffer[Bytes];
+			vint read = decoderStream.Read(buffer, Bytes);
+			TEST_ASSERT(read == Bytes);
+			TEST_ASSERT(memcmp(buffer, bytes, Bytes) == 0);
+			TEST_ASSERT(decoderStream.Read(buffer, 1) == 0);
 		}
 	}
 
