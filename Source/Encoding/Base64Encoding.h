@@ -18,8 +18,14 @@ Utf8Base64Encoder
 
 		class Utf8Base64Encoder : public EncoderBase
 		{
+		protected:
+			uint8_t					cache[3];
+			vint					cacheSize = 0;
+
+			void					WriteBytes(uint8_t* fromBytes, char8_t(&toChars)[4], vint bytes);
 		public:
 			vint					Write(void* _buffer, vint _size) override;
+			void					Close() override;
 		};
 
 /***********************************************************************
@@ -28,8 +34,14 @@ Utf8Base64Decoder
 
 		class Utf8Base64EDecoder : public DecoderBase
 		{
+		protected:
+			uint8_t					cache[3];
+			vint					cacheSize = 0;
+
+			vint					ReadBytes(char8_t(&fromChars)[4], uint8_t* toBytes);
 		public:
 			vint					Read(void* _buffer, vint _size) override;
+			void					Close() override;
 		};
 	}
 }
