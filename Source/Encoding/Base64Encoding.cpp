@@ -3,36 +3,28 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#include "CharEncodingBase.h"
+#include "Base64Encoding.h"
 
 namespace vl
 {
 	namespace stream
 	{
 /***********************************************************************
-CharEncoderBase
+Utf8Base64Encoder
 ***********************************************************************/
 
-		void CharEncoderBase::Setup(IStream* _stream)
+		vint Utf8Base64Encoder::Write(void* _buffer, vint _size)
 		{
-			stream = _stream;
-		}
-
-		void CharEncoderBase::Close()
-		{
+			CHECK_FAIL(L"Not Implemented!");
 		}
 
 /***********************************************************************
-CharDecoderBase
+Utf8Base64EDecoder
 ***********************************************************************/
 
-		void CharDecoderBase::Setup(IStream* _stream)
+		vint Utf8Base64EDecoder::Read(void* _buffer, vint _size)
 		{
-			stream = _stream;
-		}
-
-		void CharDecoderBase::Close()
-		{
+			CHECK_FAIL(L"Not Implemented!");
 		}
 	}
 }

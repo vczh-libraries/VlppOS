@@ -153,11 +153,6 @@ LzwEncoder
 		{
 		}
 
-		void LzwEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
 		void LzwEncoder::Close()
 		{
 			if (prefix != root)
@@ -173,6 +168,7 @@ LzwEncoder
 				WriteNumber(eofIndex, indexBits);
 			}
 			Flush();
+			EncoderBase::Close();
 		}
 
 		vint LzwEncoder::Write(void* _buffer, vint _size)
@@ -295,15 +291,6 @@ LzwDecoder
 		}
 
 		LzwDecoder::~LzwDecoder()
-		{
-		}
-
-		void LzwDecoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void LzwDecoder::Close()
 		{
 		}
 

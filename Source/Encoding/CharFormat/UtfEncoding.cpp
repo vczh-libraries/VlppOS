@@ -69,7 +69,7 @@ UtfGeneralDecoder
 		template<typename TNative, typename TExpect>
 		void UtfGeneralDecoder<TNative, TExpect>::Setup(IStream* _stream)
 		{
-			CharDecoderBase::Setup(_stream);
+			DecoderBase::Setup(_stream);
 			reader.Setup(_stream);
 		}
 

@@ -6,7 +6,7 @@ Licensed under https://github.com/vczh-libraries/License
 #ifndef VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
 #define VCZH_STREAM_ENCODING_CHARFORMAT_UTFENCODING
 
-#include "CharEncodingBase.h"
+#include "../Encoding.h"
 
 namespace vl
 {
@@ -89,7 +89,7 @@ Unicode General
 		};
 
 		template<typename TNative, typename TExpect>
-		class UtfGeneralEncoder : public CharEncoderBase
+		class UtfGeneralEncoder : public EncoderBase
 		{
 			using TStringRangeReader = encoding::UtfStringRangeToStringRangeReader<TExpect, TNative>;
 		protected:
@@ -102,7 +102,7 @@ Unicode General
 		};
 
 		template<typename TNative, typename TExpect>
-		class UtfGeneralDecoder : public CharDecoderBase
+		class UtfGeneralDecoder : public DecoderBase
 		{
 			using TStreamReader = UtfStreamToStreamReader<TNative, TExpect>;
 		protected:
@@ -121,14 +121,14 @@ Unicode General (without conversion)
 ***********************************************************************/
 
 		template<typename T>
-		class UtfGeneralEncoder<T, T> : public CharEncoderBase
+		class UtfGeneralEncoder<T, T> : public EncoderBase
 		{
 		public:
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
 		template<typename T>
-		class UtfGeneralDecoder<T, T> : public CharDecoderBase
+		class UtfGeneralDecoder<T, T> : public DecoderBase
 		{
 		public:
 			vint							Read(void* _buffer, vint _size) override;

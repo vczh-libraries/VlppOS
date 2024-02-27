@@ -3,8 +3,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_ENCODING
-#define VCZH_STREAM_ENCODING
+#ifndef VCZH_STREAM_ENCODING_ENCODING
+#define VCZH_STREAM_ENCODING_ENCODING
 
 #include "../Stream/Interfaces.h"
 
@@ -12,6 +12,10 @@ namespace vl
 {
 	namespace stream
 	{
+/***********************************************************************
+IEncoder and IDecoder
+***********************************************************************/
+
 		/// <summary>Encoder interface. This interface defines a writable transformation from one stream to another stream. You can create a [T:vl.stream.EncoderStream] after you have an encoder.</summary>
 		class IEncoder : public Interface
 		{
@@ -52,6 +56,34 @@ namespace vl
 			/// <param name="_buffer">A buffer to store the content.</param>
 			/// <param name="_size">The expected size of the content in bytes in "_buffer" to receive.</param>
 			virtual vint					Read(void* _buffer, vint _size)=0;
+		};
+
+/***********************************************************************
+EncoderBase and DecoderBase
+***********************************************************************/
+
+		/// <summary>Basic implementation of IEncoder.</summary>
+		class EncoderBase : public Object, public IEncoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+		};
+		
+		/// <summary>Basic implementation of IDecoder.</summary>
+		class DecoderBase : public Object, public IDecoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
 		};
 	}
 }

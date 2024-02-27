@@ -108,7 +108,7 @@ Text Related
 		/// <typeparam name="T">The character type.</typeparam>
 		/// <remarks>
 		/// To specify the encoding in the input stream,
-		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="CharDecoder"/>,
+		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="UtfGeneralDecoder"/> implementation,
 		/// like <see cref="BomDecoder"/>, <see cref="MbcsDecoder"/>, <see cref="Utf16Decoder"/>, <see cref="Utf16BEDecoder"/> or <see cref="Utf8Decoder"/>.
 		/// </remarks>
 		/// <example output="false"><![CDATA[
@@ -141,7 +141,7 @@ Text Related
 		/// <typeparam name="T">The character type.</typeparam>
 		/// <remarks>
 		/// To specify the encoding in the input stream,
-		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="CharEncoder"/>,
+		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="UtfGeneralEncoder"/> implementation,
 		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEncoder"/> or <see cref="Utf8Encoder"/>.
 		/// </remarks>
 		/// <example output="false"><![CDATA[

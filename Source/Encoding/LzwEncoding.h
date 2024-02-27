@@ -3,8 +3,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_COMPRESSIONSTREAM
-#define VCZH_STREAM_COMPRESSIONSTREAM
+#ifndef VCZH_STREAM_ENCODING_LZWENCODING
+#define VCZH_STREAM_ENCODING_LZWENCODING
 
 #include "Encoding.h"
 
@@ -58,11 +58,9 @@ Compression
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
 		/// </remarks>
-		class LzwEncoder : public LzwBase, public IEncoder
+		class LzwEncoder : public LzwBase, public EncoderBase
 		{
 		protected:
-			IStream*								stream = 0;
-
 			vuint8_t								buffer[lzw::BufferSize];
 			vint									bufferUsedBits = 0;
 			lzw::Code*								prefix;
@@ -84,7 +82,6 @@ Compression
 			LzwEncoder(bool (&existingBytes)[256]);
 			~LzwEncoder();
 
-			void									Setup(IStream* _stream)override;
 			void									Close()override;
 			vint									Write(void* _buffer, vint _size)override;
 		};
@@ -94,10 +91,9 @@ Compression
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
 		/// </remarks>
-		class LzwDecoder :public LzwBase, public IDecoder
+		class LzwDecoder :public LzwBase, public DecoderBase
 		{
 		protected:
-			IStream*								stream = 0;
 			collections::List<lzw::Code*>			dictionary;
 			lzw::Code*								lastCode = 0;
 
@@ -127,8 +123,6 @@ Compression
 			LzwDecoder(bool (&existingBytes)[256]);
 			~LzwDecoder();
 
-			void									Setup(IStream* _stream)override;
-			void									Close()override;
 			vint									Read(void* _buffer, vint _size)override;
 		};
 

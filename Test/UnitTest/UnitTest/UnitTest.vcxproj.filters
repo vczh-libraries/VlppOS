@@ -144,8 +144,11 @@
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\UtfEncoding.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharEncodingBase.cpp">
-      <Filter>Common\Encoding\CharFormat</Filter>
+    <ClCompile Include="..\..\..\Source\Encoding\Base64Encoding.cpp">
+      <Filter>Common\Encoding</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\Encoding.cpp">
+      <Filter>Common\Encoding</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -212,8 +215,8 @@
     <ClInclude Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.h">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharEncodingBase.h">
-      <Filter>Common\Encoding\CharFormat</Filter>
+    <ClInclude Include="..\..\..\Source\Encoding\Base64Encoding.h">
+      <Filter>Common\Encoding</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
