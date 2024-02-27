@@ -1557,30 +1557,35 @@ UtfStreamConsumer<T>
 			}
 		};
 
+		template<typename T>
+		class UtfStreamConsumerApiRedirection : public Object
+		{
+		private:
+			T&						internalConsumer;
+
+		public:
+			UtfStreamConsumerApiRedirection(T& _internalConsumer)
+				: internalConsumer(_internalConsumer)
+			{
+			}
+
+			void Setup(IStream* _stream)
+			{
+				internalConsumer.Setup(_stream);
+			}
+
+			encoding::UtfCharCluster SourceCluster() const
+			{
+				return internalConsumer.SourceCluster();
+			}
+		};
+
 /***********************************************************************
 UtfStreamToStreamReader<TFrom, TTo>
 ***********************************************************************/
 
 		template<typename TFrom, typename TTo>
-		class UtfStreamToStreamReader : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
-		{
-		public:
-			void Setup(IStream* _stream)
-			{
-				this->internalReader.Setup(_stream);
-			}
-
-			encoding::UtfCharCluster SourceCluster() const
-			{
-				return this->internalReader.SourceCluster();
-			}
-		};
-
-		template<typename TFrom, typename TTo>
-			requires(std::is_same_v<TFrom, char32_t> || std::is_same_v<TTo, char32_t>)
-		class UtfStreamToStreamReader<TFrom, TTo> : public encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>>
-		{
-		};
+		using UtfStreamToStreamReader = encoding::UtfToUtfReaderBase<TFrom, TTo, UtfStreamConsumer<TFrom>, UtfStreamConsumerApiRedirection>;
 
 /***********************************************************************
 Unicode General

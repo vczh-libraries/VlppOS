@@ -1743,11 +1743,6 @@ UtfGeneralEncoder
 						CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
 					}
 				}
-				if (reader.HasIllegalChar())
-				{
-					Close();
-					CHECK_FAIL(L"UtfGeneralEncoder<T>::Write(void*, vint)#Failed to write a complete string.");
-				}
 				availableChars = reader.SourceCluster().index;
 				availableBytes = availableChars * sizeof(TExpect);
 			}
