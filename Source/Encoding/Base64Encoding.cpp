@@ -22,7 +22,7 @@ Utf8Base64Encoder
 			case 1:
 				{
 					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
-					toChars[1] = Utf8Base64Codes[fromBytes[0] % (1 << 2)];
+					toChars[1] = Utf8Base64Codes[(fromBytes[0] % (1 << 2)) << 4];
 					toChars[2] = u8'=';
 					toChars[3] = u8'=';
 				}
@@ -78,7 +78,7 @@ Utf8Base64Encoder
 				}
 			}
 
-			if (cacheSize < Base64CycleBytes) return false;
+			if (cacheSize == 0) return _size > 0;
 			uint8_t* cacheReading = cache;
 			return WriteCycle(cacheReading, cacheSize);
 		}
@@ -132,9 +132,9 @@ Utf8Base64Decoder
 				else if (u8'0' <= c && c <= u8'9') nums[i] = c - u8'0' + 52;
 				else switch (c)
 				{
-				case '+':nums[i] = 62;
-				case '/':nums[i] = 63;
-				case '=':nums[i] = 0;
+				case '+':nums[i] = 62; break;
+				case '/':nums[i] = 63; break;
+				case '=':nums[i] = 0; break;
 				default:
 					CHECK_FAIL(L"vl::stream::Utf8Base64Decoder::ReadBytesFromCharArray(char(&)[Base64CycleChars], uint8_t*)#Illegal Base64 character.");
 				}
