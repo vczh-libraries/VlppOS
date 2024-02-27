@@ -30,7 +30,7 @@ Utf8Base64Encoder
 			case 2:
 				{
 					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
-					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) + (fromBytes[1] >> 4)];
+					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) | (fromBytes[1] >> 4)];
 					toChars[2] = Utf8Base64Codes[fromBytes[1] % (1 << 4)];
 					toChars[3] = u8'=';
 				}
@@ -38,8 +38,8 @@ Utf8Base64Encoder
 			case 3:
 				{
 					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
-					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) + (fromBytes[1] >> 4)];
-					toChars[2] = Utf8Base64Codes[((fromBytes[1] % (1 << 4)) << 2) + (fromBytes[2] >> 6)];
+					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) | (fromBytes[1] >> 4)];
+					toChars[2] = Utf8Base64Codes[((fromBytes[1] % (1 << 4)) << 2) | (fromBytes[2] >> 6)];
 					toChars[3] = Utf8Base64Codes[fromBytes[2] % (1 << 6)];
 				}
 				break;
@@ -123,7 +123,29 @@ Utf8Base64Decoder
 
 		vint Utf8Base64Decoder::ReadBytesFromCharArray(char8_t(&fromChars)[Base64CycleChars], uint8_t* toBytes)
 		{
-			CHECK_FAIL(L"Not Implemented!");
+			uint8_t nums[Base64CycleChars];
+			for (vint i = 0; i < Base64CycleChars; i++)
+			{
+				char8_t c = fromChars[i];
+				if (u8'A' <= c && c <= u8'Z') nums[i] = c - u8'A';
+				else if (u8'a' <= c && c <= u8'z') nums[i] = c - u8'z' + 26;
+				else if (u8'0' <= c && c <= u8'9') nums[i] = c - u8'0' + 52;
+				else switch (c)
+				{
+				case '+':nums[i] = 62;
+				case '/':nums[i] = 63;
+				case '=':nums[i] = 0;
+				default:
+					CHECK_FAIL(L"vl::stream::Utf8Base64Decoder::ReadBytesFromCharArray(char(&)[Base64CycleChars], uint8_t*)#Illegal Base64 character.");
+				}
+			}
+
+			toBytes[0] = (nums[0] << 2) | (nums[1] >> 4);
+			if (fromChars[2] != u8'=') return 1;
+			toBytes[1] = ((nums[1] % (1 << 2)) << 4) | (nums[2] >> 4);
+			if (fromChars[3] == u8'=') return 2;
+			toBytes[2] = ((nums[2] % (1 << 4)) << 2) | nums[3];
+			return 3;
 		}
 
 		vint Utf8Base64Decoder::ReadCycle(uint8_t*& writing, vint& _size)
