@@ -592,6 +592,82 @@ ThreadLocalStorage
 
 
 /***********************************************************************
+.\ENCODING\BASE64ENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+Utf8Base64Encoder
+***********************************************************************/
+
+		vint Utf8Base64Encoder::Write(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"Not Implemented!");
+		}
+
+/***********************************************************************
+Utf8Base64EDecoder
+***********************************************************************/
+
+		vint Utf8Base64EDecoder::Read(void* _buffer, vint _size)
+		{
+			CHECK_FAIL(L"Not Implemented!");
+		}
+	}
+}
+
+
+/***********************************************************************
+.\ENCODING\ENCODING.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+EncoderBase
+***********************************************************************/
+
+		void EncoderBase::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void EncoderBase::Close()
+		{
+		}
+
+/***********************************************************************
+DecoderBase
+***********************************************************************/
+
+		void DecoderBase::Setup(IStream* _stream)
+		{
+			stream = _stream;
+		}
+
+		void DecoderBase::Close()
+		{
+		}
+	}
+}
+
+
+/***********************************************************************
 .\ENCODING\LZWENCODING.CPP
 ***********************************************************************/
 /***********************************************************************
@@ -745,11 +821,6 @@ LzwEncoder
 		{
 		}
 
-		void LzwEncoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
 		void LzwEncoder::Close()
 		{
 			if (prefix != root)
@@ -765,6 +836,7 @@ LzwEncoder
 				WriteNumber(eofIndex, indexBits);
 			}
 			Flush();
+			EncoderBase::Close();
 		}
 
 		vint LzwEncoder::Write(void* _buffer, vint _size)
@@ -887,15 +959,6 @@ LzwDecoder
 		}
 
 		LzwDecoder::~LzwDecoder()
-		{
-		}
-
-		void LzwDecoder::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void LzwDecoder::Close()
 		{
 		}
 
@@ -1268,48 +1331,6 @@ BomDecoder
 		vint BomDecoder::Read(void* _buffer, vint _size)
 		{
 			return decoder->Read(_buffer, _size);
-		}
-	}
-}
-
-
-/***********************************************************************
-.\ENCODING\CHARFORMAT\CHARENCODINGBASE.CPP
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-
-namespace vl
-{
-	namespace stream
-	{
-/***********************************************************************
-CharEncoderBase
-***********************************************************************/
-
-		void CharEncoderBase::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void CharEncoderBase::Close()
-		{
-		}
-
-/***********************************************************************
-CharDecoderBase
-***********************************************************************/
-
-		void CharDecoderBase::Setup(IStream* _stream)
-		{
-			stream = _stream;
-		}
-
-		void CharDecoderBase::Close()
-		{
 		}
 	}
 }
@@ -1766,7 +1787,7 @@ UtfGeneralDecoder
 		template<typename TNative, typename TExpect>
 		void UtfGeneralDecoder<TNative, TExpect>::Setup(IStream* _stream)
 		{
-			CharDecoderBase::Setup(_stream);
+			DecoderBase::Setup(_stream);
 			reader.Setup(_stream);
 		}
 

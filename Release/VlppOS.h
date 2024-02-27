@@ -1254,14 +1254,18 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_ENCODING
-#define VCZH_STREAM_ENCODING
+#ifndef VCZH_STREAM_ENCODING_ENCODING
+#define VCZH_STREAM_ENCODING_ENCODING
 
 
 namespace vl
 {
 	namespace stream
 	{
+/***********************************************************************
+IEncoder and IDecoder
+***********************************************************************/
+
 		/// <summary>Encoder interface. This interface defines a writable transformation from one stream to another stream. You can create a [T:vl.stream.EncoderStream] after you have an encoder.</summary>
 		class IEncoder : public Interface
 		{
@@ -1303,10 +1307,79 @@ namespace vl
 			/// <param name="_size">The expected size of the content in bytes in "_buffer" to receive.</param>
 			virtual vint					Read(void* _buffer, vint _size)=0;
 		};
+
+/***********************************************************************
+EncoderBase and DecoderBase
+***********************************************************************/
+
+		/// <summary>Basic implementation of IEncoder.</summary>
+		class EncoderBase : public Object, public IEncoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+		};
+		
+		/// <summary>Basic implementation of IDecoder.</summary>
+		class DecoderBase : public Object, public IDecoder
+		{
+		protected:
+			IStream*						stream = nullptr;
+
+		public:
+
+			void							Setup(IStream* _stream) override;
+			void							Close() override;
+		};
 	}
 }
 
 #endif
+
+/***********************************************************************
+.\ENCODING\BASE64ENCODING.H
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#ifndef VCZH_STREAM_ENCODING_BASE64ENCODING
+#define VCZH_STREAM_ENCODING_BASE64ENCODING
+
+
+namespace vl
+{
+	namespace stream
+	{
+/***********************************************************************
+Utf8Base64Encoder
+***********************************************************************/
+
+		class Utf8Base64Encoder : public EncoderBase
+		{
+		public:
+			vint					Write(void* _buffer, vint _size) override;
+		};
+
+/***********************************************************************
+Utf8Base64Decoder
+***********************************************************************/
+
+		class Utf8Base64EDecoder : public DecoderBase
+		{
+		public:
+			vint					Read(void* _buffer, vint _size) override;
+		};
+	}
+}
+
+#endif
+
 
 /***********************************************************************
 .\ENCODING\CHARFORMAT\BOMENCODING.H
@@ -1408,55 +1481,6 @@ Bom
 
 
 /***********************************************************************
-.\ENCODING\CHARFORMAT\CHARENCODINGBASE.H
-***********************************************************************/
-/***********************************************************************
-Author: Zihan Chen (vczh)
-Licensed under https://github.com/vczh-libraries/License
-***********************************************************************/
-
-#ifndef VCZH_STREAM_ENCODING_CHARFORMAT_CHARENCODINGBASE
-#define VCZH_STREAM_ENCODING_CHARFORMAT_CHARENCODINGBASE
-
-
-namespace vl
-{
-	namespace stream
-	{
-/***********************************************************************
-CharEncoderBase and CharDecoderBase
-***********************************************************************/
-
-		/// <summary>Base type of all character encoder.</summary>
-		class CharEncoderBase : public Object, public IEncoder
-		{
-		protected:
-			IStream*						stream = nullptr;
-
-		public:
-
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
-		};
-		
-		/// <summary>Base type of all character decoder.</summary>
-		class CharDecoderBase : public Object, public IDecoder
-		{
-		protected:
-			IStream*						stream = nullptr;
-
-		public:
-
-			void							Setup(IStream* _stream) override;
-			void							Close() override;
-		};
-	}
-}
-
-#endif
-
-
-/***********************************************************************
 .\ENCODING\CHARFORMAT\MBCSENCODING.H
 ***********************************************************************/
 /***********************************************************************
@@ -1477,7 +1501,7 @@ MbcsEncoder
 ***********************************************************************/
 
 		/// <summary>Encoder to write text in the local code page.</summary>
-		class MbcsEncoder : public CharEncoderBase
+		class MbcsEncoder : public EncoderBase
 		{
 		protected:
 			vuint8_t						cacheBuffer[sizeof(char32_t)];
@@ -1494,7 +1518,7 @@ MbcsDecoder
 ***********************************************************************/
 
 		/// <summary>Decoder to read text in the local code page.</summary>
-		class MbcsDecoder : public CharDecoderBase
+		class MbcsDecoder : public DecoderBase
 		{
 		protected:
 			vuint8_t						cacheBuffer[sizeof(wchar_t)];
@@ -1604,7 +1628,7 @@ Unicode General
 		};
 
 		template<typename TNative, typename TExpect>
-		class UtfGeneralEncoder : public CharEncoderBase
+		class UtfGeneralEncoder : public EncoderBase
 		{
 			using TStringRangeReader = encoding::UtfStringRangeToStringRangeReader<TExpect, TNative>;
 		protected:
@@ -1617,7 +1641,7 @@ Unicode General
 		};
 
 		template<typename TNative, typename TExpect>
-		class UtfGeneralDecoder : public CharDecoderBase
+		class UtfGeneralDecoder : public DecoderBase
 		{
 			using TStreamReader = UtfStreamToStreamReader<TNative, TExpect>;
 		protected:
@@ -1636,14 +1660,14 @@ Unicode General (without conversion)
 ***********************************************************************/
 
 		template<typename T>
-		class UtfGeneralEncoder<T, T> : public CharEncoderBase
+		class UtfGeneralEncoder<T, T> : public EncoderBase
 		{
 		public:
 			vint							Write(void* _buffer, vint _size) override;
 		};
 
 		template<typename T>
-		class UtfGeneralDecoder<T, T> : public CharDecoderBase
+		class UtfGeneralDecoder<T, T> : public DecoderBase
 		{
 		public:
 			vint							Read(void* _buffer, vint _size) override;
@@ -1812,8 +1836,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#ifndef VCZH_STREAM_COMPRESSIONSTREAM
-#define VCZH_STREAM_COMPRESSIONSTREAM
+#ifndef VCZH_STREAM_ENCODING_LZWENCODING
+#define VCZH_STREAM_ENCODING_LZWENCODING
 
 
 namespace vl
@@ -1866,11 +1890,9 @@ Compression
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
 		/// </remarks>
-		class LzwEncoder : public LzwBase, public IEncoder
+		class LzwEncoder : public LzwBase, public EncoderBase
 		{
 		protected:
-			IStream*								stream = 0;
-
 			vuint8_t								buffer[lzw::BufferSize];
 			vint									bufferUsedBits = 0;
 			lzw::Code*								prefix;
@@ -1892,7 +1914,6 @@ Compression
 			LzwEncoder(bool (&existingBytes)[256]);
 			~LzwEncoder();
 
-			void									Setup(IStream* _stream)override;
 			void									Close()override;
 			vint									Write(void* _buffer, vint _size)override;
 		};
@@ -1902,10 +1923,9 @@ Compression
 		/// You are not recommended to compress data more than 1 mega bytes at once using the encoder directly.
 		/// <see cref="CompressStream"/> and <see cref="DecompressStream"/> is recommended.
 		/// </remarks>
-		class LzwDecoder :public LzwBase, public IDecoder
+		class LzwDecoder :public LzwBase, public DecoderBase
 		{
 		protected:
-			IStream*								stream = 0;
 			collections::List<lzw::Code*>			dictionary;
 			lzw::Code*								lastCode = 0;
 
@@ -1935,8 +1955,6 @@ Compression
 			LzwDecoder(bool (&existingBytes)[256]);
 			~LzwDecoder();
 
-			void									Setup(IStream* _stream)override;
-			void									Close()override;
 			vint									Read(void* _buffer, vint _size)override;
 		};
 
@@ -2698,7 +2716,7 @@ Text Related
 		/// <typeparam name="T">The character type.</typeparam>
 		/// <remarks>
 		/// To specify the encoding in the input stream,
-		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="CharDecoder"/>,
+		/// you are recommended to create a <see cref="DecoderStream"/> with a <see cref="UtfGeneralDecoder"/> implementation,
 		/// like <see cref="BomDecoder"/>, <see cref="MbcsDecoder"/>, <see cref="Utf16Decoder"/>, <see cref="Utf16BEDecoder"/> or <see cref="Utf8Decoder"/>.
 		/// </remarks>
 		/// <example output="false"><![CDATA[
@@ -2731,7 +2749,7 @@ Text Related
 		/// <typeparam name="T">The character type.</typeparam>
 		/// <remarks>
 		/// To specify the encoding in the input stream,
-		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="CharEncoder"/>,
+		/// you are recommended to create a <see cref="EncoderStream"/> with a <see cref="UtfGeneralEncoder"/> implementation,
 		/// like <see cref="BomEncoder"/>, <see cref="MbcsEncoder"/>, <see cref="Utf16Encoder"/>, <see cref="Utf16BEEncoder"/> or <see cref="Utf8Encoder"/>.
 		/// </remarks>
 		/// <example output="false"><![CDATA[
