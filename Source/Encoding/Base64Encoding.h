@@ -12,6 +12,9 @@ namespace vl
 {
 	namespace stream
 	{
+		constexpr const vint Base64CycleBytes = 3;
+		constexpr const vint Base64CycleChars = 4;
+
 /***********************************************************************
 Utf8Base64Encoder
 ***********************************************************************/
@@ -19,10 +22,12 @@ Utf8Base64Encoder
 		class Utf8Base64Encoder : public EncoderBase
 		{
 		protected:
-			uint8_t					cache[3];
+			uint8_t					cache[Base64CycleBytes];
 			vint					cacheSize = 0;
 
-			void					WriteBytes(uint8_t* fromBytes, char8_t(&toChars)[4], vint bytes);
+			void					WriteBytes(uint8_t* fromBytes, char8_t(&toChars)[Base64CycleChars], vint bytes);
+			bool					WriteCycle(uint8_t*& reading, vint& _size);
+			bool					WriteCache(uint8_t*& reading, vint& _size);
 		public:
 			vint					Write(void* _buffer, vint _size) override;
 			void					Close() override;
@@ -35,10 +40,10 @@ Utf8Base64Decoder
 		class Utf8Base64Decoder : public DecoderBase
 		{
 		protected:
-			uint8_t					cache[3];
+			uint8_t					cache[Base64CycleBytes];
 			vint					cacheSize = 0;
 
-			vint					ReadBytes(char8_t(&fromChars)[4], uint8_t* toBytes);
+			vint					ReadBytes(char8_t(&fromChars)[Base64CycleChars], uint8_t* toBytes);
 			vint					ReadCycle(uint8_t*& writing, vint& _size);
 			void					ReadCache(uint8_t*& writing, vint& _size);
 		public:
