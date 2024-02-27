@@ -9,7 +9,7 @@ using namespace vl::collections;
 namespace TestStreamBase64_TestObjects
 {
 	template<size_t Bytes, size_t Chars>
-	void TestBase64OnBytes(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
+	void TestBase64OnBytesPerData(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
 	{
 		MemoryStream memoryStream;
 		{
@@ -34,6 +34,50 @@ namespace TestStreamBase64_TestObjects
 			TEST_ASSERT(memcmp(buffer, bytes, Bytes) == 0);
 			TEST_ASSERT(decoderStream.Read(buffer, 1) == 0);
 		}
+	}
+
+	template<size_t Bytes, size_t Chars>
+	void TestBase64OnBytesPerByte(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
+	{
+		MemoryStream memoryStream;
+		{
+			Utf8Base64Encoder encoder;
+			EncoderStream encoderStream(memoryStream, encoder);
+			for (vint i = 0; i < Bytes; i++)
+			{
+				vint written = encoderStream.Write((void*)(bytes + i), 1);
+				TEST_ASSERT(written == 1);
+			}
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			StreamReader_<char8_t> reader(memoryStream);
+			auto base64 = reader.ReadToEnd();
+			TEST_ASSERT(base64 == chars);
+		}
+		memoryStream.SeekFromBegin(0);
+		{
+			Utf8Base64Decoder decoder;
+			DecoderStream decoderStream(memoryStream, decoder);
+			for (vint i = 0; i < Bytes; i++)
+			{
+				uint8_t byte = 0;
+				vint read = decoderStream.Read(&byte, 1);
+				TEST_ASSERT(read == 1);
+				TEST_ASSERT(byte == bytes[i]);
+			}
+			{
+				uint8_t byte;
+				TEST_ASSERT(decoderStream.Read(&byte, 1) == 0);
+			}
+		}
+	}
+
+	template<size_t Bytes, size_t Chars>
+	void TestBase64OnBytes(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
+	{
+		TestBase64OnBytesPerData(bytes, chars);
+		TestBase64OnBytesPerByte(bytes, chars);
 	}
 
 	template<size_t Bytes, size_t Chars>
