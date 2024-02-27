@@ -25,7 +25,7 @@ Utf8Base64Encoder
 			uint8_t					cache[Base64CycleBytes];
 			vint					cacheSize = 0;
 
-			void					WriteBytes(uint8_t* fromBytes, char8_t(&toChars)[Base64CycleChars], vint bytes);
+			void					WriteBytesToCharArray(uint8_t* fromBytes, char8_t(&toChars)[Base64CycleChars], vint bytes);
 			bool					WriteCycle(uint8_t*& reading, vint& _size);
 			bool					WriteCache(uint8_t*& reading, vint& _size);
 		public:
@@ -43,7 +43,7 @@ Utf8Base64Decoder
 			uint8_t					cache[Base64CycleBytes];
 			vint					cacheSize = 0;
 
-			vint					ReadBytes(char8_t(&fromChars)[Base64CycleChars], uint8_t* toBytes);
+			vint					ReadBytesFromCharArray(char8_t(&fromChars)[Base64CycleChars], uint8_t* toBytes);
 			vint					ReadCycle(uint8_t*& writing, vint& _size);
 			void					ReadCache(uint8_t*& writing, vint& _size);
 		public:
