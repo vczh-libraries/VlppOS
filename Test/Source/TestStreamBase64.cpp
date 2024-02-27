@@ -66,4 +66,22 @@ TEST_FILE
 	{
 		TestBase64OnChars(u8"light work.", u8"bGlnaHQgd29yay4=");
 	});
+
+	TEST_CASE(L"0b01010101")
+	{
+		uint8_t bytes[] = { 0b01010101 };
+		TestBase64OnBytes(bytes, u8"VQ==");
+	});
+
+	TEST_CASE(L"0b01010101 0b10101010")
+	{
+		uint8_t bytes[] = { 0b01010101,0b10101010 };
+		TestBase64OnBytes(bytes, u8"Vao=");
+	});
+
+	TEST_CASE(L"0b01010101 0b10101010 0b01011010")
+	{
+		uint8_t bytes[] = { 0b01010101,0b10101010,0b01011010 };
+		TestBase64OnBytes(bytes, u8"Vapa");
+	});
 }
