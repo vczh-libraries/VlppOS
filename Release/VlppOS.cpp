@@ -674,8 +674,12 @@ Utf8Base64Encoder
 			}
 
 			if (cacheSize == 0) return _size > 0;
-			uint8_t* cacheReading = cache;
-			return WriteCycle(cacheReading, cacheSize);
+			if (cacheSize == Base64CycleBytes)
+			{
+				uint8_t* cacheReading = cache;
+				return WriteCycle(cacheReading, cacheSize);
+			}
+			return true;
 		}
 
 		vint Utf8Base64Encoder::Write(void* _buffer, vint _size)
@@ -768,6 +772,10 @@ Utf8Base64Decoder
 					writing += copiedBytes;
 					_size -= copiedBytes;
 					cacheSize -= copiedBytes;
+					if (cacheSize > 0)
+					{
+						memmove(cache, cache + copiedBytes, cacheSize);
+					}
 				}
 			}
 		}
