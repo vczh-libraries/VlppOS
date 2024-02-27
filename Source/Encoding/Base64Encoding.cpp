@@ -31,7 +31,7 @@ Utf8Base64Encoder
 				{
 					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
 					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) | (fromBytes[1] >> 4)];
-					toChars[2] = Utf8Base64Codes[fromBytes[1] % (1 << 4)];
+					toChars[2] = Utf8Base64Codes[(fromBytes[1] % (1 << 4)) << 2];
 					toChars[3] = u8'=';
 				}
 				break;
