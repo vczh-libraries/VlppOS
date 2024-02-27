@@ -128,7 +128,7 @@ Utf8Base64Decoder
 			{
 				char8_t c = fromChars[i];
 				if (u8'A' <= c && c <= u8'Z') nums[i] = c - u8'A';
-				else if (u8'a' <= c && c <= u8'z') nums[i] = c - u8'z' + 26;
+				else if (u8'a' <= c && c <= u8'z') nums[i] = c - u8'a' + 26;
 				else if (u8'0' <= c && c <= u8'9') nums[i] = c - u8'0' + 52;
 				else switch (c)
 				{
@@ -141,10 +141,10 @@ Utf8Base64Decoder
 			}
 
 			toBytes[0] = (nums[0] << 2) | (nums[1] >> 4);
-			if (fromChars[2] != u8'=') return 1;
-			toBytes[1] = ((nums[1] % (1 << 2)) << 4) | (nums[2] >> 4);
+			if (fromChars[2] == u8'=') return 1;
+			toBytes[1] = ((nums[1] % (1 << 4)) << 4) | (nums[2] >> 2);
 			if (fromChars[3] == u8'=') return 2;
-			toBytes[2] = ((nums[2] % (1 << 4)) << 2) | nums[3];
+			toBytes[2] = ((nums[2] % (1 << 2)) << 6) | nums[3];
 			return 3;
 		}
 
