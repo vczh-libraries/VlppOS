@@ -17,13 +17,41 @@ Utf8Base64Encoder
 
 		void Utf8Base64Encoder::WriteBytesToCharArray(uint8_t* fromBytes, char8_t(&toChars)[Base64CycleChars], vint bytes)
 		{
-			CHECK_FAIL(L"Not Implemented!");
+			switch (bytes)
+			{
+			case 1:
+				{
+					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
+					toChars[1] = Utf8Base64Codes[fromBytes[0] % (1 << 2)];
+					toChars[2] = u8'=';
+					toChars[3] = u8'=';
+				}
+				break;
+			case 2:
+				{
+					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
+					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) + (fromBytes[1] >> 4)];
+					toChars[2] = Utf8Base64Codes[fromBytes[1] % (1 << 4)];
+					toChars[3] = u8'=';
+				}
+				break;
+			case 3:
+				{
+					toChars[0] = Utf8Base64Codes[fromBytes[0] >> 2];
+					toChars[1] = Utf8Base64Codes[((fromBytes[0] % (1 << 2)) << 4) + (fromBytes[1] >> 4)];
+					toChars[2] = Utf8Base64Codes[((fromBytes[1] % (1 << 4)) << 2) + (fromBytes[2] >> 6)];
+					toChars[3] = Utf8Base64Codes[fromBytes[2] % (1 << 6)];
+				}
+				break;
+			default:
+				CHECK_FAIL(L"vl::stream::Utf8Base64Encoder::WriteBytesToCharArray(uint8_t*, char8_t(&)[Base64CycleChars], vint)#Parameter bytes should be 1, 2 or 3.");
+			}
 		}
 
 		bool Utf8Base64Encoder::WriteCycle(uint8_t*& reading, vint& _size)
 		{
 			if (_size <= 0) return false;
-			vint bytes = _size < 4 ? _size : 4;
+			vint bytes = _size < Base64CycleBytes ? _size : Base64CycleBytes;
 
 			char8_t chars[Base64CycleChars];
 			WriteBytesToCharArray(reading, chars, bytes);
