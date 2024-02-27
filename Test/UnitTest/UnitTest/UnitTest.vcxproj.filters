@@ -150,6 +150,9 @@
     <ClCompile Include="..\..\..\Source\Encoding\Encoding.cpp">
       <Filter>Common\Encoding</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Source\TestStreamBase64.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">

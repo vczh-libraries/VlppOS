@@ -1,0 +1,78 @@
+﻿#include "../../Source/Stream/Accessor.h"
+#include "../../Source/Stream/EncodingStream.h"
+#include "../../Source/Encoding/Base64Encoding.h"
+
+using namespace vl;
+using namespace vl::stream;
+using namespace vl::collections;
+
+namespace TestStreamBase64_TestObjects
+{
+	template<size_t Bytes, size_t Chars>
+	void TestBase64OnBytes(const uint8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
+	{
+		{
+			MemoryStream memoryStream;
+			{
+				Utf8Base64Encoder encoder;
+				EncoderStream encoderStream(memoryStream, encoder);
+				vint written = encoderStream.Write((void*)bytes, Bytes);
+				TEST_ASSERT(written == Bytes);
+			}
+			memoryStream.SeekFromBegin(0);
+			{
+				StreamReader_<char8_t> reader(memoryStream);
+				auto base64 = reader.ReadToEnd();
+				TEST_ASSERT(base64 == chars);
+			}
+		}
+		{
+			MemoryStream memoryStream;
+			{
+				Utf8Base64Decoder decoder;
+				DecoderStream decoderStream(memoryStream, decoder);
+				StreamWriter_<char8_t> writer(decoderStream);
+				writer.WriteString(chars);
+			}
+			memoryStream.SeekFromBegin(0);
+			TEST_ASSERT(memoryStream.Size() == Bytes);
+			{
+				uint8_t buffer[Bytes];
+				vint read = memoryStream.Read(buffer, Bytes);
+				TEST_ASSERT(read == Bytes);
+				TEST_ASSERT(memcmp(buffer, bytes, Bytes) == 0);
+			}
+		}
+	}
+
+	template<size_t Bytes, size_t Chars>
+	void TestBase64OnChars(const char8_t(&bytes)[Bytes], const char8_t(&chars)[Chars])
+	{
+		TestBase64OnBytes<Bytes - 1>(reinterpret_cast<const uint8_t(&)[Bytes - 1]>(bytes), chars);
+	}
+}
+using namespace TestStreamBase64_TestObjects;
+
+TEST_FILE
+{
+	TEST_CASE(L"Wikipedia[light w]")
+	{
+		TestBase64OnChars(u8"light w", u8"bGlnaHQgdw==");
+	});
+	TEST_CASE(L"Wikipedia[light wo]")
+	{
+		TestBase64OnChars(u8"light wo", u8"bGlnaHQgd28=");
+	});
+	TEST_CASE(L"Wikipedia[light wor]")
+	{
+		TestBase64OnChars(u8"light wor", u8"bGlnaHQgd29y");
+	});
+	TEST_CASE(L"Wikipedia[light work]")
+	{
+		TestBase64OnChars(u8"light work", u8"bGlnaHQgd29yaw==");
+	});
+	TEST_CASE(L"Wikipedia[light work.]")
+	{
+		TestBase64OnChars(u8"light work.", u8"bGlnaHQgd29yay4=");
+	});
+}
