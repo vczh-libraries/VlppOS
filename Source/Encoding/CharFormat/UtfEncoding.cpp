@@ -116,7 +116,6 @@ UtfGeneralDecoder
 				if (readBytes == 0) break;
 				filledBytes += readBytes;
 				_size -= readBytes;
-				writing += readBytes;
 			}
 
 			// cache the remaining TExpect

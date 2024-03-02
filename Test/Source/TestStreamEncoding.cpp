@@ -154,7 +154,7 @@ namespace TestStreamEncoding_TestObjects
 		}
 	};
 
-	template<typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
+	template<size_t BatchSize, typename TNative, typename TExpect, size_t NativeLength, size_t ExpectLength>
 	void TestEncodingWithEncoderDecoderStreamPerByte(
 		IEncoder& encoder,
 		IDecoder& decoder,
@@ -172,10 +172,12 @@ namespace TestStreamEncoding_TestObjects
 		{
 			EncoderStream encoderStream(memoryStream, encoder);
 			auto bytes = (const char*)text;
-			for (vint i = 0; i < TextBytes; i++)
+			for (vint i = 0; i < TextBytes; i+=BatchSize)
 			{
-				vint written = encoderStream.Write((void*)(bytes + i), 1);
-				TEST_ASSERT(written == 1);
+				vint remaining = TextBytes - i;
+				vint batch = remaining < BatchSize ? remaining : BatchSize;
+				vint written = encoderStream.Write((void*)(bytes + i), batch);
+				TEST_ASSERT(written == batch);
 			}
 		}
 		memoryStream.SeekFromBegin(0);
@@ -198,10 +200,12 @@ namespace TestStreamEncoding_TestObjects
 			TExpect* buffer = new TExpect[ExpectLength];
 			{
 				char* bytes = (char*)buffer;
-				for (vint i = 0; i < TextBytes; i++)
+				for (vint i = 0; i < TextBytes; i+=BatchSize)
 				{
-					vint read = decoderStream.Read(bytes + i, 1);
-					TEST_ASSERT(read == 1);
+					vint remaining = TextBytes - i;
+					vint batch = remaining < BatchSize ? remaining : BatchSize;
+					vint read = decoderStream.Read(bytes + i, batch);
+					TEST_ASSERT(read == batch);
 				}
 				vint zero = decoderStream.Read(bytes, 1);
 				TEST_ASSERT(zero == 0);
@@ -237,10 +241,22 @@ namespace TestStreamEncoding_TestObjects
 			TestEncodingWithEncoderDecoderStream(encoder, decoder, text, decodedText);
 		}
 		{
-			TEST_PRINT(L"Per Byte");
+			TEST_PRINT(L"Per 1 Byte");
 			TEncoder encoder;
 			TDecoder decoder;
-			TestEncodingWithEncoderDecoderStreamPerByte(encoder, decoder, text, decodedText);
+			TestEncodingWithEncoderDecoderStreamPerByte<1>(encoder, decoder, text, decodedText);
+		}
+		{
+			TEST_PRINT(L"Per8  Byte");
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStreamPerByte<8>(encoder, decoder, text, decodedText);
+		}
+		{
+			TEST_PRINT(L"Per 11 Byte");
+			TEncoder encoder;
+			TDecoder decoder;
+			TestEncodingWithEncoderDecoderStreamPerByte<11>(encoder, decoder, text, decodedText);
 		}
 	}
 
