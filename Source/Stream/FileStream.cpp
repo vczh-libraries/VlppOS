@@ -37,7 +37,7 @@ FileStream
 				mode=L"wb";
 				break;
 			case ReadWrite:
-				mode=L"w+b";
+				mode=L"r+b";
 				break;
 			}
 
