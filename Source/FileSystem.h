@@ -16,6 +16,7 @@ namespace vl
 		class FilePath : public Object
 		{
 			friend class LinuxFileSystemImpl;
+			friend class WindowsFileSystemImpl;
 		protected:
 			WString						fullPath;
 
