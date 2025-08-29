@@ -64,7 +64,7 @@ Create the core interface `IFileSystemImpl` and injection infrastructure in `Fil
 
 This phase implements the Linux-specific file system operations using the new injection pattern.
 
-### Task 2-1: Implement Linux FileSystem with Injection Pattern
+### Task 2-1: Implement Linux FileSystem with Injection Pattern [PROCESSED]
 
 Rewrite `FileSystem.Linux.cpp` to extract platform-specific implementations into a class that implements `IFileSystemImpl`, and redirect the existing methods to use the injectable implementation.
 

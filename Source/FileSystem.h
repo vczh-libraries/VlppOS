@@ -15,6 +15,7 @@ namespace vl
 		/// <summary>Absolute file path.</summary>
 		class FilePath : public Object
 		{
+			friend class LinuxFileSystemImpl;
 		protected:
 			WString						fullPath;
 
@@ -216,7 +217,7 @@ namespace vl
 			virtual bool IsFile(const WString& fullPath) const = 0;
 			virtual bool IsFolder(const WString& fullPath) const = 0;
 			virtual bool IsRoot(const WString& fullPath) const = 0;
-			virtual WString GetRelativePathFor(const WString& fromPath, const WString& toPath, bool fromIsFolder, bool toIsFolder) const = 0;
+			virtual WString GetRelativePathFor(const WString& fromPath, const WString& toPath) const = 0;
 			
 			// File operations
 			virtual bool FileDelete(const FilePath& filePath) const = 0;
