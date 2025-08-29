@@ -232,7 +232,6 @@ namespace vl
 			virtual bool FolderRename(const FilePath& folderPath, const WString& newName) const = 0;
 		};
 
-		extern IFileSystemImpl* GetDefaultFileSystemImpl();
 		extern void InjectFileSystemImpl(IFileSystemImpl* impl);
 	}
 }
