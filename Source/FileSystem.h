@@ -34,9 +34,9 @@ namespace vl
 			/// In Linux and macOS, it is "/".
 			/// But you can always use "/", it is also supported in Windows.
 			/// </remarks>
-			static const wchar_t		Delimiter = L'\\';
+			static constexpr wchar_t	Delimiter = L'\\';
 #elif defined VCZH_GCC
-			static const wchar_t		Delimiter = L'/';
+			static constexpr wchar_t	Delimiter = L'/';
 #endif
 
 			/// <summary>Create a root path.</summary>
