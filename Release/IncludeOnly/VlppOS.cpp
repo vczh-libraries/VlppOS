@@ -5,6 +5,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "VlppOS.h"
 
 #include "..\..\Source\FileSystem.cpp"
+#include "..\..\Source\FileSystem.Injectable.cpp"
 #include "..\..\Source\Locale.cpp"
 #include "..\..\Source\Threading.cpp"
 #include "..\..\Source\Encoding\Base64Encoding.cpp"
