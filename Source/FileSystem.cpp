@@ -17,6 +17,13 @@ namespace vl
 		using namespace collections;
 		using namespace stream;
 
+		// Define static const member
+#if defined VCZH_MSVC
+		const wchar_t FilePath::Delimiter;
+#elif defined VCZH_GCC
+		const wchar_t FilePath::Delimiter;
+#endif
+
 		// ReadDirectoryChangesW
 
 /***********************************************************************

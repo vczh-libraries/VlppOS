@@ -23,11 +23,6 @@ namespace vl
 			return injectedFileSystemImpl ? injectedFileSystemImpl : GetOSFileSystemImpl();
 		}
 
-		IFileSystemImpl* GetDefaultFileSystemImpl()
-		{
-			return GetFileSystemImpl();
-		}
-
 /***********************************************************************
 FilePath
 ***********************************************************************/
