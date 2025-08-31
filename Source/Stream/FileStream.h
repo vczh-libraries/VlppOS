@@ -13,6 +13,22 @@ namespace vl
 {
 	namespace stream
 	{
+		/// <summary>Platform-specific file stream implementation interface.</summary>
+		class IFileStreamImpl : public virtual Interface
+		{
+		public:
+			virtual bool        Open() = 0;
+			virtual void        Close() = 0;
+			virtual pos_t       Position() const = 0;
+			virtual pos_t       Size() const = 0;
+			virtual void        Seek(pos_t _size) = 0;
+			virtual void        SeekFromBegin(pos_t _size) = 0;
+			virtual void        SeekFromEnd(pos_t _size) = 0;
+			virtual vint        Read(void* _buffer, vint _size) = 0;
+			virtual vint        Write(void* _buffer, vint _size) = 0;
+			virtual vint        Peek(void* _buffer, vint _size) = 0;
+		};
+
 		/// <summary>A file stream. If the given file name is not working, the stream could be <b>unavailable</b>.</summary>
 		class FileStream : public Object, public virtual IStream
 		{
@@ -28,8 +44,8 @@ namespace vl
 				ReadWrite
 			};
 		protected:
-			AccessRight				accessRight;
-			FILE*					file;
+			AccessRight             accessRight;
+			Ptr<IFileStreamImpl>    impl;
 		public:
 			/// <summary>Create a file stream from a given file name.</summary>
 			/// <param name="fileName">The file to operate.</param>
