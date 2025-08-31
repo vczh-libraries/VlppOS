@@ -4,15 +4,20 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "FileStream.h"
+#include "../FileSystem.h"
 #if defined VCZH_GCC
 #include <stdio.h>
 #endif
 
 namespace vl
 {
+	namespace filesystem
+	{
+		extern IFileSystemImpl*			GetFileSystemImpl();
+	}
+
 	namespace stream
 	{
-
 #if defined VCZH_GCC
 		void _fseeki64(FILE* file, pos_t offset, int origin)
 		{
@@ -217,13 +222,22 @@ OSFileStreamImpl
 		};
 
 /***********************************************************************
+CreateOSFileStreamImpl
+***********************************************************************/
+
+		Ptr<IFileStreamImpl> CreateOSFileStreamImpl(const WString& fileName, FileStream::AccessRight accessRight)
+		{
+			return Ptr(new OSFileStreamImpl(fileName, accessRight));
+		}
+
+/***********************************************************************
 FileStream
 ***********************************************************************/
 
 		FileStream::FileStream(const WString& fileName, AccessRight _accessRight)
 			: accessRight(_accessRight)
 		{
-			impl = Ptr(new OSFileStreamImpl(fileName, _accessRight));
+			impl = filesystem::GetFileSystemImpl()->GetFileStreamImpl(fileName, _accessRight);
 			if(!impl->Open())
 			{
 				impl = nullptr;

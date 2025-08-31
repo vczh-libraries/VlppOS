@@ -20,6 +20,11 @@ static_assert(false, "Do not build this file for non-Windows applications.");
 
 namespace vl
 {
+	namespace stream
+	{
+		extern Ptr<IFileStreamImpl>		CreateOSFileStreamImpl(const WString& fileName, FileStream::AccessRight accessRight);
+	}
+
 	namespace filesystem
 	{
 		using namespace collections;
@@ -250,6 +255,11 @@ WindowsFileSystemImpl
 				WString oldFileName = folderPath.GetFullPath();
 				WString newFileName = (folderPath.GetFolder() / newName).GetFullPath();
 				return MoveFile(oldFileName.Buffer(), newFileName.Buffer()) != 0;
+			}
+
+			Ptr<stream::IFileStreamImpl> GetFileStreamImpl(const WString& fileName, stream::FileStream::AccessRight accessRight) const override
+			{
+				return stream::CreateOSFileStreamImpl(fileName, accessRight);
 			}
 		};
 

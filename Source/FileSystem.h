@@ -7,6 +7,7 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_FILESYSTEM
 
 #include "Encoding/CharFormat/CharFormat.h"
+#include "Stream/FileStream.h"
 
 namespace vl
 {
@@ -230,6 +231,9 @@ namespace vl
 			virtual bool CreateFolder(const FilePath& folderPath) const = 0;
 			virtual bool DeleteFolder(const FilePath& folderPath) const = 0;
 			virtual bool FolderRename(const FilePath& folderPath, const WString& newName) const = 0;
+			
+			// Stream operations
+			virtual Ptr<stream::IFileStreamImpl> GetFileStreamImpl(const WString& fileName, stream::FileStream::AccessRight accessRight) const = 0;
 		};
 
 		extern void InjectFileSystemImpl(IFileSystemImpl* impl);
