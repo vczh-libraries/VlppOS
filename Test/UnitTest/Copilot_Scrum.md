@@ -18,6 +18,15 @@ I proposed my task split. The first task will be implementing a default IFileStr
 
 IFileStreamImpl::Open must be no arguments, arguments will be in OSFileStreamImpl's constructor
 
+## UPDATE
+
+The task 1-1 is perfect, do not change it, and it is already done anyway, changing gives nothing good
+
+For task 2-2:
+- There is no WindowsFileStreamImpl and LinuxFileStreamImpl, the OSFileStreamImpl is good enough for both platform.
+- You should add a `CreateOSFileStreamImpl` function in FileStream.cpp, but do not declare it in FileStream.h, instead declare it in both FileSystem.Linux.cpp and FileSytem.Windows.cpp. So the GetFileStreamImpl function will just call that function. Please remember it should return Ptr<IFileStreamImpl>
+- Only add `#include` in FileStream.cpp for FileSystem.h so the `GetFileSystemImpl` is visible to FileStream class.
+
 ## Analysis
 
 Based on the examination of the current FileStream implementation and the existing injection patterns for DateTime and FileSystem, I need to implement a similar injection pattern for FileStream. The key insights are:
@@ -35,6 +44,8 @@ Based on the examination of the current FileStream implementation and the existi
 6. **Revised Approach**: Based on the update, the implementation will be split into two distinct phases - first creating a standalone default implementation (`OSFileStreamImpl`), then integrating with the FileSystem injection system.
 
 7. **Interface Design Clarification**: The `IFileStreamImpl::Open` method will take no arguments. Instead, the concrete implementation constructor (like `OSFileStreamImpl`) will receive the fileName and accessRight parameters, and the `Open` method will use these stored values to perform the actual file opening operation.
+
+8. **Updated Integration Approach**: The latest update clarifies that the integration should use a single `OSFileStreamImpl` for both platforms, with a `CreateOSFileStreamImpl` function declared in platform-specific FileSystem files but implemented in FileStream.cpp.
 
 ## Phase 1: Default Implementation Creation
 
@@ -88,23 +99,21 @@ Create the `IFileStreamImpl` interface and implement a default `OSFileStreamImpl
 
 ## Phase 2: FileSystem Integration
 
-This phase integrates the FileStream injection system with the existing FileSystem injection mechanism.
+This phase integrates the FileStream injection system with the existing FileSystem injection mechanism using the revised approach.
 
-### Task 2-1: Extend IFileSystemImpl and Create Platform-Specific Implementations
+### Task 2-1: Extend IFileSystemImpl and Integrate with OSFileStreamImpl
 
-Extend the `IFileSystemImpl` interface to include stream creation functionality and create platform-specific implementations that replace the generic `OSFileStreamImpl`.
+Extend the `IFileSystemImpl` interface to include stream creation functionality and integrate with the existing `OSFileStreamImpl` through a factory function approach.
 
 **What to be done:**
 - Add `GetFileStreamImpl(const WString& fileName, FileStream::AccessRight accessRight)` method to `IFileSystemImpl` interface in FileSystem.h
-- Create `WindowsFileStreamImpl` class in FileSystem.Windows.cpp implementing `IFileStreamImpl`
-- Create `LinuxFileStreamImpl` class in FileSystem.Linux.cpp implementing `IFileStreamImpl`
-- Both platform implementations will have constructors taking `(const WString& fileName, AccessRight accessRight)` and parameterless `Open()` methods
-- Move the logic from `OSFileStreamImpl` into the respective platform implementations
-- Add `GetFileStreamImpl` implementation to both `WindowsFileSystemImpl` and `LinuxFileSystemImpl` classes that create the appropriate platform-specific implementation
-- Include FileSystem.h in FileStream.cpp
+- Create `CreateOSFileStreamImpl(const WString& fileName, FileStream::AccessRight accessRight)` function in FileStream.cpp that creates and returns `Ptr<IFileStreamImpl>` using the existing `OSFileStreamImpl`
+- Declare `CreateOSFileStreamImpl` function in both FileSystem.Linux.cpp and FileSystem.Windows.cpp (but do not implement it there)
+- Add `GetFileStreamImpl` implementation to both `WindowsFileSystemImpl` and `LinuxFileSystemImpl` classes that call `CreateOSFileStreamImpl`
+- Add `#include "FileSystem.h"` in FileStream.cpp to make `GetFileSystemImpl()` visible
 - Modify FileStream constructor to call `GetFileSystemImpl()->GetFileStreamImpl(fileName, accessRight)` instead of creating `OSFileStreamImpl` directly
-- Remove `OSFileStreamImpl` class from FileStream.cpp
-- Maintain exact same functionality and behavior as the `OSFileStreamImpl`
+- Ensure the same `OSFileStreamImpl` logic works for both Windows and Linux platforms
+- Maintain exact same functionality and behavior as the current implementation
 
 **What to test in Unit Test:**
 - All existing FileStream unit tests must continue to pass without modification
@@ -112,27 +121,31 @@ Extend the `IFileSystemImpl` interface to include stream creation functionality 
 - Verify error handling when FileSystem implementation is null or fails
 - Test integration between FileSystem and FileStream injection systems
 - Verify that `GetFileStreamImpl` returns properly constructed implementations
+- Test that the factory function approach works correctly with the injection system
 
 **What to test manually:**
 - Verify that FileStream behavior remains identical after FileSystem integration
-- Test that custom FileSystem implementations can provide custom FileStream implementations
+- Test that custom FileSystem implementations can provide custom FileStream implementations through the factory function
 - Ensure no regression in file operations across different platforms
 - Test injection scenarios with mock FileSystem implementations
-- Verify that platform-specific implementations work correctly with their respective file systems
+- Verify that the `CreateOSFileStreamImpl` function works correctly when called from platform-specific implementations
+- Test cross-platform compatibility with the unified `OSFileStreamImpl` approach
 
 **Reasons for this task:**
 - Completes the integration with the existing FileSystem injection pattern
 - Enables unified dependency injection for both file system and stream operations
-- Maintains platform separation for file stream operations
+- Uses a factory function approach that maintains clean separation between components
 - Provides the complete injection infrastructure as originally requested
 - Allows for comprehensive testing and customization of file operations
-- Maintains the clean separation between construction parameters and operation methods
+- Maintains platform compatibility through a single implementation
+- Follows the updated requirements for simpler platform integration
 
 **Support evidence:**
 - Existing FileSystem injection pattern provides the exact model to follow
-- Platform-specific FileSystem implementations show how to organize platform-specific code
 - DateTime injection integration demonstrates how to extend existing injection interfaces
 - Knowledge base shows the established patterns for cross-platform file operations
-- The parameterless `Open` design is consistent with factory pattern used in FileSystem injection
+- The factory function approach is consistent with modular design principles
+- The single `OSFileStreamImpl` approach simplifies maintenance while preserving platform compatibility
+- Updated requirements provide clear guidance on the preferred integration method
 
 # !!!FINISHED!!!
