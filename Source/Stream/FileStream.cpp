@@ -27,9 +27,9 @@ OSFileStreamImpl
 		class OSFileStreamImpl : public Object, public virtual IFileStreamImpl
 		{
 		private:
-			WString                 fileName;
-			FileStream::AccessRight accessRight;
-			FILE*                   file;
+			WString					fileName;
+			FileStream::AccessRight	accessRight;
+			FILE*					file;
 
 		public:
 			OSFileStreamImpl(const WString& _fileName, FileStream::AccessRight _accessRight)
@@ -286,26 +286,20 @@ FileStream
 
 		void FileStream::Seek(pos_t _size)
 		{
-			if(impl != nullptr)
-			{
-				impl->Seek(_size);
-			}
+			CHECK_ERROR(impl != nullptr, L"FileStream::Seek(pos_t)#Stream is closed, cannot perform this operation.");
+			impl->Seek(_size);
 		}
 
 		void FileStream::SeekFromBegin(pos_t _size)
 		{
-			if(impl != nullptr)
-			{
-				impl->SeekFromBegin(_size);
-			}
+			CHECK_ERROR(impl != nullptr, L"FileStream::SeekFromBegin(pos_t)#Stream is closed, cannot perform this operation.");
+			impl->SeekFromBegin(_size);
 		}
 
 		void FileStream::SeekFromEnd(pos_t _size)
 		{
-			if(impl != nullptr)
-			{
-				impl->SeekFromEnd(_size);
-			}
+			CHECK_ERROR(impl != nullptr, L"FileStream::SeekFromEnd(pos_t)#Stream is closed, cannot perform this operation.");
+			impl->SeekFromEnd(_size);
 		}
 
 		vint FileStream::Read(void* _buffer, vint _size)
