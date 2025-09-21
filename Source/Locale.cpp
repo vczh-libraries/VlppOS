@@ -414,10 +414,7 @@ InjectLocaleImpl
 
 	feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection()
 	{
-		static EnUsLocaleImpl defaultLocaleImpl;
-		static feature_injection::FeatureInjection<ILocaleImpl> injection(
-			GetOSLocaleImpl() ? GetOSLocaleImpl() : &defaultLocaleImpl
-		);
+		static feature_injection::FeatureInjection<ILocaleImpl> injection(GetOSLocaleImpl());
 		return injection;
 	}
 
