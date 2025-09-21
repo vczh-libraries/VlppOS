@@ -10,7 +10,7 @@ namespace vl
 	using namespace collections;
 
 /***********************************************************************
-DefaultLocaleImpl
+EnUsLocaleImpl
 ***********************************************************************/
 
 #ifdef VCZH_GCC
@@ -18,54 +18,54 @@ DefaultLocaleImpl
 #define _wcsnicmp wcsncasecmp
 #endif
 
-	Locale DefaultLocaleImpl::Invariant() const
+	Locale EnUsLocaleImpl::Invariant() const
 	{
 		return Locale(L"");
 	}
 
-	Locale DefaultLocaleImpl::SystemDefault() const
+	Locale EnUsLocaleImpl::SystemDefault() const
 	{
 		return Locale(L"en-US");
 	}
 
-	Locale DefaultLocaleImpl::UserDefault() const
+	Locale EnUsLocaleImpl::UserDefault() const
 	{
 		return Locale(L"en-US");
 	}
 
-	void DefaultLocaleImpl::Enumerate(List<Locale>& locales) const
+	void EnUsLocaleImpl::Enumerate(List<Locale>& locales) const
 	{
 		locales.Add(Locale(L"en-US"));
 	}
 
-	void DefaultLocaleImpl::GetShortDateFormats(const WString&, List<WString>& formats) const
+	void EnUsLocaleImpl::GetShortDateFormats(const WString&, List<WString>& formats) const
 	{
 		formats.Add(L"MM/dd/yyyy");
 		formats.Add(L"yyyy-MM-dd");
 	}
 
-	void DefaultLocaleImpl::GetLongDateFormats(const WString&, List<WString>& formats) const
+	void EnUsLocaleImpl::GetLongDateFormats(const WString&, List<WString>& formats) const
 	{
 		formats.Add(L"dddd, dd MMMM yyyy");
 	}
 
-	void DefaultLocaleImpl::GetYearMonthDateFormats(const WString&, List<WString>& formats) const
+	void EnUsLocaleImpl::GetYearMonthDateFormats(const WString&, List<WString>& formats) const
 	{
 		formats.Add(L"yyyy MMMM");
 	}
 
-	void DefaultLocaleImpl::GetLongTimeFormats(const WString&, List<WString>& formats) const
+	void EnUsLocaleImpl::GetLongTimeFormats(const WString&, List<WString>& formats) const
 	{
 		formats.Add(L"HH:mm:ss");
 	}
 
-	void DefaultLocaleImpl::GetShortTimeFormats(const WString&, List<WString>& formats) const
+	void EnUsLocaleImpl::GetShortTimeFormats(const WString&, List<WString>& formats) const
 	{
 		formats.Add(L"HH:mm");
 		formats.Add(L"hh:mm tt");
 	}
 
-	WString DefaultLocaleImpl::FormatDate(const WString& localeName, const WString& format, DateTime date) const
+	WString EnUsLocaleImpl::FormatDate(const WString& localeName, const WString& format, DateTime date) const
 	{
 		/*
 		auto df = L"yyyy,MM,MMM,MMMM,dd,ddd,dddd";
@@ -161,22 +161,22 @@ DefaultLocaleImpl
 		return result;
 	}
 
-	WString DefaultLocaleImpl::FormatTime(const WString& localeName, const WString& format, DateTime time) const
+	WString EnUsLocaleImpl::FormatTime(const WString& localeName, const WString& format, DateTime time) const
 	{
 		return FormatDate(localeName, format, time);
 	}
 
-	WString DefaultLocaleImpl::FormatNumber(const WString&, const WString& number) const
+	WString EnUsLocaleImpl::FormatNumber(const WString&, const WString& number) const
 	{
 		return number;
 	}
 
-	WString DefaultLocaleImpl::FormatCurrency(const WString&, const WString& currency) const
+	WString EnUsLocaleImpl::FormatCurrency(const WString&, const WString& currency) const
 	{
 		return currency;
 	}
 
-	WString DefaultLocaleImpl::GetShortDayOfWeekName(const WString&, vint dayOfWeek) const
+	WString EnUsLocaleImpl::GetShortDayOfWeekName(const WString&, vint dayOfWeek) const
 	{
 		switch (dayOfWeek)
 		{
@@ -191,7 +191,7 @@ DefaultLocaleImpl
 		return L"";
 	}
 
-	WString DefaultLocaleImpl::GetLongDayOfWeekName(const WString&, vint dayOfWeek) const
+	WString EnUsLocaleImpl::GetLongDayOfWeekName(const WString&, vint dayOfWeek) const
 	{
 		switch (dayOfWeek)
 		{
@@ -206,7 +206,7 @@ DefaultLocaleImpl
 		return L"";
 	}
 
-	WString DefaultLocaleImpl::GetShortMonthName(const WString&, vint month) const
+	WString EnUsLocaleImpl::GetShortMonthName(const WString&, vint month) const
 	{
 		switch (month)
 		{
@@ -226,7 +226,7 @@ DefaultLocaleImpl
 		return L"";
 	}
 
-	WString DefaultLocaleImpl::GetLongMonthName(const WString&, vint month) const
+	WString EnUsLocaleImpl::GetLongMonthName(const WString&, vint month) const
 	{
 		switch (month)
 		{
@@ -246,27 +246,27 @@ DefaultLocaleImpl
 		return L"";
 	}
 
-	WString DefaultLocaleImpl::ToLower(const WString&, const WString& str) const
+	WString EnUsLocaleImpl::ToLower(const WString&, const WString& str) const
 	{
 		return wlower(str);
 	}
 
-	WString DefaultLocaleImpl::ToUpper(const WString&, const WString& str) const
+	WString EnUsLocaleImpl::ToUpper(const WString&, const WString& str) const
 	{
 		return wupper(str);
 	}
 
-	WString DefaultLocaleImpl::ToLinguisticLower(const WString&, const WString& str) const
+	WString EnUsLocaleImpl::ToLinguisticLower(const WString&, const WString& str) const
 	{
 		return wlower(str);
 	}
 
-	WString DefaultLocaleImpl::ToLinguisticUpper(const WString&, const WString& str) const
+	WString EnUsLocaleImpl::ToLinguisticUpper(const WString&, const WString& str) const
 	{
 		return wupper(str);
 	}
 
-	vint DefaultLocaleImpl::Compare(const WString&, const WString& s1, const WString& s2, Locale::Normalization normalization) const
+	vint EnUsLocaleImpl::Compare(const WString&, const WString& s1, const WString& s2, Locale::Normalization normalization) const
 	{
 		switch (normalization)
 		{
@@ -279,17 +279,17 @@ DefaultLocaleImpl
 		}
 	}
 
-	vint DefaultLocaleImpl::CompareOrdinal(const WString& s1, const WString& s2) const
+	vint EnUsLocaleImpl::CompareOrdinal(const WString& s1, const WString& s2) const
 	{
 		return wcscmp(s1.Buffer(), s2.Buffer());
 	}
 
-	vint DefaultLocaleImpl::CompareOrdinalIgnoreCase(const WString& s1, const WString& s2) const
+	vint EnUsLocaleImpl::CompareOrdinalIgnoreCase(const WString& s1, const WString& s2) const
 	{
 		return _wcsicmp(s1.Buffer(), s2.Buffer());
 	}
 
-	Pair<vint, vint> DefaultLocaleImpl::FindFirst(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
+	Pair<vint, vint> EnUsLocaleImpl::FindFirst(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
 	{
 		if (text.Length() < find.Length() || find.Length() == 0)
 		{
@@ -330,7 +330,7 @@ DefaultLocaleImpl
 		return result == nullptr ? Pair<vint, vint>(-1, 0) : Pair<vint, vint>(result - text.Buffer(), find.Length());
 	}
 
-	Pair<vint, vint> DefaultLocaleImpl::FindLast(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
+	Pair<vint, vint> EnUsLocaleImpl::FindLast(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
 	{
 		if (text.Length() < find.Length() || find.Length() == 0)
 		{
@@ -369,7 +369,7 @@ DefaultLocaleImpl
 		return result == nullptr ? Pair<vint, vint>(-1, 0) : Pair<vint, vint>(result - text.Buffer(), find.Length());
 	}
 
-	bool DefaultLocaleImpl::StartsWith(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
+	bool EnUsLocaleImpl::StartsWith(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
 	{
 		if (text.Length() < find.Length() || find.Length() == 0)
 		{
@@ -385,7 +385,7 @@ DefaultLocaleImpl
 		return false;
 	}
 
-	bool DefaultLocaleImpl::EndsWith(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
+	bool EnUsLocaleImpl::EndsWith(const WString&, const WString& text, const WString& find, Locale::Normalization normalization) const
 	{
 		if (text.Length() < find.Length() || find.Length() == 0)
 		{
@@ -414,7 +414,7 @@ InjectLocaleImpl
 
 	feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection()
 	{
-		static DefaultLocaleImpl defaultLocaleImpl;
+		static EnUsLocaleImpl defaultLocaleImpl;
 		static feature_injection::FeatureInjection<ILocaleImpl> injection(
 			GetOSLocaleImpl() ? GetOSLocaleImpl() : &defaultLocaleImpl
 		);

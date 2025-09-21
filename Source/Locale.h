@@ -318,11 +318,11 @@ ILocaleImpl
 	extern void									EjectLocaleImpl(ILocaleImpl* impl);
 
 /***********************************************************************
-DefaultLocaleImpl
+EnUsLocaleImpl
 ***********************************************************************/
 
-	/// <summary>Default locale implementation that provides basic cross-platform functionality.</summary>
-	class DefaultLocaleImpl : public feature_injection::FeatureImpl<ILocaleImpl>
+	/// <summary>A platform independent implementation that only supports en-US.</summary>
+	class EnUsLocaleImpl : public feature_injection::FeatureImpl<ILocaleImpl>
 	{
 	public:
 		Locale									Invariant() const override;
