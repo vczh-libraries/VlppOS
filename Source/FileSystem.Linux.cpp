@@ -33,7 +33,7 @@ namespace vl
 LinuxFileSystemImpl
 ***********************************************************************/
 
-		class LinuxFileSystemImpl : public Object, public virtual IFileSystemImpl
+		class LinuxFileSystemImpl : public feature_injection::FeatureImpl<IFileSystemImpl>
 		{
 		public:
 			// FilePath operations implementation
@@ -247,10 +247,9 @@ LinuxFileSystemImpl
 Global FileSystem Implementation
 ***********************************************************************/
 
-		LinuxFileSystemImpl osFileSystemImpl;
-
 		IFileSystemImpl* GetOSFileSystemImpl()
 		{
+			static LinuxFileSystemImpl osFileSystemImpl;
 			return &osFileSystemImpl;
 		}
 	}

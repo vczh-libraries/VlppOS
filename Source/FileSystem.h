@@ -211,7 +211,7 @@ namespace vl
 		};
 
 		/// <summary>Platform-specific file system implementation interface.</summary>
-		class IFileSystemImpl : public virtual Interface
+		class IFileSystemImpl : public virtual feature_injection::IFeatureImpl
 		{
 		public:
 			// FilePath operations
@@ -237,6 +237,7 @@ namespace vl
 		};
 
 		extern void InjectFileSystemImpl(IFileSystemImpl* impl);
+		extern void EjectFileSystemImpl(IFileSystemImpl* impl);
 	}
 }
 

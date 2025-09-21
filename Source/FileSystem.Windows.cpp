@@ -34,7 +34,7 @@ namespace vl
 WindowsFileSystemImpl
 ***********************************************************************/
 
-		class WindowsFileSystemImpl : public Object, public virtual IFileSystemImpl
+		class WindowsFileSystemImpl : public feature_injection::FeatureImpl<IFileSystemImpl>
 		{
 		public:
 			void Initialize(WString& fullPath) const override
@@ -263,10 +263,9 @@ WindowsFileSystemImpl
 			}
 		};
 
-		WindowsFileSystemImpl osFileSystemImpl;
-
 		IFileSystemImpl* GetOSFileSystemImpl()
 		{
+			static WindowsFileSystemImpl osFileSystemImpl;
 			return &osFileSystemImpl;
 		}
 	}

@@ -29,7 +29,7 @@ Check out existing knowledge base for InjectLocaleImpl and InjectFileSystemImpl,
 # TASKS
 
 - [x] TASK No.1: Fix InjectLocaleImpl to follow FeatureInjection pattern
-- [ ] TASK No.2: Fix InjectFileSystemImpl to follow FeatureInjection pattern
+- [x] TASK No.2: Fix InjectFileSystemImpl to follow FeatureInjection pattern
 
 ## TASK No.1: Fix InjectLocaleImpl to follow FeatureInjection pattern
 

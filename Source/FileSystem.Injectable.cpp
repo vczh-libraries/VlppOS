@@ -11,16 +11,32 @@ namespace vl
 	{
 		extern IFileSystemImpl* GetOSFileSystemImpl();
 
-		IFileSystemImpl* injectedFileSystemImpl = nullptr;
+		feature_injection::FeatureInjection<IFileSystemImpl>& GetFileSystemInjection()
+		{
+			static feature_injection::FeatureInjection<IFileSystemImpl> injection(GetOSFileSystemImpl());
+			return injection;
+		}
 
 		void InjectFileSystemImpl(IFileSystemImpl* impl)
 		{
-			injectedFileSystemImpl = impl;
+			GetFileSystemInjection().Inject(impl);
 		}
 
 		IFileSystemImpl* GetFileSystemImpl()
 		{
-			return injectedFileSystemImpl ? injectedFileSystemImpl : GetOSFileSystemImpl();
+			return GetFileSystemInjection().Get();
+		}
+
+		void EjectFileSystemImpl(IFileSystemImpl* impl)
+		{
+			if (impl == nullptr)
+			{
+				GetFileSystemInjection().EjectAll();
+			}
+			else
+			{
+				GetFileSystemInjection().Eject(impl);
+			}
 		}
 
 /***********************************************************************
