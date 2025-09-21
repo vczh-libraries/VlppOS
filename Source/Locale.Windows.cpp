@@ -274,10 +274,9 @@ WindowsLocaleImpl
 		}
 	};
 
-	WindowsLocaleImpl windowsLocaleImpl;
-
 	ILocaleImpl* GetOSLocaleImpl()
 	{
+		static WindowsLocaleImpl windowsLocaleImpl;
 		return &windowsLocaleImpl;
 	}
 

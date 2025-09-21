@@ -9,26 +9,6 @@ namespace vl
 {
 	using namespace collections;
 
-	extern ILocaleImpl* GetOSLocaleImpl();
-	extern feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection();
-
-	void InjectLocaleImpl(ILocaleImpl* impl)
-	{
-		GetLocaleInjection().Inject(impl);
-	}
-
-	void EjectLocaleImpl(ILocaleImpl* impl)
-	{
-		if (impl == nullptr)
-		{
-			GetLocaleInjection().EjectAll();
-		}
-		else
-		{
-			GetLocaleInjection().Eject(impl);
-		}
-	}
-
 /***********************************************************************
 DefaultLocaleImpl
 ***********************************************************************/
@@ -430,6 +410,12 @@ DefaultLocaleImpl
 #undef _wcsnicmp
 #endif
 
+/***********************************************************************
+InjectLocaleImpl
+***********************************************************************/
+
+	extern ILocaleImpl* GetOSLocaleImpl();
+
 	feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection()
 	{
 		static DefaultLocaleImpl defaultLocaleImpl;
@@ -437,6 +423,23 @@ DefaultLocaleImpl
 			GetOSLocaleImpl() ? GetOSLocaleImpl() : &defaultLocaleImpl
 		);
 		return injection;
+	}
+
+	void InjectLocaleImpl(ILocaleImpl* impl)
+	{
+		GetLocaleInjection().Inject(impl);
+	}
+
+	void EjectLocaleImpl(ILocaleImpl* impl)
+	{
+		if (impl == nullptr)
+		{
+			GetLocaleInjection().EjectAll();
+		}
+		else
+		{
+			GetLocaleInjection().Eject(impl);
+		}
 	}
 
 /***********************************************************************
