@@ -268,7 +268,7 @@ namespace vl
 #define INVLOC vl::Locale::Invariant()
 
 	/// <summary>Platform-specific locale implementation interface.</summary>
-	class ILocaleImpl : public virtual Interface
+	class ILocaleImpl : public virtual feature_injection::IFeatureImpl
 	{
 	public:
 		virtual Locale							Invariant() const = 0;
@@ -306,8 +306,8 @@ namespace vl
 		virtual bool							EndsWith(const WString& localeName, const WString& text, const WString& find, Locale::Normalization normalization) const = 0;
 	};
 	
-	extern ILocaleImpl*							GetDefaultLocaleImpl();
 	extern void									InjectLocaleImpl(ILocaleImpl* impl);
+	extern void									EjectLocaleImpl(ILocaleImpl* impl);
 }
 
 #endif

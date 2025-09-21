@@ -10,17 +10,23 @@ namespace vl
 	using namespace collections;
 
 	extern ILocaleImpl* GetOSLocaleImpl();
-
-	ILocaleImpl* localeImpl = nullptr;
-
-	ILocaleImpl* GetLocaleImpl()
-	{
-		return localeImpl ? localeImpl : GetOSLocaleImpl();
-	}
+	extern feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection();
 
 	void InjectLocaleImpl(ILocaleImpl* impl)
 	{
-		localeImpl = impl;
+		GetLocaleInjection().Inject(impl);
+	}
+
+	void EjectLocaleImpl(ILocaleImpl* impl)
+	{
+		if (impl == nullptr)
+		{
+			GetLocaleInjection().EjectAll();
+		}
+		else
+		{
+			GetLocaleInjection().Eject(impl);
+		}
 	}
 
 /***********************************************************************
@@ -32,7 +38,7 @@ DefaultLocaleImpl
 #define _wcsnicmp wcsncasecmp
 #endif
 
-	class DefaultLocaleImpl : public Object, public ILocaleImpl
+	class DefaultLocaleImpl : public feature_injection::FeatureImpl<ILocaleImpl>
 	{
 	public:
 		Locale Invariant() const override
@@ -424,11 +430,13 @@ DefaultLocaleImpl
 #undef _wcsnicmp
 #endif
 
-	DefaultLocaleImpl defaultLocaleImpl;
-
-	ILocaleImpl* GetDefaultLocaleImpl()
+	feature_injection::FeatureInjection<ILocaleImpl>& GetLocaleInjection()
 	{
-		return &defaultLocaleImpl;
+		static DefaultLocaleImpl defaultLocaleImpl;
+		static feature_injection::FeatureInjection<ILocaleImpl> injection(
+			GetOSLocaleImpl() ? GetOSLocaleImpl() : &defaultLocaleImpl
+		);
+		return injection;
 	}
 
 /***********************************************************************
@@ -451,22 +459,22 @@ Locale (static)
 
 	Locale Locale::Invariant()
 	{
-		return GetDefaultLocaleImpl()->Invariant();
+		return GetLocaleInjection().Get()->Invariant();
 	}
 
 	Locale Locale::SystemDefault()
 	{
-		return GetDefaultLocaleImpl()->SystemDefault();
+		return GetLocaleInjection().Get()->SystemDefault();
 	}
 
 	Locale Locale::UserDefault()
 	{
-		return GetDefaultLocaleImpl()->UserDefault();
+		return GetLocaleInjection().Get()->UserDefault();
 	}
 
 	void Locale::Enumerate(collections::List<Locale>& locales)
 	{
-		GetDefaultLocaleImpl()->Enumerate(locales);
+		GetLocaleInjection().Get()->Enumerate(locales);
 	}
 
 /***********************************************************************
@@ -475,121 +483,121 @@ Locale (ILocaleImpl redirections)
 
 	void Locale::GetShortDateFormats(collections::List<WString>& formats)const
 	{
-		GetDefaultLocaleImpl()->GetShortDateFormats(localeName, formats);
+		GetLocaleInjection().Get()->GetShortDateFormats(localeName, formats);
 	}
 
 	void Locale::GetLongDateFormats(collections::List<WString>& formats)const
 	{
-		GetDefaultLocaleImpl()->GetLongDateFormats(localeName, formats);
+		GetLocaleInjection().Get()->GetLongDateFormats(localeName, formats);
 	}
 
 	void Locale::GetYearMonthDateFormats(collections::List<WString>& formats)const
 	{
-		GetDefaultLocaleImpl()->GetYearMonthDateFormats(localeName, formats);
+		GetLocaleInjection().Get()->GetYearMonthDateFormats(localeName, formats);
 	}
 
 	void Locale::GetLongTimeFormats(collections::List<WString>& formats)const
 	{
-		GetDefaultLocaleImpl()->GetLongTimeFormats(localeName, formats);
+		GetLocaleInjection().Get()->GetLongTimeFormats(localeName, formats);
 	}
 
 	void Locale::GetShortTimeFormats(collections::List<WString>& formats)const
 	{
-		GetDefaultLocaleImpl()->GetShortTimeFormats(localeName, formats);
+		GetLocaleInjection().Get()->GetShortTimeFormats(localeName, formats);
 	}
 
 	WString Locale::FormatDate(const WString& format, DateTime date)const
 	{
-		return GetDefaultLocaleImpl()->FormatDate(localeName, format, date);
+		return GetLocaleInjection().Get()->FormatDate(localeName, format, date);
 	}
 
 	WString Locale::FormatTime(const WString& format, DateTime time)const
 	{
-		return GetDefaultLocaleImpl()->FormatTime(localeName, format, time);
+		return GetLocaleInjection().Get()->FormatTime(localeName, format, time);
 	}
 
 	WString Locale::FormatNumber(const WString& number)const
 	{
-		return GetDefaultLocaleImpl()->FormatNumber(localeName, number);
+		return GetLocaleInjection().Get()->FormatNumber(localeName, number);
 	}
 
 	WString Locale::FormatCurrency(const WString& currency)const
 	{
-		return GetDefaultLocaleImpl()->FormatCurrency(localeName, currency);
+		return GetLocaleInjection().Get()->FormatCurrency(localeName, currency);
 	}
 
 	WString Locale::GetShortDayOfWeekName(vint dayOfWeek)const
 	{
-		return GetDefaultLocaleImpl()->GetShortDayOfWeekName(localeName, dayOfWeek);
+		return GetLocaleInjection().Get()->GetShortDayOfWeekName(localeName, dayOfWeek);
 	}
 
 	WString Locale::GetLongDayOfWeekName(vint dayOfWeek)const
 	{
-		return GetDefaultLocaleImpl()->GetLongDayOfWeekName(localeName, dayOfWeek);
+		return GetLocaleInjection().Get()->GetLongDayOfWeekName(localeName, dayOfWeek);
 	}
 
 	WString Locale::GetShortMonthName(vint month)const
 	{
-		return GetDefaultLocaleImpl()->GetShortMonthName(localeName, month);
+		return GetLocaleInjection().Get()->GetShortMonthName(localeName, month);
 	}
 
 	WString Locale::GetLongMonthName(vint month)const
 	{
-		return GetDefaultLocaleImpl()->GetLongMonthName(localeName, month);
+		return GetLocaleInjection().Get()->GetLongMonthName(localeName, month);
 	}
 
 	WString Locale::ToLower(const WString& str)const
 	{
-		return GetDefaultLocaleImpl()->ToLower(localeName, str);
+		return GetLocaleInjection().Get()->ToLower(localeName, str);
 	}
 
 	WString Locale::ToUpper(const WString& str)const
 	{
-		return GetDefaultLocaleImpl()->ToUpper(localeName, str);
+		return GetLocaleInjection().Get()->ToUpper(localeName, str);
 	}
 
 	WString Locale::ToLinguisticLower(const WString& str)const
 	{
-		return GetDefaultLocaleImpl()->ToLinguisticLower(localeName, str);
+		return GetLocaleInjection().Get()->ToLinguisticLower(localeName, str);
 	}
 
 	WString Locale::ToLinguisticUpper(const WString& str)const
 	{
-		return GetDefaultLocaleImpl()->ToLinguisticUpper(localeName, str);
+		return GetLocaleInjection().Get()->ToLinguisticUpper(localeName, str);
 	}
 
 	vint Locale::Compare(const WString& s1, const WString& s2, Normalization normalization)const
 	{
-		return GetDefaultLocaleImpl()->Compare(localeName, s1, s2, normalization);
+		return GetLocaleInjection().Get()->Compare(localeName, s1, s2, normalization);
 	}
 
 	vint Locale::CompareOrdinal(const WString& s1, const WString& s2)const
 	{
-		return GetDefaultLocaleImpl()->CompareOrdinal(s1, s2);
+		return GetLocaleInjection().Get()->CompareOrdinal(s1, s2);
 	}
 
 	vint Locale::CompareOrdinalIgnoreCase(const WString& s1, const WString& s2)const
 	{
-		return GetDefaultLocaleImpl()->CompareOrdinalIgnoreCase(s1, s2);
+		return GetLocaleInjection().Get()->CompareOrdinalIgnoreCase(s1, s2);
 	}
 
 	collections::Pair<vint, vint> Locale::FindFirst(const WString& text, const WString& find, Normalization normalization)const
 	{
-		return GetDefaultLocaleImpl()->FindFirst(localeName, text, find, normalization);
+		return GetLocaleInjection().Get()->FindFirst(localeName, text, find, normalization);
 	}
 
 	collections::Pair<vint, vint> Locale::FindLast(const WString& text, const WString& find, Normalization normalization)const
 	{
-		return GetDefaultLocaleImpl()->FindLast(localeName, text, find, normalization);
+		return GetLocaleInjection().Get()->FindLast(localeName, text, find, normalization);
 	}
 
 	bool Locale::StartsWith(const WString& text, const WString& find, Normalization normalization)const
 	{
-		return GetDefaultLocaleImpl()->StartsWith(localeName, text, find, normalization);
+		return GetLocaleInjection().Get()->StartsWith(localeName, text, find, normalization);
 	}
 
 	bool Locale::EndsWith(const WString& text, const WString& find, Normalization normalization)const
 	{
-		return GetDefaultLocaleImpl()->EndsWith(localeName, text, find, normalization);
+		return GetLocaleInjection().Get()->EndsWith(localeName, text, find, normalization);
 	}
 }
