@@ -12,6 +12,8 @@ You are welcome to contribute to this repo by opening pull requests.
 
 ## Document
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vczh-libraries/VlppOS)
+
 For **Gaclib**: click [here](http://vczh-libraries.github.io/doc/current/home.html)
 
 For **VlppOS**: click [here](http://vczh-libraries.github.io/doc/current/vlppos/home.html)
