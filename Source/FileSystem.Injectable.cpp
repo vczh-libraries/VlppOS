@@ -43,9 +43,19 @@ namespace vl
 FilePath
 ***********************************************************************/
 
+		wchar_t FilePath::GetPathDelimiter()
+		{
+			return GetFileSystemImpl()->GetPathDelimiter();
+		}
+
 		void FilePath::Initialize()
 		{
 			GetFileSystemImpl()->Initialize(fullPath);
+		}
+
+		FilePath FilePath::operator/(const WString& relativePath) const
+		{
+			return GetFileSystemImpl()->ConcatPath(fullPath, relativePath);
 		}
 
 		bool FilePath::IsFile() const

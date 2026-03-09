@@ -201,6 +201,12 @@ TEST_FILE
 			auto q = p / L"ls";
 			TEST_ASSERT(q.GetFullPath() == L"/bin/ls");
 		});
+		TEST_CASE(L"/ / bin")
+		{
+			FilePath p = L"/";
+			auto q = p / L"bin";
+			TEST_ASSERT(q.GetFullPath() == L"/bin");
+		});
 		TEST_CASE(L"/usr/bin/ / ../../bin/./ls")
 		{
 			FilePath p = L"/usr/bin/";
@@ -228,8 +234,7 @@ TEST_FILE
 	#endif
 	});
 
-#ifdef VCZH_MSVC
-	TEST_CASE(L"Enumerate drives")
+	TEST_CASE(L"Enumerate root")
 	{
 		Folder folder;
 		List<Folder> folders;
@@ -237,6 +242,8 @@ TEST_FILE
 		TEST_ASSERT(folder.GetFilePath().IsRoot());
 		TEST_ASSERT(folder.GetFolders(folders));
 		TEST_ASSERT(folder.GetFiles(files));
+
+	#if defined VCZH_MSVC
 		TEST_ASSERT(folders.Count() > 0);
 		TEST_ASSERT(files.Count() == 0);
 
@@ -245,8 +252,10 @@ TEST_FILE
 		auto drive = folders[0].GetFilePath().GetFullPath();
 		TEST_ASSERT(drive.Length() == 2);
 		TEST_ASSERT(drive[1] == L':');
+	#elif defined VCZH_GCC
+		TEST_ASSERT(folders.Count() + files.Count() > 0);
+	#endif
 	});
-#endif
 
 	ClearTestFolders();
 	TEST_CASE(L"Create and delete folders")
