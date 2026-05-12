@@ -72,7 +72,7 @@ protected:
 
 	State											state = State::Ready;
 
-	Array<BYTE>										bufferRequest;
+	collections::Array<BYTE>						bufferRequest;
 	HANDLE											hWaitHandleRequest = INVALID_HANDLE_VALUE;
 	OVERLAPPED										overlappedRequest;
 	HANDLE											hEventRequest = INVALID_HANDLE_VALUE;
@@ -114,19 +114,19 @@ HttpServer (Writing)
 ***********************************************************************/
 
 protected:
+	using PendingRequestObject = Nullable<collections::Pair<WString, WString>>;
+
 	SpinLock										pendingRequestLock;
 	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
-	collections::Pair<WString, WString>				pendingRequestToSend;
+	PendingRequestObject							pendingRequestToSend;
 
 	static void										Send404Response(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, PCSTR reason);
 	static void										SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId);
-	static ULONG									SendJsonResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str);
+	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str);
 
 	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
 	void											OnCancelCurrentHttpRequestForPendingRequest();
 	void											OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId);
-	void											BeginSubmitPendingRequest();
-	void											EndSubmitPendingRequest();
 public:
 
 	void											SendString(const WString& channelName, const WString& str) override;

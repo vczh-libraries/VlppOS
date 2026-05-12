@@ -3,6 +3,8 @@
 namespace vl::inter_process
 {
 
+using namespace vl::collections;
+
 /***********************************************************************
 HttpServer (ListenToHttpRequest)
 ***********************************************************************/
@@ -38,7 +40,7 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 			SPIN_LOCK(pendingRequestLock)
 			{
 				OnCancelCurrentHttpRequestForPendingRequest();
-				pendingRequestToSend = nullptr;
+				pendingRequestToSend.Reset();
 			}
 			callback->OnReconnectedUnsafe();
 		}
@@ -54,7 +56,7 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 	else if (pRequest->Verb == HttpVerbPOST && pRequest->CookedUrl.pAbsPath == urlResponse)
 	{
 		SubmitResponse(pRequest);
-		ULONG result = SendJsonResponse(httpRequestQueue, pRequest->RequestId, Ptr(new JsonObject));
+		ULONG result = SendResponse(httpRequestQueue, pRequest->RequestId, WString::Empty, WString::Empty);
 		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Response.");
 	}
 	else if (pRequest->Verb == HttpVerbOPTIONS && pRequest->CookedUrl.pAbsPath == urlResponse)
@@ -236,39 +238,7 @@ void HttpServer::GenerateNewUrls()
 
 void HttpServer::SendConnectResponse(PHTTP_REQUEST pRequest)
 {
-	auto jsonObject = Ptr(new JsonObject);
-	{
-		auto jsonValue = Ptr(new JsonString);
-		jsonValue->content.value = urlRequest;
-
-		auto jsonField = Ptr(new JsonObjectField);
-		jsonField->name.value = WString::Unmanaged(L"request");
-		jsonField->value = jsonValue;
-
-		jsonObject->fields.Add(jsonField);
-	}
-	{
-		auto jsonValue = Ptr(new JsonString);
-		jsonValue->content.value = urlResponse;
-
-		auto jsonField = Ptr(new JsonObjectField);
-		jsonField->name.value = WString::Unmanaged(L"response");
-		jsonField->value = jsonValue;
-
-		jsonObject->fields.Add(jsonField);
-	}
-	{
-		auto jsonValue = Ptr(new JsonString);
-		jsonValue->content.value = WString::Unmanaged(L"request to wait for next request; response to send events with one optional response.");
-
-		auto jsonField = Ptr(new JsonObjectField);
-		jsonField->name.value = WString::Unmanaged(L"comments");
-		jsonField->value = jsonValue;
-
-		jsonObject->fields.Add(jsonField);
-	}
-
-	ULONG result = SendJsonResponse(httpRequestQueue, pRequest->RequestId, jsonObject);
+	ULONG result = SendResponse(httpRequestQueue, pRequest->RequestId, urlRequest, urlResponse);
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for establishing a connection.");
 }
 
@@ -322,18 +292,9 @@ void HttpServer::SubmitResponse(PHTTP_REQUEST pRequest)
 	}
 	{
 		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		auto bodyJson = JsonParse(u8tow(bodyUtf8), jsonParser);
-		auto bodyArray = bodyJson.Cast<JsonArray>();
-		CHECK_ERROR(bodyArray, L"/Response body must be a JSON array of strings.");
-
-		auto strs = Ptr(new List<WString>);
-		for (auto&& item : bodyArray->items)
-		{
-			auto itemString = item.Cast<JsonString>();
-			CHECK_ERROR(itemString, L"/Response body must be a JSON array of strings.");
-			strs->Add(itemString->content.value);
-		}
-		callback->OnReadStringThreadUnsafe(strs);
+		vint channelNameLength = bodyUtf8.IndexOf(L';');
+		CHECK_ERROR(channelNameLength != -1, L"/Response response body is not in the correct format: channelName;str.");
+		callback->OnReadStringThreadUnsafe(u8tow(bodyUtf8.Left(channelNameLength)), u8tow(bodyUtf8.Right(bodyUtf8.Length() - channelNameLength - 1)));
 	}
 }
 
@@ -427,7 +388,7 @@ void HttpServer::SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID re
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed (OPTIONS).");
 }
 
-ULONG HttpServer::SendJsonResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, Ptr<JsonNode> jsonBody)
+ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str)
 {
 	ULONG bytesSent = 0;
 	HTTP_RESPONSE httpResponse;
@@ -440,7 +401,7 @@ ULONG HttpServer::SendJsonResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requ
 	httpResponse.EntityChunkCount = 1;
 	httpResponse.pEntityChunks = &httpResponseBody;
 
-	U8String body = wtou8(JsonToString(jsonBody));
+	U8String body = wtou8(channelName + L";" + str);
 	httpResponseBody.DataChunkType = HttpDataChunkFromMemory;
 	httpResponseBody.FromMemory.pBuffer = (PVOID)body.Buffer();
 	httpResponseBody.FromMemory.BufferLength = (ULONG)body.Length();
@@ -495,65 +456,37 @@ void HttpServer::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId
 	httpPendingRequestId = httpRequestId;
 	if (pendingRequestToSend)
 	{
-		ULONG result = SendJsonResponse(httpRequestQueue, httpPendingRequestId, pendingRequestToSend);
+		ULONG result = SendResponse(httpRequestQueue, httpPendingRequestId, pendingRequestToSend.Value().key, pendingRequestToSend.Value().value);
 		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
-		pendingRequestToSend = nullptr;
+		pendingRequestToSend.Reset();
 	}
 }
 
-void HttpServer::BeginSubmitPendingRequest()
+void HttpServer::SendString(const WString& channelName, const WString& str)
 {
-	if (!pendingRequestToSend)
+	SPIN_LOCK(pendingRequestLock)
 	{
-		pendingRequestToSend = Ptr(new JsonArray);
-	}
-}
-
-void HttpServer::EndSubmitPendingRequest()
-{
-	if (httpPendingRequestId != HTTP_NULL_ID && pendingRequestToSend)
-	{
-		ULONG result = SendJsonResponse(httpRequestQueue, httpPendingRequestId, pendingRequestToSend);
-		if (result == NO_ERROR)
+		if (httpPendingRequestId != HTTP_NULL_ID)
 		{
-			httpPendingRequestId = HTTP_NULL_ID;
-			pendingRequestToSend = nullptr;
-		}
-		else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
-		{
-			httpPendingRequestId = HTTP_NULL_ID;
+			pendingRequestToSend.Reset();
+			ULONG result = SendResponse(httpRequestQueue, httpPendingRequestId, channelName, str);
+			if (result == NO_ERROR)
+			{
+				httpPendingRequestId = HTTP_NULL_ID;
+			}
+			else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
+			{
+				httpPendingRequestId = HTTP_NULL_ID;
+			}
+			else
+			{
+				CHECK_FAIL(L"HttpSendHttpResponse failed for responding /Request.");
+			}
 		}
 		else
 		{
-			CHECK_FAIL(L"HttpSendHttpResponse failed for responding /Request.");
+			pendingRequestToSend = { channelName,str };
 		}
-	}
-}
-
-void HttpServer::SendStringArray(vint count, List<WString>& strs)
-{
-	SPIN_LOCK(pendingRequestLock)
-	{
-		BeginSubmitPendingRequest();
-		for (vint i = 0; i < count; i++)
-		{
-			auto jsonValue = Ptr(new JsonString);
-			jsonValue->content.value = strs[i];
-			pendingRequestToSend->items.Add(jsonValue);
-		}
-		EndSubmitPendingRequest();
-	}
-}
-
-void HttpServer::SendSingleString(const WString& str)
-{
-	SPIN_LOCK(pendingRequestLock)
-	{
-		BeginSubmitPendingRequest();
-		auto jsonValue = Ptr(new JsonString);
-		jsonValue->content.value = str;
-		pendingRequestToSend->items.Add(jsonValue);
-		EndSubmitPendingRequest();
 	}
 }
 
