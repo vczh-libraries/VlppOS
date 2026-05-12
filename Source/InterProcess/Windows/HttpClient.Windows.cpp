@@ -11,9 +11,7 @@ HttpClient (Reading)
 
 void HttpClient::RaiseErrorUnsafe(WString errorMessage)
 {
-	auto strs = Ptr(new List<WString>);
-	strs->Add(WString::Unmanaged(L"!") + errorMessage);
-	callback->OnReadStringThreadUnsafe(strs);
+	callback->OnReadStringThreadUnsafe(WString::Unmanaged(L"!"), errorMessage);
 }
 
 void HttpClient::BeginReadingLoopUnsafe()
@@ -161,18 +159,9 @@ void HttpClient::BeginReadingLoopUnsafe()
 								{
 									self->httpRespondBodyBuffer[self->httpRespondBodyBufferWriting] = 0;
 									U8String bodyUtf8 = U8String::Unmanaged(&self->httpRespondBodyBuffer[0]);
-									auto bodyJson = JsonParse(u8tow(bodyUtf8), self->jsonParser);
-									auto bodyArray = bodyJson.Cast<JsonArray>();
-									CHECK_ERROR(bodyArray, L"/Request response body must be a JSON array of strings.");
-
-									auto strs = Ptr(new List<WString>);
-									for (auto&& item : bodyArray->items)
-									{
-										auto itemString = item.Cast<JsonString>();
-										CHECK_ERROR(itemString, L"/Request response body must be a JSON array of strings.");
-										strs->Add(itemString->content.value);
-									}
-									self->callback->OnReadStringThreadUnsafe(strs);
+									vint channelNameLength = bodyUtf8.IndexOf(L';');
+									CHECK_ERROR(channelNameLength != -1, L"/Request response body is not in the correct format: channelName;str.");
+									self->callback->OnReadStringThreadUnsafe(u8tow(bodyUtf8.Left(channelNameLength)), u8tow(bodyUtf8.Right(bodyUtf8.Length() - channelNameLength - 1)));
 								}
 								WinHttpCloseHandle(httpRequest);
 								self->BeginReadingLoopUnsafe();
@@ -411,28 +400,10 @@ void HttpClient::WaitForServer()
 		CHECK_ERROR(dwStatusInformationLength_WaitForServer == dataLength, L"WinHttpReadData failed to read full data.");
 
 		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		auto bodyJson = JsonParse(u8tow(bodyUtf8), jsonParser);
-		auto bodyObject = bodyJson.Cast<JsonObject>();
-		CHECK_ERROR(bodyObject, L"/Connect response body must be a JSON object.");
-
-		for (auto field : bodyObject->fields)
-		{
-			if (field->name.value == L"request")
-			{
-				auto value = field->value.Cast<JsonString>();
-				CHECK_ERROR(value, L"/Connect response body must contain a \"request\" field with a string value.");
-				urlRequest = value->content.value;
-			}
-			else if (field->name.value == L"response")
-			{
-				auto value = field->value.Cast<JsonString>();
-				CHECK_ERROR(value, L"/Connect response body must contain a \"response\" field with a string value.");
-				urlResponse = value->content.value;
-			}
-		}
-
-		CHECK_ERROR(urlRequest != L"", L"/Connect response body missing the \"request\" field.");
-		CHECK_ERROR(urlResponse != L"", L"/Connect response body missing the \"response\" field.");
+		vint separatorIndex = bodyUtf8.IndexOf(L';');
+		CHECK_ERROR(separatorIndex != -1, L"/Connect response body is not in the correct format: requestUrl;responseUrl.");
+		urlRequest = u8tow(bodyUtf8.Left(separatorIndex));
+		urlResponse = u8tow(bodyUtf8.Right(bodyUtf8.Length() - separatorIndex - 1));
 	}
 	WinHttpCloseHandle(httpRequest);
 	state = State::Running;
@@ -442,10 +413,11 @@ void HttpClient::WaitForServer()
 HttpClient (Writing)
 ***********************************************************************/
 
-void HttpClient::SendJsonRequest(Ptr<JsonNode> jsonBody)
+void HttpClient::SendString(const WString& channelName, const WString& str)
 {
 	if (state == State::Stopping) return;
-	CHECK_ERROR(state == State::Running, L"SendJsonRequest can only be called when client is running.");
+	CHECK_ERROR(state == State::Running, L"SendString can only be called when client is running.");
+	CHECK_ERROR(channelName.IndexOf(L';') == -1, L"Channel name cannot contain the ';' character.");
 	DWORD lastError = 0;
 	BOOL httpResult = FALSE;
 
@@ -560,7 +532,7 @@ void HttpClient::SendJsonRequest(Ptr<JsonNode> jsonBody)
 	}
 	CHECK_ERROR(httpResult == TRUE, L"WinHttpAddRequestHeaders failed.");
 
-	U8String bodyUtf8 = wtou8(JsonToString(jsonBody));
+	U8String bodyUtf8 = wtou8(channelName + L";" + str);
 	SPIN_LOCK(httpRequestBodiesLock)
 	{
 		httpRequestBodies.Add(httpRequest, bodyUtf8);
@@ -582,27 +554,6 @@ void HttpClient::SendJsonRequest(Ptr<JsonNode> jsonBody)
 		return;
 	}
 	CHECK_ERROR(httpResult == TRUE, L"WinHttpSendRequest failed.");
-}
-
-void HttpClient::SendStringArray(vint count, List<WString>& strs)
-{
-	auto jsonArray = Ptr(new JsonArray);
-	for (vint i = 0; i < count; i++)
-	{
-		auto jsonValue = Ptr(new JsonString);
-		jsonValue->content.value = strs[i];
-		jsonArray->items.Add(jsonValue);
-	}
-	SendJsonRequest(jsonArray);
-}
-
-void HttpClient::SendSingleString(const WString& str)
-{
-	auto jsonValue = Ptr(new JsonString);
-	jsonValue->content.value = str;
-	auto jsonArray = Ptr(new JsonArray);
-	jsonArray->items.Add(jsonValue);
-	SendJsonRequest(jsonArray);
 }
 
 /***********************************************************************

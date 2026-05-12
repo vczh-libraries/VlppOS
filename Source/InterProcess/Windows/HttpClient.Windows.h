@@ -41,7 +41,7 @@ HttpClient (Reading)
 
 protected:
 	static constexpr vint32_t						HttpRespondBodyStep = 65536;
-	Array<char8_t>									httpRespondBodyBuffer;
+	collections::Array<char8_t>						httpRespondBodyBuffer;
 	DWORD											httpRespondBodyBufferWriting = 0;
 	DWORD											httpRespondBodyBufferWritingAvailable = 0;
 
@@ -70,7 +70,7 @@ HttpClient (Writing)
 
 protected:
 	SpinLock										httpRequestBodiesLock;
-	Dictionary<HINTERNET, U8String>					httpRequestBodies;
+	collections::Dictionary<HINTERNET, U8String>	httpRequestBodies;
 
 
 public:
