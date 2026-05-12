@@ -42,6 +42,14 @@ namespace vl::inter_process
 			return package;
 		}
 
+		static inline WString ToString(const NetworkPackage& package)
+		{
+			return (package.clientId ? itow(package.clientId.Value()) : WString::Empty)
+				+ L";" + package.channelName
+				+ L";" + package.messageBody
+				;
+		}
+
 		static inline void Parse(const WString& str, NetworkPackage& package)
 		{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::NetworkPackage::Parse(const WString&, NetworkPackage&)#"
