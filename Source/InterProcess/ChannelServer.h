@@ -21,6 +21,7 @@ Interface
 
 	constexpr const wchar_t* ErrorChannel = L"!Error";
 	constexpr const wchar_t* SystemChannel = L"!System";
+	constexpr vint AdminClientId = -32768;
 
 	template<typename TPackage>
 	class IChannelClient : public virtual Interface
