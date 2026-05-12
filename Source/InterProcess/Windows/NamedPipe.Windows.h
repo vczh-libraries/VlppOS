@@ -32,7 +32,7 @@ class NamedPipeSharedReading : public virtual NamedPipeSharedCommon
 {
 private:
 	bool											firstRead = true;
-	Array<BYTE>										bufferReadFile;
+	collections::Array<BYTE>						bufferReadFile;
 	stream::MemoryStream							streamReadFile;
 	HANDLE											hWaitHandleReadFile = INVALID_HANDLE_VALUE;
 	OVERLAPPED										overlappedReadFile;
@@ -62,8 +62,7 @@ private:
 	void											EndSendStream(vint32_t bytes);
 
 protected:
-	void											SendStringArray(vint count, List<WString>& strs);
-	void											SendSingleString(const WString& str);
+	void											SendString(const WString& channelName, const WString& str) override;
 
 	NamedPipeSharedWriting();
 	~NamedPipeSharedWriting();
@@ -83,8 +82,7 @@ public:
 
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;
 	void											BeginReadingLoopUnsafe() override;
-	void											SendStringArray(vint count, List<WString>& strs) override;
-	void											SendSingleString(const WString& str) override;
+	void											SendString(const WString& channelName, const WString& str) override;
 };
 
 class NamedPipeServer : public NamedPipeShared

@@ -18,5 +18,7 @@ Interfaces:
 #include <winhttp.h>
 
 #include "../TextNetworkProtocol.h"
+#include "../../Threading.h"
+#include "../../Stream/MemoryStream.h"
 
 #endif

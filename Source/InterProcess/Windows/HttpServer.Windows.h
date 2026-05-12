@@ -48,7 +48,6 @@ class HttpServer : public INetworkProtocol
 	static constexpr vint32_t						HttpBodyInitSize = 1024;
 
 protected:
-	glr::json::Parser								jsonParser;
 	INetworkProtocolCoreCallback*					callback = nullptr;
 	WString											urlRequest;
 	WString											urlResponse;
@@ -117,11 +116,11 @@ HttpServer (Writing)
 protected:
 	SpinLock										pendingRequestLock;
 	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
-	Ptr<JsonArray>									pendingRequestToSend;
+	collections::Pair<WString, WString>				pendingRequestToSend;
 
 	static void										Send404Response(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, PCSTR reason);
 	static void										SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId);
-	static ULONG									SendJsonResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, Ptr<JsonNode> jsonBody);
+	static ULONG									SendJsonResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str);
 
 	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
 	void											OnCancelCurrentHttpRequestForPendingRequest();
@@ -130,8 +129,7 @@ protected:
 	void											EndSubmitPendingRequest();
 public:
 
-	void											SendStringArray(vint count, List<WString>& strs) override;
-	void											SendSingleString(const WString& str) override;
+	void											SendString(const WString& channelName, const WString& str) override;
 
 /***********************************************************************
 HttpServer

@@ -28,7 +28,6 @@ protected:
 	};
 
 	State											state = State::Ready;
-	glr::json::Parser								jsonParser;
 	INetworkProtocolCallback*						callback = nullptr;
 
 	HINTERNET										httpSession = NULL;
@@ -73,12 +72,10 @@ protected:
 	SpinLock										httpRequestBodiesLock;
 	Dictionary<HINTERNET, U8String>					httpRequestBodies;
 
-	void											SendJsonRequest(Ptr<JsonNode> jsonBody);
 
 public:
 
-	void											SendStringArray(vint count, List<WString>& strs) override;
-	void											SendSingleString(const WString& str) override;
+	void											SendString(const WString& channelName, const WString& str) override;
 
 /***********************************************************************
 HttpClient
