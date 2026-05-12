@@ -48,8 +48,7 @@ void NamedPipeSharedReading::EndReadingUnsafe()
 	CHECK_ERROR(consumed == sizeof(count), L"ReadFile failed on incomplete message.");
 
 	Array<wchar_t> strBuffer;
-	auto strs = Ptr(new List<WString>);
-	for (vint i = 0; i < count; i++)
+	auto ReadSingleString = [&]()
 	{
 		vint32_t length = 0;
 		consumed = streamReadFile.Read(&length, sizeof(length));
@@ -57,17 +56,20 @@ void NamedPipeSharedReading::EndReadingUnsafe()
 
 		if (length == 0)
 		{
-			strs->Add(WString::Empty);
+			return WString::Empty;
 		}
 		else
 		{
 			strBuffer.Resize(length);
 			consumed = streamReadFile.Read(&strBuffer[0], length * sizeof(wchar_t));
 			CHECK_ERROR(consumed == length * sizeof(wchar_t) && streamReadFile.Position() <= position, L"ReadFile failed on incomplete message.");
-			strs->Add(WString::CopyFrom(&strBuffer[0], length));
+			return WString::CopyFrom(&strBuffer[0], length);
 		}
-	}
-	callback->OnReadStringThreadUnsafe(strs);
+	};
+
+	WString channelName = ReadSingleString();
+	WString str = ReadSingleString();
+	callback->OnReadStringThreadUnsafe(channelName, str);
 
 	CHECK_ERROR(streamReadFile.Position() == position, L"ReadFile failed on incomplete message.");
 }
@@ -137,7 +139,7 @@ NamedPipeSharedReading::NamedPipeSharedReading()
 	: bufferReadFile(MaxMessageSize)
 {
 	hEventReadFile = CreateEvent(NULL, TRUE, TRUE, NULL);
-	CHECK_ERROR(hEventReadFile != NULL, L"NamedPipeShared initialization failed on CreateEvent(hEventReadFile).");
+	CHECK_ERROR(hEventReadFile != NULL, L"NamedPipeSharedReading initialization failed on CreateEvent(hEventReadFile).");
 }
 
 NamedPipeSharedReading::~NamedPipeSharedReading()
@@ -193,23 +195,11 @@ void NamedPipeSharedWriting::EndSendStream(vint32_t bytes)
 	}
 }
 
-void NamedPipeSharedWriting::SendStringArray(vint count, List<WString>& strs)
+void NamedPipeSharedWriting::SendString(const WString& channelName, const WString& str)
 {
 	vint32_t bytes = 0;
 	BeginSendStream();
-	bytes += WriteInt32ToStream((vint32_t)count);
-	for (vint i = 0; i < count; i++)
-	{
-		bytes += WriteStringToStream(strs[i]);
-	}
-	EndSendStream(bytes);
-}
-
-void NamedPipeSharedWriting::SendSingleString(const WString& str)
-{
-	vint32_t bytes = 0;
-	BeginSendStream();
-	bytes += WriteInt32ToStream((vint32_t)1);
+	bytes += WriteStringToStream(channelName);
 	bytes += WriteStringToStream(str);
 	EndSendStream(bytes);
 }
@@ -217,7 +207,7 @@ void NamedPipeSharedWriting::SendSingleString(const WString& str)
 NamedPipeSharedWriting::NamedPipeSharedWriting()
 {
 	hEventWriteFile = CreateEvent(NULL, TRUE, TRUE, NULL);
-	CHECK_ERROR(hEventWriteFile != NULL, L"NamedPipeCoreChannel initialization failed on CreateEvent(hEventWriteFile).");
+	CHECK_ERROR(hEventWriteFile != NULL, L"NamedPipeSharedWriting initialization failed on CreateEvent(hEventWriteFile).");
 }
 
 NamedPipeSharedWriting::~NamedPipeSharedWriting()
@@ -259,14 +249,9 @@ void NamedPipeShared::BeginReadingLoopUnsafe()
 	NamedPipeSharedReading::BeginReadingLoopUnsafe();
 }
 
-void NamedPipeShared::SendStringArray(vint count, List<WString>& strs)
+void NamedPipeShared::SendString(const WString& channelName, const WString& str)
 {
-	NamedPipeSharedWriting::SendStringArray(count, strs);
-}
-
-void NamedPipeShared::SendSingleString(const WString& str)
-{
-	NamedPipeSharedWriting::SendSingleString(str);
+	NamedPipeSharedWriting::SendString(channelName, str);
 }
 
 /***********************************************************************

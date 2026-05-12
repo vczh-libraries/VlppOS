@@ -109,4 +109,6 @@ public:
 	void											WaitForServer();
 };
 
+}
+
 #endif
