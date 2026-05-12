@@ -32,7 +32,7 @@ namespace vl::inter_process
 	public:
 		virtual void				InstallCallback(INetworkProtocolCallback* callback) = 0;
 		virtual void				BeginReadingLoopUnsafe() = 0;
-		virtual void				SendString(const WString& channelName, const WString& str) = 0;
+		virtual void				SendString(Nullable<vint> clientId, const WString& channelName, const WString& messageBody) = 0;
 	};
 }
 
