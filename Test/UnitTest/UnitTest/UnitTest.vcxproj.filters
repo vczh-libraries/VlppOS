@@ -28,6 +28,12 @@
     <Filter Include="Common\Encoding\CharFormat">
       <UniqueIdentifier>{9b8e7dd7-d560-48af-92fe-eae76a82879c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\InterProcess">
+      <UniqueIdentifier>{25f0da09-91c8-4737-9a1d-0311cfbb97a9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\InterProcess\Windows">
+      <UniqueIdentifier>{acd69f45-d653-4117-9ee5-abd6e07259d7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
@@ -156,6 +162,18 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Injectable.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
@@ -223,6 +241,27 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Encoding\Base64Encoding.h">
       <Filter>Common\Encoding</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Channel.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelServer.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\TextNetworkProtocol.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

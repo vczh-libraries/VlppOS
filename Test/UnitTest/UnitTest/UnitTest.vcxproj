@@ -183,6 +183,10 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\HttpUtility.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\Locale.cpp" />
     <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -253,6 +257,13 @@
     <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\HttpUtility.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\Channel.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelServer.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\TextNetworkProtocol.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h" />
     <ClInclude Include="..\..\..\Source\Locale.h" />
     <ClInclude Include="..\..\..\Source\Stream\Accessor.h" />
     <ClInclude Include="..\..\..\Source\Stream\BroadcastStream.h" />
