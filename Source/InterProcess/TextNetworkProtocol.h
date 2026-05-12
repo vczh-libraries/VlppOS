@@ -14,19 +14,6 @@ Interfaces:
 
 namespace vl::inter_process
 {
-	class INetworkProtocolCallback : public virtual Interface
-	{
-	public:
-		virtual void				OnReadStringThreadUnsafe(const WString& channelName, const WString& str) = 0;
-		virtual void				OnReadStoppedThreadUnsafe() = 0;
-	};
-
-	class INetworkProtocolCoreCallback : public virtual INetworkProtocolCallback
-	{
-	public:
-		virtual void				OnReconnectedUnsafe() = 0;
-	};
-
 	struct NetworkPackage
 	{
 		Nullable<vint>				clientId;
@@ -72,6 +59,15 @@ namespace vl::inter_process
 			package.messageBody = str.Right(str.Length() - (vint)(afterChannelName - reading + 1));
 #undef ERROR_MESSAGE_PREFIX
 		}
+	};
+
+	class INetworkProtocolCallback : public virtual Interface
+	{
+	public:
+		virtual void				OnReadStringThreadUnsafe(const WString& channelName, const WString& str) = 0;
+		virtual void				OnReadStoppedThreadUnsafe() = 0;
+		virtual void				OnConnectedThreadUnsafe() = 0;
+		virtual void				OnDisconnectedThreadUnsafe() = 0;
 	};
 
 	class INetworkProtocol : public virtual Interface

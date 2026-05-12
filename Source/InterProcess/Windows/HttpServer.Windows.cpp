@@ -596,8 +596,7 @@ void HttpServer::Stop()
 
 void HttpServer::InstallCallback(INetworkProtocolCallback* _callback)
 {
-	callback = dynamic_cast<INetworkProtocolCoreCallback*>(_callback);
-	CHECK_ERROR(callback, L"HttpServer::InstallCallback needs a valid INetworkProtocolCoreCallback.");
+	callback = _callback;
 }
 
 }

@@ -48,7 +48,7 @@ class HttpServer : public INetworkProtocol
 	static constexpr vint32_t						HttpBodyInitSize = 1024;
 
 protected:
-	INetworkProtocolCoreCallback*					callback = nullptr;
+	INetworkProtocolCallback*						callback = nullptr;
 	WString											urlRequest;
 	WString											urlResponse;
 
