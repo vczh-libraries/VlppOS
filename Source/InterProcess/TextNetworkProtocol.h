@@ -65,7 +65,6 @@ namespace vl::inter_process
 	{
 	public:
 		virtual void				OnReadString(const WString& channelName, const WString& str) = 0;
-		virtual void				OnReadStopped() = 0;
 		virtual void				OnConnected() = 0;
 		virtual void				OnDisconnected() = 0;
 	};
@@ -74,34 +73,24 @@ namespace vl::inter_process
 	{
 	public:
 		virtual void				InstallCallback(INetworkProtocolCallback* callback) = 0;
+		virtual void				BeginReadingLoopUnsafe() = 0;
 		virtual void				SendString(const WString& str) = 0;
-	};
-
-	enum class ClientStatus
-	{
-		Initialized,
-		WaitForServer,
-		Connected,
-		Stopped,
+		virtual void				Stop() = 0;
 	};
 
 	class INetworkProtocolClient : public virtual Interface
 	{
 	public:
-		virtual ClientStatus		GetStatus() = 0;
 		virtual void				WaitForServer() = 0;
 		virtual void				WaitForServerAsync(const Func<void()>& callback) = 0;
-		virtual void				BeginReadingLoopUnsafe() = 0;
 	};
 
 	class INetworkProtocolServer : public virtual Interface
 	{
-	protected:
-		virtual void				OnConnected(INetworkProtocolConnection* connection) = 0;
-
 	public:
-		virtual void				WaitForClient() = 0;
-		virtual void				Stop() = 0;
+		virtual INetworkProtocolConnection*		WaitForClient() = 0;
+		virtual void							WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback) = 0;
+		virtual void							Stop() = 0;
 	};
 }
 

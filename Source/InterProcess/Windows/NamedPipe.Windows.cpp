@@ -7,10 +7,10 @@ using namespace vl::console;
 using namespace vl::collections;
 
 /***********************************************************************
-NamedPipeSharedReading
+NamedPipeConnection (Reading)
 ***********************************************************************/
 
-void NamedPipeSharedReading::BeginReadingUnsafe()
+void NamedPipeConnection::BeginReadingUnsafe()
 {
 	if (firstRead)
 	{
@@ -18,12 +18,12 @@ void NamedPipeSharedReading::BeginReadingUnsafe()
 	}
 }
 
-void NamedPipeSharedReading::SubmitReadBufferUnsafe(vint bytes)
+void NamedPipeConnection::SubmitReadBufferUnsafe(vint bytes)
 {
 	streamReadFile.Write(&bufferReadFile[0], bytes);
 }
 
-void NamedPipeSharedReading::EndReadingUnsafe()
+void NamedPipeConnection::EndReadingUnsafe()
 {
 	vint32_t position = (vint32_t)streamReadFile.Position();
 	streamReadFile.SeekFromBegin(0);
@@ -69,12 +69,12 @@ void NamedPipeSharedReading::EndReadingUnsafe()
 
 	WString channelName = ReadSingleString();
 	WString str = ReadSingleString();
-	callback->OnReadStringThreadUnsafe(channelName, str);
+	callback->OnReadString(channelName, str);
 
 	CHECK_ERROR(streamReadFile.Position() == position, L"ReadFile failed on incomplete message.");
 }
 
-void NamedPipeSharedReading::BeginReadingLoopUnsafe()
+void NamedPipeConnection::BeginReadingLoopUnsafe()
 {
 RESTART_LOOP:
 	{
@@ -95,7 +95,7 @@ RESTART_LOOP:
 		DWORD error = GetLastError();
 		if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
 		{
-			callback->OnReadStoppedThreadUnsafe();
+			OnDisconnected();
 			return;
 		}
 		CHECK_ERROR(error == ERROR_MORE_DATA || error == ERROR_IO_PENDING, L"ReadFile failed on unexpected GetLastError.");
@@ -105,7 +105,7 @@ RESTART_LOOP:
 			hEventReadFile,
 			[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 			{
-				auto self = (NamedPipeShared*)lpParameter;
+				auto self = (NamedPipeConnection*)lpParameter;
 				UnregisterWait(self->hWaitHandleReadFile);
 				self->hWaitHandleReadFile = INVALID_HANDLE_VALUE;
 
@@ -121,7 +121,7 @@ RESTART_LOOP:
 					DWORD error = GetLastError();
 					if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
 					{
-						self->callback->OnReadStoppedThreadUnsafe();
+						self->OnDisconnected();
 						return;
 					}
 					CHECK_ERROR(error == ERROR_MORE_DATA, L"GetOverlappedResult(ReadFile) failed on unexpected GetLastError.");
@@ -135,28 +135,16 @@ RESTART_LOOP:
 	}
 }
 
-NamedPipeSharedReading::NamedPipeSharedReading()
-	: bufferReadFile(MaxMessageSize)
-{
-	hEventReadFile = CreateEvent(NULL, TRUE, TRUE, NULL);
-	CHECK_ERROR(hEventReadFile != NULL, L"NamedPipeSharedReading initialization failed on CreateEvent(hEventReadFile).");
-}
-
-NamedPipeSharedReading::~NamedPipeSharedReading()
-{
-	CloseHandle(hEventReadFile);
-}
-
 /***********************************************************************
-NamedPipeSharedWriting
+NamedPipeConnection (Writing)
 ***********************************************************************/
 
-vint32_t NamedPipeSharedWriting::WriteInt32ToStream(vint32_t number)
+vint32_t NamedPipeConnection::WriteInt32ToStream(vint32_t number)
 {
 	return (vint32_t)streamWriteFile.Write(&number, sizeof(number));
 }
 
-vint32_t NamedPipeSharedWriting::WriteStringToStream(const WString& str)
+vint32_t NamedPipeConnection::WriteStringToStream(const WString& str)
 {
 	vint32_t bytes = 0;
 	vint32_t count = (vint32_t)str.Length();
@@ -168,14 +156,14 @@ vint32_t NamedPipeSharedWriting::WriteStringToStream(const WString& str)
 	return bytes;
 }
 
-void NamedPipeSharedWriting::BeginSendStream()
+void NamedPipeConnection::BeginSendStream()
 {
 	vint32_t bytes = 0;
 	streamWriteFile.SeekFromBegin(0);
 	streamWriteFile.Write(&bytes, sizeof(bytes));
 }
 
-void NamedPipeSharedWriting::EndSendStream(vint32_t bytes)
+void NamedPipeConnection::EndSendStream(vint32_t bytes)
 {
 	streamWriteFile.SeekFromBegin(0);
 	WriteInt32ToStream(bytes);
@@ -195,41 +183,58 @@ void NamedPipeSharedWriting::EndSendStream(vint32_t bytes)
 	}
 }
 
-void NamedPipeSharedWriting::SendString(const WString& channelName, const WString& str)
+void NamedPipeConnection::SendString(const WString& str)
 {
 	vint32_t bytes = 0;
 	BeginSendStream();
-	bytes += WriteStringToStream(channelName);
 	bytes += WriteStringToStream(str);
 	EndSendStream(bytes);
 }
 
-NamedPipeSharedWriting::NamedPipeSharedWriting()
+/***********************************************************************
+NamedPipeConnection
+***********************************************************************/
+
+void NamedPipeConnection::OnDisconnected()
 {
-	hEventWriteFile = CreateEvent(NULL, TRUE, TRUE, NULL);
-	CHECK_ERROR(hEventWriteFile != NULL, L"NamedPipeSharedWriting initialization failed on CreateEvent(hEventWriteFile).");
+	if (callback)
+	{
+		callback->OnDisconnected();
+	}
+	if (server)
+	{
+		SPIN_LOCK(server->lockConnections)
+		{
+			server->connections.Remove(this);
+		}
+	}
 }
 
-NamedPipeSharedWriting::~NamedPipeSharedWriting()
+NamedPipeConnection::NamedPipeConnection(HANDLE _hPipe)
 {
+	hPipe = _hPipe;
+
+	hEventReadFile = CreateEvent(NULL, TRUE, TRUE, NULL);
+	CHECK_ERROR(hEventReadFile != NULL, L"NamedPipeConnection initialization failed on CreateEvent(hEventReadFile).");
+
+	hEventWriteFile = CreateEvent(NULL, TRUE, TRUE, NULL);
+	CHECK_ERROR(hEventWriteFile != NULL, L"NamedPipeConnection initialization failed on CreateEvent(hEventWriteFile).");
+}
+
+NamedPipeConnection::~NamedPipeConnection()
+{
+	Stop();
+	CloseHandle(hEventReadFile);
 	CloseHandle(hEventWriteFile);
 }
 
-/***********************************************************************
-NamedPipeShared
-***********************************************************************/
-
-NamedPipeShared::NamedPipeShared(HANDLE _hPipe)
+void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
-	hPipe = _hPipe;
+	callback = _callback;
+	CHECK_ERROR(callback, L"NamedPipeConnection::InstallCallback needs a valid INetworkProtocolCallback.");
 }
 
-NamedPipeShared::~NamedPipeShared()
-{
-	Stop();
-}
-
-void NamedPipeShared::Stop()
+void NamedPipeConnection::Stop()
 {
 	if (hPipe != INVALID_HANDLE_VALUE)
 	{
@@ -238,30 +243,14 @@ void NamedPipeShared::Stop()
 	}
 }
 
-void NamedPipeShared::InstallCallback(INetworkProtocolCallback* _callback)
-{
-	callback = _callback;
-	CHECK_ERROR(callback, L"NamedPipeShared::InstallCallback needs a valid INetworkProtocolCallback.");
-}
-
-void NamedPipeShared::BeginReadingLoopUnsafe()
-{
-	NamedPipeSharedReading::BeginReadingLoopUnsafe();
-}
-
-void NamedPipeShared::SendString(const WString& channelName, const WString& str)
-{
-	NamedPipeSharedWriting::SendString(channelName, str);
-}
-
 /***********************************************************************
 NamedPipeServer
 ***********************************************************************/
 
-HANDLE NamedPipeServer::ServerCreatePipe()
+HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 {
 	HANDLE hPipe = CreateNamedPipe(
-		NamedPipeId,
+		pipeName.Buffer(),
 		PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
 		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_REJECT_REMOTE_CLIENTS,
 		1,
@@ -273,45 +262,90 @@ HANDLE NamedPipeServer::ServerCreatePipe()
 	return hPipe;
 }
 
-NamedPipeServer::NamedPipeServer()
-	: NamedPipeShared(ServerCreatePipe())
+NamedPipeServer::NamedPipeServer(const WString& _pipeName)
+	: pipeName(_pipeName)
 {
 }
 
 NamedPipeServer::~NamedPipeServer()
 {
+	Stop();
 }
 
-void NamedPipeServer::WaitForClient()
+INetworkProtocolConnection* NamedPipeServer::WaitForClient()
 {
-	OVERLAPPED overlapped;
-	ZeroMemory(&overlapped, sizeof(overlapped));
-	overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	CHECK_ERROR(overlapped.hEvent != NULL, L"ConnectNamedPipe failed on CreateEvent.");
-
-	BOOL result = ConnectNamedPipe(hPipe, &overlapped);
-	CHECK_ERROR(result == FALSE, L"ConnectNamedPipe failed.");
-	DWORD error = GetLastError();
-	switch (error)
+	SPIN_LOCK(lockConnections)
 	{
-	case ERROR_IO_PENDING:
-		WaitForSingleObject(overlapped.hEvent, INFINITE);
-		break;
-	default:
-		CHECK_ERROR(error == ERROR_PIPE_CONNECTED, L"ConnectNamedPipe failed on unexpected GetLastError.");
+		CHECK_ERROR(!stopped, L"NamedPipeServer has stopped.");
 	}
 
-	CloseHandle(overlapped.hEvent);
+	auto connection = Ptr(new NamedPipeConnection(ServerCreatePipe(pipeName)));
+	{
+		OVERLAPPED overlapped;
+		ZeroMemory(&overlapped, sizeof(overlapped));
+		overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		CHECK_ERROR(overlapped.hEvent != NULL, L"ConnectNamedPipe failed on CreateEvent.");
+
+		BOOL result = ConnectNamedPipe(connection->hPipe, &overlapped);
+		CHECK_ERROR(result == FALSE, L"ConnectNamedPipe failed.");
+		DWORD error = GetLastError();
+		switch (error)
+		{
+		case ERROR_IO_PENDING:
+			WaitForSingleObject(overlapped.hEvent, INFINITE);
+			break;
+		default:
+			CHECK_ERROR(error == ERROR_PIPE_CONNECTED, L"ConnectNamedPipe failed on unexpected GetLastError.");
+		}
+
+		CloseHandle(overlapped.hEvent);
+	}
+
+	SPIN_LOCK(lockConnections)
+	{
+		if (stopped)
+		{
+			connection = nullptr;
+			CHECK_FAIL(L"NamedPipeServer has stopped.");
+		}
+		else
+		{
+			connection->server = this;
+			connections.Add(connection);
+		}
+	}
+}
+
+void NamedPipeServer::WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback)
+{
+}
+
+void NamedPipeServer::Stop()
+{
+	SPIN_LOCK(lockConnections)
+	{
+		stopped = true;
+		for (auto connection : connections)
+		{
+			connection->server = nullptr;
+		}
+	}
+
+	for (auto connection : connections)
+	{
+		connection->Stop();
+	}
+	connections.Clear();
 }
 
 /***********************************************************************
 NamedPipeClient
 ***********************************************************************/
 
-HANDLE NamedPipeClient::ClientCreatePipe()
+HANDLE NamedPipeClient::ClientCreatePipe(const WString& pipeName)
 {
 	HANDLE hPipe = CreateFile(
-		NamedPipeId,
+		pipeName.Buffer(),
 		GENERIC_READ | GENERIC_WRITE,
 		0,
 		NULL,
@@ -323,8 +357,8 @@ HANDLE NamedPipeClient::ClientCreatePipe()
 	return hPipe;
 }
 
-NamedPipeClient::NamedPipeClient()
-	: NamedPipeShared(ClientCreatePipe())
+NamedPipeClient::NamedPipeClient(const WString& _pipeName)
+	: NamedPipeConnection(ClientCreatePipe(_pipeName))
 {
 }
 
@@ -341,6 +375,19 @@ void NamedPipeClient::WaitForServer()
 		NULL,
 		NULL);
 	CHECK_ERROR(bSucceeded, L"SetNamedPipeHandleState failed.");
+	if (callback)
+	{
+		callback->OnConnected();
+	}
+}
+
+void NamedPipeClient::WaitForServerAsync(const Func<void()>& callback)
+{
+	ThreadPoolLite::Queue([=]()
+	{
+		WaitForServer();
+		callback();
+	});
 }
 
 }

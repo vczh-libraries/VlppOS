@@ -5,12 +5,10 @@
 ### IChannelServer
 
 - `INetworkProtocol` implementations currently accept one client, need improvement.
+  - Fix `HttpServer`.
+- `IChannelServer`:
   - Server need to assign clientId after connection established.
   - Client need to send `clientId` (empty to broadcast), `channelName`, `str`.
-  - `*Client` inherits from `INetworkProtocol`.
-  - `*Server` maintains multiple `INetworkProtocol` for clients.
-  - Fix `NamedPipeServer`.
-  - Fix `HttpServer`.
 - InterProcess test project.
   - `InterProcessServerTest`.
   - `InterProcessorClientTest`.

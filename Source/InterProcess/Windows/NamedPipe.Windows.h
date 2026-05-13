@@ -16,20 +16,15 @@ Interfaces:
 namespace vl::inter_process
 {
 
-constexpr const wchar_t* NamedPipeId = L"\\\\.\\pipe\\GacUIRemoteProtocol";
+class NamedPipeServer;
 
-class NamedPipeSharedCommon : public INetworkProtocol
+class NamedPipeConnection : public Object, public virtual INetworkProtocolConnection
 {
-protected:
-	// NamedPipe doesn't support a single message that is larger than 64K
-	static constexpr vint32_t						MaxMessageSize = 65536;
+	friend class NamedPipeServer;
+// -----------------------------------------------------------------------
+// Reading
+// -----------------------------------------------------------------------
 
-	INetworkProtocolCallback*						callback = nullptr;
-	HANDLE											hPipe = INVALID_HANDLE_VALUE;
-};
-
-class NamedPipeSharedReading : public virtual NamedPipeSharedCommon
-{
 private:
 	bool											firstRead = true;
 	collections::Array<BYTE>						bufferReadFile;
@@ -42,15 +37,12 @@ private:
 	void											SubmitReadBufferUnsafe(vint bytes);
 	void											EndReadingUnsafe();
 
-protected:
-	void											BeginReadingLoopUnsafe();
+public:
+	void											BeginReadingLoopUnsafe() override;
 
-	NamedPipeSharedReading();
-	~NamedPipeSharedReading();
-};
-
-class NamedPipeSharedWriting : public virtual NamedPipeSharedCommon
-{
+// -----------------------------------------------------------------------
+// Writing
+// -----------------------------------------------------------------------
 private:
 	stream::MemoryStream							streamWriteFile;
 	OVERLAPPED										overlappedWriteFile;
@@ -62,51 +54,62 @@ private:
 	void											EndSendStream(vint32_t bytes);
 
 protected:
-	void											SendString(const WString& channelName, const WString& str) override;
+	void											SendString(const WString& str) override;
 
-	NamedPipeSharedWriting();
-	~NamedPipeSharedWriting();
-};
+// -----------------------------------------------------------------------
+// Connection
+// -----------------------------------------------------------------------
 
-class NamedPipeShared
-	: public NamedPipeSharedReading
-	, public NamedPipeSharedWriting
-{
 protected:
-	NamedPipeShared(HANDLE _hPipe);
-	~NamedPipeShared();
+	// NamedPipe doesn't support a single message that is larger than 64K
+	static constexpr vint32_t						MaxMessageSize = 65536;
+
+	NamedPipeServer*								server = nullptr;
+	INetworkProtocolCallback*						callback = nullptr;
+	HANDLE											hPipe = INVALID_HANDLE_VALUE;
+
+	void											OnDisconnected();
+
+	NamedPipeConnection(HANDLE _hPipe);
 
 public:
-
-	void											Stop();
+	~NamedPipeConnection();
 
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;
-	void											BeginReadingLoopUnsafe() override;
-	void											SendString(const WString& channelName, const WString& str) override;
+	void											Stop() override;
 };
 
-class NamedPipeServer : public NamedPipeShared
+class NamedPipeServer : public Object, public virtual INetworkProtocolServer
 {
+	friend class NamedPipeConnection;
 protected:
-	static HANDLE									ServerCreatePipe();
+	static HANDLE									ServerCreatePipe(const WString& pipeName);
+
+	WString											pipeName;
+	bool											stopped = false;
+	SpinLock										lockConnections;
+	collections::List<Ptr< NamedPipeConnection>>	connections;
 
 public:
-	NamedPipeServer();
+	NamedPipeServer(const WString& _pipeName);
 	~NamedPipeServer();
 
-	void											WaitForClient();
+	INetworkProtocolConnection*						WaitForClient() override;
+	void											WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback) override;
+	void											Stop() override;
 };
 
-class NamedPipeClient : public NamedPipeShared
+class NamedPipeClient : public NamedPipeConnection, public virtual INetworkProtocolServer
 {
 protected:
-	static HANDLE									ClientCreatePipe();
+	static HANDLE									ClientCreatePipe(const WString& pipeName);
 
 public:
-	NamedPipeClient();
+	NamedPipeClient(const WString& _pipeName);
 	~NamedPipeClient();
 
 	void											WaitForServer();
+	void											WaitForServerAsync(const Func<void()>& callback);
 };
 
 }
