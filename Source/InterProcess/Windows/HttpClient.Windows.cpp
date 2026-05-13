@@ -11,7 +11,10 @@ HttpClient (Reading)
 
 void HttpClient::RaiseErrorUnsafe(WString errorMessage)
 {
-	callback->OnReadError(errorMessage);
+	if (callback)
+	{
+		callback->OnReadError(errorMessage);
+	}
 }
 
 void HttpClient::BeginReadingLoopUnsafe()
@@ -156,6 +159,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 							DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
 							if (dataAvailable == 0)
 							{
+								if (self->callback)
 								{
 									self->httpRespondBodyBuffer[self->httpRespondBodyBufferWriting] = 0;
 									U8String bodyUtf8 = U8String::Unmanaged(&self->httpRespondBodyBuffer[0]);
@@ -618,7 +622,10 @@ void HttpClient::Stop()
 		httpConnection = NULL;
 		httpSession = NULL;
 
-		callback->OnDisconnected();
+		if (callback)
+		{
+			callback->OnDisconnected();
+		}
 	}
 }
 

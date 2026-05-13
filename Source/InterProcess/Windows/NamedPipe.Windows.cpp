@@ -248,10 +248,10 @@ NamedPipeServer
 HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 {
 	HANDLE hPipe = CreateNamedPipe(
-		pipeName.Buffer(),
-		PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+		(L"\\\\.\\pipe\\" + pipeName).Buffer(),
+		PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
 		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_REJECT_REMOTE_CLIENTS,
-		1,
+		PIPE_UNLIMITED_INSTANCES,
 		65536,
 		65536,
 		6000,
@@ -336,7 +336,7 @@ NamedPipeClient
 HANDLE NamedPipeClient::ClientCreatePipe(const WString& pipeName)
 {
 	HANDLE hPipe = CreateFile(
-		pipeName.Buffer(),
+		(L"\\\\.\\pipe\\" + pipeName).Buffer(),
 		GENERIC_READ | GENERIC_WRITE,
 		0,
 		NULL,

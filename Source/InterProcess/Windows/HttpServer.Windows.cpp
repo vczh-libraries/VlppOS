@@ -182,17 +182,13 @@ void HttpServer::OnHttpConnectionBrokenUnsafe()
 			{
 				connection->server = nullptr;
 			}
-		}
 
-		for (auto connection : connections.Values())
-		{
-			connection->Stop();
+			for (auto connection : connections.Values())
+			{
+				connection->Stop();
+			}
+			connections.Clear();
 		}
-		connections.Clear();
-	}
-	else
-	{
-		CHECK_FAIL(L"Unexpected HTTP request.");
 	}
 }
 
@@ -641,7 +637,7 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 
 HttpServer::~HttpServer()
 {
-	Stop();
+	state = State::Stopping;
 	SPIN_LOCK(lockConnections)
 	{
 		for (auto connection : connections.Values())
@@ -652,7 +648,9 @@ HttpServer::~HttpServer()
 				connection->OnCancelCurrentHttpRequestForPendingRequest();
 			}
 		}
+		connections.Clear();
 	}
+	Stop();
 	CloseHandle(hEventRequest);
 }
 

@@ -40,6 +40,9 @@ namespace mynamespace
 		{
 			{
 				auto server = createServer();
+				auto connection1 = server->WaitForClient();
+				auto connection2 = server->WaitForClient();
+				Thread::Sleep(3000);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -47,6 +50,9 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				auto client = createClient();
+				client->WaitForServer();
+				Thread::Sleep(3000);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -54,6 +60,9 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				auto client = createClient();
+				client->WaitForServer();
+				Thread::Sleep(3000);
 			}
 			timeoutThread->threadCounter++;
 		});
