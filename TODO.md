@@ -6,7 +6,7 @@
 
 - `INetworkProtocol` implementations currently accept one client, need improvement.
   - `NamedPipeServer::WaitForClient` needs to stop when `NamedPipeServer::Stop` is called.
-  - Fix `HttpServer`.
+  - `HttpServer::WaitForClient` needs to stop when `HttpServer::Stop` is called.
 - `IChannelServer`:
   - Server need to assign clientId after connection established.
   - Client need to send `clientId` (empty to broadcast), `channelName`, `str`.

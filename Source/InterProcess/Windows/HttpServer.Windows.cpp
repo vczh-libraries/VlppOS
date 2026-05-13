@@ -330,24 +330,6 @@ void HttpServer::ListenToHttpRequest()
 HttpServer (WaitForClient)
 ***********************************************************************/
 
-void HttpServer::SendConnectResponse(PHTTP_REQUEST pRequest)
-{
-	ULONG result = SendResponse(httpRequestQueue, pRequest->RequestId, urlRequest, urlResponse);
-	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for establishing a connection.");
-}
-
-INetworkProtocolConnection* HttpServer::WaitForClient()
-{
-	CHECK_ERROR(state == State::Running, L"WaitForClient() cannot be called after Stop().");
-	state = State::WaitForClientConnection;
-
-	ResetEvent(hEventWaitForClient);
-	ListenToHttpRequest();
-	WaitForSingleObject(hEventWaitForClient, INFINITE);
-
-	CHECK_ERROR(state == State::Running, L"WaitForClient() failed to connect to a client.");
-}
-
 /***********************************************************************
 HttpServer (BeginReadingLoopUnsafe)
 ***********************************************************************/
@@ -539,8 +521,6 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 	hEventRequest = CreateEvent(NULL, TRUE, TRUE, NULL);
 	CHECK_ERROR(hEventRequest != NULL, L"HttpServer initialization failed on CreateEvent(hEventRequest).");
 
-	hEventWaitForClient = CreateEvent(NULL, TRUE, TRUE, NULL);
-	CHECK_ERROR(hEventWaitForClient != NULL, L"HttpServer initialization failed on CreateEvent(hEventWaitForClient).");
 	{
 		ULONG result = NO_ERROR;
 
@@ -609,13 +589,30 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 			sizeof(bindingInfo));
 		CHECK_ERROR(result == NO_ERROR, L"HttpSetUrlGroupProperty failed (HttpServerBindingProperty).");
 	}
+
+	semaphoreQueuedConnections.Create(0, 9999);
+	ListenToHttpRequest();
 }
 
 HttpServer::~HttpServer()
 {
 	Stop();
 	CloseHandle(hEventRequest);
-	CloseHandle(hEventWaitForClient);
+}
+
+INetworkProtocolConnection* HttpServer::WaitForClient()
+{
+	CHECK_ERROR(state == State::Running, L"WaitForClient() cannot be called after Stop().");
+	while (state == State::Running && semaphoreQueuedConnections.Wait())
+	{
+		SPIN_LOCK(lockQueuedConnections)
+		{
+			auto connection = queuedConnections[0];
+			queuedConnections.RemoveAt(0);
+			return connection;
+		}
+	}
+	CHECK_FAIL(L"HttpServer has stopped.");
 }
 
 void HttpServer::Stop()
