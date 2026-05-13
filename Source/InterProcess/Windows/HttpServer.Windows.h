@@ -21,6 +21,8 @@ class HttpServer : public INetworkProtocol
 
 protected:
 	INetworkProtocolCallback*						callback = nullptr;
+	WString											baseUrl;
+	WString											urlConnect;
 	WString											urlRequest;
 	WString											urlResponse;
 
@@ -108,7 +110,7 @@ HttpServer
 ***********************************************************************/
 
 public:
-	HttpServer();
+	HttpServer(const WString _baseUrl, vint port);
 	~HttpServer();
 
 	void											Stop();

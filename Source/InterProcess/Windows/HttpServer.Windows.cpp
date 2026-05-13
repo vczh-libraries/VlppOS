@@ -27,7 +27,7 @@ void HttpServer::OnHttpConnectionBrokenUnsafe()
 
 void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 {
-	if (pRequest->Verb == HttpVerbGET && wcscmp(pRequest->CookedUrl.pAbsPath, HttpServerUrl_Connect) == 0)
+	if (pRequest->Verb == HttpVerbGET && pRequest->CookedUrl.pAbsPath == urlConnect)
 	{
 		GenerateNewUrls();
 		if (state == State::WaitForClientConnection)
@@ -229,8 +229,8 @@ void HttpServer::GenerateNewUrls()
 	status = UuidToString(&guid, &guidString);
 	CHECK_ERROR(status == RPC_S_OK, L"UuidToString failed.");
 
-	urlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + WString::Unmanaged(guidString);
-	urlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + WString::Unmanaged(guidString);
+	urlRequest = baseUrl + WString::Unmanaged(HttpServerUrl_Request) + L"/" + WString::Unmanaged(guidString);
+	urlResponse = baseUrl + WString::Unmanaged(HttpServerUrl_Response) + L"/" + WString::Unmanaged(guidString);
 
 	status = RpcStringFree(&guidString);
 	CHECK_ERROR(status == RPC_S_OK, L"RpcStringFree failed.");
@@ -494,9 +494,12 @@ void HttpServer::SendString(const WString& channelName, const WString& str)
 HttpServer
 ***********************************************************************/
 
-HttpServer::HttpServer()
+HttpServer::HttpServer(const WString _baseUrl, vint port)
 	: bufferRequest(HttpBodyInitSize)
+	, baseUrl(_baseUrl)
 {
+	urlConnect = baseUrl + HttpServerUrl_Connect;
+
 	hEventRequest = CreateEvent(NULL, TRUE, TRUE, NULL);
 	CHECK_ERROR(hEventRequest != NULL, L"HttpServer initialization failed on CreateEvent(hEventRequest).");
 
@@ -536,21 +539,21 @@ HttpServer::HttpServer()
 
 		result = HttpAddUrlToUrlGroup(
 			httpUrlGroupId,
-			(WString::Unmanaged(L"http://") + WString::Unmanaged(HttpServerUrl) + WString::Unmanaged(HttpServerUrl_Connect)).Buffer(),
+			(WString::Unmanaged(L"http://localhost:") + itow(port) + baseUrl + WString::Unmanaged(HttpServerUrl_Connect)).Buffer(),
 			0,
 			0);
 		CHECK_ERROR(result == NO_ERROR, L"HttpAddUrlToUrlGroup failed (urlConnect).");
 
 		result = HttpAddUrlToUrlGroup(
 			httpUrlGroupId,
-			(WString::Unmanaged(L"http://") + WString::Unmanaged(HttpServerUrl) + WString::Unmanaged(HttpServerUrl_Request)).Buffer(),
+			(WString::Unmanaged(L"http://localhost:") + itow(port) + baseUrl + WString::Unmanaged(HttpServerUrl_Request)).Buffer(),
 			0,
 			0);
 		CHECK_ERROR(result == NO_ERROR, L"HttpAddUrlToUrlGroup failed (urlRequest).");
 
 		result = HttpAddUrlToUrlGroup(
 			httpUrlGroupId,
-			(WString::Unmanaged(L"http://") + WString::Unmanaged(HttpServerUrl) + WString::Unmanaged(HttpServerUrl_Response)).Buffer(),
+			(WString::Unmanaged(L"http://localhost:") + itow(port) + baseUrl + WString::Unmanaged(HttpServerUrl_Response)).Buffer(),
 			0,
 			0);
 		CHECK_ERROR(result == NO_ERROR, L"HttpAddUrlToUrlGroup failed (urlResponse).");
