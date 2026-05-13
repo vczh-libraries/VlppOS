@@ -98,7 +98,7 @@ public:
 	void											Stop() override;
 };
 
-class NamedPipeClient : public NamedPipeConnection, public virtual INetworkProtocolServer
+class NamedPipeClient : public NamedPipeConnection, public virtual INetworkProtocolClient
 {
 protected:
 	static HANDLE									ClientCreatePipe(const WString& pipeName);
@@ -107,7 +107,7 @@ public:
 	NamedPipeClient(const WString& _pipeName);
 	~NamedPipeClient();
 
-	void											WaitForServer();
+	void											WaitForServer() override;
 };
 
 }

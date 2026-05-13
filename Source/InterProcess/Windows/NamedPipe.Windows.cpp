@@ -301,17 +301,14 @@ INetworkProtocolConnection* NamedPipeServer::WaitForClient()
 
 	SPIN_LOCK(lockConnections)
 	{
-		if (stopped)
-		{
-			connection = nullptr;
-			CHECK_FAIL(L"NamedPipeServer has stopped.");
-		}
-		else
+		if (!stopped)
 		{
 			connection->server = this;
 			connections.Add(connection);
+			return connection.Obj();
 		}
 	}
+	CHECK_FAIL(L"NamedPipeServer has stopped.");
 }
 
 void NamedPipeServer::Stop()

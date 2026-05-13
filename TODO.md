@@ -31,7 +31,7 @@
     - Type `name:text` to send to `Private` channel.
     - Both `Group` and `Private` renders to the CLI application.
     - Support multiple clients, server can chat as admin.
-  - `/Http` to use `HttpServer` (windows only, `localhost:8765/VlppOSTestPipe`).
+  - `/Http` to use `HttpServer` (windows only, `localhost:8765/VlppOSTestHttpServer`).
   - `/Pipe` to use `NamedPipe` (windows only, `\\.\pipe\VlppOSTestPipe`).
   - `/Socket`.
 - `HttpServer` to accept customized port and first level url fragment for identifier.
