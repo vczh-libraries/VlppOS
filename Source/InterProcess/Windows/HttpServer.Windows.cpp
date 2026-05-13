@@ -6,6 +6,118 @@ namespace vl::inter_process
 using namespace vl::collections;
 
 /***********************************************************************
+HttpServerConnection
+***********************************************************************/
+
+void HttpServerConnection::OnCancelCurrentHttpRequestForPendingRequest()
+{
+	if (httpPendingRequestId != HTTP_NULL_ID)
+	{
+		ULONG result = HttpCancelHttpRequest(
+			server->httpRequestQueue,
+			httpPendingRequestId,
+			NULL);
+		CHECK_ERROR(
+			result == NO_ERROR || result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED,
+			L"HttpCancelHttpRequest failed for canceling outdated /Request.");
+		httpPendingRequestId = HTTP_NULL_ID;
+	}
+}
+
+void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId)
+{
+	OnCancelCurrentHttpRequestForPendingRequest();
+	httpPendingRequestId = httpRequestId;
+	if (pendingRequestToSend)
+	{
+		ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, pendingRequestToSend.Value());
+		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
+		pendingRequestToSend.Reset();
+	}
+}
+
+void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
+{
+	callback = _callback;
+	List<WString> queued;
+	SPIN_LOCK(lockQueuedStrings)
+	{
+		CopyFrom(queued, queuedStrings);
+		queuedStrings.Clear();
+	}
+
+	for (const auto& str : queued)
+	{
+		callback->OnReadString(str);
+	}
+}
+
+void HttpServerConnection::BeginReadingLoopUnsafe()
+{
+	// Do nothing, HttpServer automatically handles this.
+}
+
+void HttpServerConnection::SendString(const WString& str)
+{
+	SPIN_LOCK(pendingRequestLock)
+	{
+		if (httpPendingRequestId != HTTP_NULL_ID)
+		{
+			pendingRequestToSend.Reset();
+			ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, str);
+			if (result == NO_ERROR)
+			{
+				httpPendingRequestId = HTTP_NULL_ID;
+			}
+			else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
+			{
+				httpPendingRequestId = HTTP_NULL_ID;
+			}
+			else
+			{
+				CHECK_FAIL(L"HttpSendHttpResponse failed for responding /Request.");
+			}
+		}
+		else
+		{
+			pendingRequestToSend = str;
+		}
+	}
+}
+
+void HttpServerConnection::Stop()
+{
+	auto holding = Ptr(this);
+	SPIN_LOCK(server->lockConnections)
+	{
+		server->connections.Remove(guid);
+	}
+
+	OnCancelCurrentHttpRequestForPendingRequest();
+	if (callback)
+	{
+		callback->OnDisconnected();
+	}
+}
+
+WString HttpServerConnection::GenerateNewGuid()
+{
+	RPC_STATUS status = -1;
+	UUID guid;
+	status = UuidCreate(&guid);
+	CHECK_ERROR(status == RPC_S_OK, L"UuidCreate failed.");
+
+	RPC_WSTR guidString = nullptr;
+	status = UuidToString(&guid, &guidString);
+	CHECK_ERROR(status == RPC_S_OK, L"UuidToString failed.");
+
+	WString guid = guidString;
+	status = RpcStringFree(&guidString);
+	CHECK_ERROR(status == RPC_S_OK, L"RpcStringFree failed.");
+	return guid;
+}
+
+/***********************************************************************
 HttpServer (ListenToHttpRequest)
 ***********************************************************************/
 
@@ -218,33 +330,15 @@ void HttpServer::ListenToHttpRequest()
 HttpServer (WaitForClient)
 ***********************************************************************/
 
-void HttpServer::GenerateNewUrls()
-{
-	RPC_STATUS status = -1;
-	UUID guid;
-	status = UuidCreate(&guid);
-	CHECK_ERROR(status == RPC_S_OK, L"UuidCreate failed.");
-
-	RPC_WSTR guidString = nullptr;
-	status = UuidToString(&guid, &guidString);
-	CHECK_ERROR(status == RPC_S_OK, L"UuidToString failed.");
-
-	urlRequest = baseUrl + WString::Unmanaged(HttpServerUrl_Request) + L"/" + WString::Unmanaged(guidString);
-	urlResponse = baseUrl + WString::Unmanaged(HttpServerUrl_Response) + L"/" + WString::Unmanaged(guidString);
-
-	status = RpcStringFree(&guidString);
-	CHECK_ERROR(status == RPC_S_OK, L"RpcStringFree failed.");
-}
-
 void HttpServer::SendConnectResponse(PHTTP_REQUEST pRequest)
 {
 	ULONG result = SendResponse(httpRequestQueue, pRequest->RequestId, urlRequest, urlResponse);
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for establishing a connection.");
 }
 
-void HttpServer::WaitForClient()
+INetworkProtocolConnection* HttpServer::WaitForClient()
 {
-	CHECK_ERROR(state == State::Ready, L"WaitForClient() can only be called for once.");
+	CHECK_ERROR(state == State::Running, L"WaitForClient() cannot be called after Stop().");
 	state = State::WaitForClientConnection;
 
 	ResetEvent(hEventWaitForClient);
@@ -296,11 +390,6 @@ void HttpServer::SubmitResponse(PHTTP_REQUEST pRequest)
 		CHECK_ERROR(channelNameLength != -1, L"/Response response body is not in the correct format: channelName;str.");
 		callback->OnReadStringThreadUnsafe(u8tow(bodyUtf8.Left(channelNameLength)), u8tow(bodyUtf8.Right(bodyUtf8.Length() - channelNameLength - 1)));
 	}
-}
-
-void HttpServer::BeginReadingLoopUnsafe()
-{
-	// Does nothing since ListenToHttpRequest is looping after WaitForClient is called
 }
 
 /***********************************************************************
@@ -388,7 +477,7 @@ void HttpServer::SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID re
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed (OPTIONS).");
 }
 
-ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str)
+ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& str)
 {
 	ULONG bytesSent = 0;
 	HTTP_RESPONSE httpResponse;
@@ -401,7 +490,7 @@ ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestI
 	httpResponse.EntityChunkCount = 1;
 	httpResponse.pEntityChunks = &httpResponseBody;
 
-	U8String body = wtou8(channelName + L";" + str);
+	U8String body = wtou8(str);
 	httpResponseBody.DataChunkType = HttpDataChunkFromMemory;
 	httpResponseBody.FromMemory.pBuffer = (PVOID)body.Buffer();
 	httpResponseBody.FromMemory.BufferLength = (ULONG)body.Length();
@@ -435,61 +524,6 @@ ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestI
 	return result;
 }
 
-void HttpServer::OnCancelCurrentHttpRequestForPendingRequest()
-{
-	if (httpPendingRequestId != HTTP_NULL_ID)
-	{
-		ULONG result = HttpCancelHttpRequest(
-			httpRequestQueue,
-			httpPendingRequestId,
-			NULL);
-		CHECK_ERROR(
-			result == NO_ERROR || result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED,
-			L"HttpCancelHttpRequest failed for canceling outdated /Request.");
-		httpPendingRequestId = HTTP_NULL_ID;
-	}
-}
-
-void HttpServer::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId)
-{
-	OnCancelCurrentHttpRequestForPendingRequest();
-	httpPendingRequestId = httpRequestId;
-	if (pendingRequestToSend)
-	{
-		ULONG result = SendResponse(httpRequestQueue, httpPendingRequestId, pendingRequestToSend.Value().key, pendingRequestToSend.Value().value);
-		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
-		pendingRequestToSend.Reset();
-	}
-}
-
-void HttpServer::SendString(const WString& channelName, const WString& str)
-{
-	SPIN_LOCK(pendingRequestLock)
-	{
-		if (httpPendingRequestId != HTTP_NULL_ID)
-		{
-			pendingRequestToSend.Reset();
-			ULONG result = SendResponse(httpRequestQueue, httpPendingRequestId, channelName, str);
-			if (result == NO_ERROR)
-			{
-				httpPendingRequestId = HTTP_NULL_ID;
-			}
-			else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
-			{
-				httpPendingRequestId = HTTP_NULL_ID;
-			}
-			else
-			{
-				CHECK_FAIL(L"HttpSendHttpResponse failed for responding /Request.");
-			}
-		}
-		else
-		{
-			pendingRequestToSend = { channelName,str };
-		}
-	}
-}
-
 /***********************************************************************
 HttpServer
 ***********************************************************************/
@@ -499,6 +533,8 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 	, baseUrl(_baseUrl)
 {
 	urlConnect = baseUrl + HttpServerUrl_Connect;
+	urlRequestPrefix = baseUrl + HttpServerUrl_Request + L"/";
+	urlResponsePrefix = baseUrl + HttpServerUrl_Response + L"/";
 
 	hEventRequest = CreateEvent(NULL, TRUE, TRUE, NULL);
 	CHECK_ERROR(hEventRequest != NULL, L"HttpServer initialization failed on CreateEvent(hEventRequest).");
@@ -595,11 +631,6 @@ void HttpServer::Stop()
 			HTTP_INITIALIZE_SERVER,
 			NULL);
 	}
-}
-
-void HttpServer::InstallCallback(INetworkProtocolCallback* _callback)
-{
-	callback = _callback;
 }
 
 }

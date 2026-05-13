@@ -15,16 +15,49 @@ Interfaces:
 namespace vl::inter_process
 {
 
-class HttpServer : public INetworkProtocol
+class HttpServer;
+
+class HttpServerConnection : public Object, public virtual INetworkProtocolConnection
+{
+protected:
+	HttpServer*										server = nullptr;
+	WString											guid;
+	INetworkProtocolCallback*						callback = nullptr;
+
+	SpinLock										lockQueuedStrings;
+	collections::List<WString>						queuedStrings;
+
+	SpinLock										pendingRequestLock;
+	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
+	Nullable<WString>								pendingRequestToSend;
+
+	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
+	void											OnCancelCurrentHttpRequestForPendingRequest();
+	void											OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId);
+
+public:
+	void											InstallCallback(INetworkProtocolCallback* _callback) override;
+	void											BeginReadingLoopUnsafe() override;
+	void											SendString(const WString& str) override;
+	void											Stop() override;
+
+	static WString									GenerateNewGuid();
+};
+
+class HttpServer : public Object, public virtual INetworkProtocolServer
 {
 	static constexpr vint32_t						HttpBodyInitSize = 1024;
 
+	friend class HttpServerConnection;
+	using ConnectionMap = collections::Dictionary<WString, Ptr<HttpServerConnection>>;
 protected:
-	INetworkProtocolCallback*						callback = nullptr;
 	WString											baseUrl;
 	WString											urlConnect;
-	WString											urlRequest;
-	WString											urlResponse;
+	WString											urlRequestPrefix;
+	WString											urlResponsePrefix;
+
+	SpinLock										lockConnections;
+	ConnectionMap									connections;
 
 	HANDLE											httpRequestQueue = INVALID_HANDLE_VALUE;
 	HTTP_SERVER_SESSION_ID							httpSessionId = HTTP_NULL_ID;
@@ -38,13 +71,11 @@ protected:
 
 	enum class State
 	{
-		Ready,
-		WaitForClientConnection,
 		Running,
 		Stopping,
 	};
 
-	State											state = State::Ready;
+	State											state = State::Running;
 
 	collections::Array<BYTE>						bufferRequest;
 	HANDLE											hWaitHandleRequest = INVALID_HANDLE_VALUE;
@@ -65,12 +96,11 @@ HttpServer (WaitForClient)
 protected:
 	HANDLE											hEventWaitForClient = INVALID_HANDLE_VALUE;
 
-	void											GenerateNewUrls();
 	void											SendConnectResponse(PHTTP_REQUEST pRequest);
 
 public:
 
-	void											WaitForClient();
+	INetworkProtocolConnection*						WaitForClient() override;
 
 /***********************************************************************
 HttpServer (BeginReadingLoopUnsafe)
@@ -80,30 +110,15 @@ protected:
 
 	void											SubmitResponse(PHTTP_REQUEST pRequest);
 
-public:
-	void											BeginReadingLoopUnsafe() override;
-
 /***********************************************************************
 HttpServer (Writing)
 ***********************************************************************/
 
 protected:
-	using PendingRequestObject = Nullable<collections::Pair<WString, WString>>;
-
-	SpinLock										pendingRequestLock;
-	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
-	PendingRequestObject							pendingRequestToSend;
 
 	static void										Send404Response(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, PCSTR reason);
 	static void										SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId);
-	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& channelName, const WString& str);
-
-	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
-	void											OnCancelCurrentHttpRequestForPendingRequest();
-	void											OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId);
-public:
-
-	void											SendString(const WString& channelName, const WString& str) override;
+	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& str);
 
 /***********************************************************************
 HttpServer
@@ -113,9 +128,7 @@ public:
 	HttpServer(const WString _baseUrl, vint port);
 	~HttpServer();
 
-	void											Stop();
-
-	void											InstallCallback(INetworkProtocolCallback* _callback) override;
+	void											Stop() override;
 };
 
 }
