@@ -69,27 +69,32 @@ void HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 		CHECK_ERROR(result == NO_ERROR, L"HttpReceiveRequestEntityBody.");
 	}
 
-	if (callback)
+	SPIN_LOCK(lockQueuedStrings)
 	{
 		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		callback->OnReadString(u8tow(bodyUtf8));
+		if (callback)
+		{
+			callback->OnReadString(u8tow(bodyUtf8));
+		}
+		else
+		{
+			queuedStrings.Add(u8tow(bodyUtf8));
+		}
 	}
 }
 
 void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
-	callback = _callback;
-	List<WString> queued;
 	SPIN_LOCK(lockQueuedStrings)
 	{
-		CopyFrom(queued, queuedStrings);
+		callback = _callback;
+		for (const auto& str : queuedStrings)
+		{
+			callback->OnReadString(str);
+		}
 		queuedStrings.Clear();
 	}
 
-	for (const auto& str : queued)
-	{
-		callback->OnReadString(str);
-	}
 }
 
 void HttpServerConnection::BeginReadingLoopUnsafe()

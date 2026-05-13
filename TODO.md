@@ -7,6 +7,7 @@
 - `INetworkProtocol` implementations currently accept one client, need improvement.
   - `NamedPipeServer::WaitForClient` needs to stop when `NamedPipeServer::Stop` is called.
   - `HttpServer::WaitForClient` needs to stop when `HttpServer::Stop` is called.
+  - `InstallCallback` only allows to be called once.
   - Simple unit test:
     - One server two clients in their own threads.
     - Each client sends its name (`Tom` and `Jerry`) to server.
