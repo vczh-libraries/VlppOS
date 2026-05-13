@@ -64,18 +64,44 @@ namespace vl::inter_process
 	class INetworkProtocolCallback : public virtual Interface
 	{
 	public:
-		virtual void				OnReadStringThreadUnsafe(const WString& channelName, const WString& str) = 0;
-		virtual void				OnReadStoppedThreadUnsafe() = 0;
-		virtual void				OnConnectedThreadUnsafe() = 0;
-		virtual void				OnDisconnectedThreadUnsafe() = 0;
+		virtual void				OnReadString(const WString& channelName, const WString& str) = 0;
+		virtual void				OnReadStopped() = 0;
+		virtual void				OnConnected() = 0;
+		virtual void				OnDisconnected() = 0;
 	};
 
-	class INetworkProtocol : public virtual Interface
+	class INetworkProtocolConnection : public virtual Interface
 	{
 	public:
 		virtual void				InstallCallback(INetworkProtocolCallback* callback) = 0;
+		virtual void				SendString(const WString& str) = 0;
+	};
+
+	enum class ClientStatus
+	{
+		Initialized,
+		WaitForServer,
+		Connected,
+		Stopped,
+	};
+
+	class INetworkProtocolClient : public virtual Interface
+	{
+	public:
+		virtual ClientStatus		GetStatus() = 0;
+		virtual void				WaitForServer() = 0;
+		virtual void				WaitForServerAsync(const Func<void()>& callback) = 0;
 		virtual void				BeginReadingLoopUnsafe() = 0;
-		virtual void				SendString(const NetworkPackage& networkPackage) = 0;
+	};
+
+	class INetworkProtocolServer : public virtual Interface
+	{
+	protected:
+		virtual void				OnConnected(INetworkProtocolConnection* connection) = 0;
+
+	public:
+		virtual void				WaitForClient() = 0;
+		virtual void				Stop() = 0;
 	};
 }
 
