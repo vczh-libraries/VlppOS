@@ -36,6 +36,46 @@ void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID htt
 	}
 }
 
+void HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
+{
+	ULONG bodyLength = 0;
+	ULONG bodyReceived = 0;
+	{
+		auto& headerContentType = pRequest->Headers.KnownHeaders[HttpHeaderContentType];
+		CHECK_ERROR(headerContentType.pRawValue != NULL, L"/Response missing Content-Type header.");
+		CHECK_ERROR(
+			strncmp((const char*)headerContentType.pRawValue, "application/json; charset=utf8", headerContentType.RawValueLength) == 0,
+			L"/Response Content-Type header must be \"application/json; charset=utf8\".");
+	}
+	{
+		auto& headerContentLength = pRequest->Headers.KnownHeaders[HttpHeaderContentLength];
+		CHECK_ERROR(headerContentLength.pRawValue != NULL, L"/Response missing Content-Type header.");
+		bodyLength = (ULONG)atoi(headerContentLength.pRawValue);
+	}
+	CHECK_ERROR(pRequest->Flags & HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS, L"/Response must contain body data.");
+
+	Array<char8_t> bodyBuffer(bodyLength + 1);
+	ZeroMemory(&bodyBuffer[0], bodyBuffer.Count() * sizeof(char8_t));
+	{
+		ULONG result = NO_ERROR;
+		result = HttpReceiveRequestEntityBody(
+			server->httpRequestQueue,
+			pRequest->RequestId,
+			HTTP_RECEIVE_REQUEST_ENTITY_BODY_FLAG_FILL_BUFFER,
+			&bodyBuffer[0],
+			bodyLength,
+			&bodyReceived,
+			NULL);
+		CHECK_ERROR(result == NO_ERROR, L"HttpReceiveRequestEntityBody.");
+	}
+
+	if (callback)
+	{
+		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
+		callback->OnReadString(u8tow(bodyUtf8));
+	}
+}
+
 void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
 	callback = _callback;
@@ -88,9 +128,12 @@ void HttpServerConnection::SendString(const WString& str)
 void HttpServerConnection::Stop()
 {
 	auto holding = Ptr(this);
-	SPIN_LOCK(server->lockConnections)
+	if (server)
 	{
-		server->connections.Remove(guid);
+		SPIN_LOCK(server->lockConnections)
+		{
+			server->connections.Remove(guid);
+		}
 	}
 
 	OnCancelCurrentHttpRequestForPendingRequest();
@@ -111,10 +154,10 @@ WString HttpServerConnection::GenerateNewGuid()
 	status = UuidToString(&guid, &guidString);
 	CHECK_ERROR(status == RPC_S_OK, L"UuidToString failed.");
 
-	WString guid = guidString;
+	WString result = guidString;
 	status = RpcStringFree(&guidString);
 	CHECK_ERROR(status == RPC_S_OK, L"RpcStringFree failed.");
-	return guid;
+	return result;
 }
 
 /***********************************************************************
@@ -123,55 +166,100 @@ HttpServer (ListenToHttpRequest)
 
 void HttpServer::OnHttpConnectionBrokenUnsafe()
 {
-	switch (state)
+	if (state == State::Running)
 	{
-	case State::WaitForClientConnection:
-		CHECK_FAIL(L"HTTP server stopped while waiting for client connection.");
-		break;
-	case State::Running:
-		state = State::Stopping;
-		callback->OnReadStoppedThreadUnsafe();
-		break;
-	default:
+		SPIN_LOCK(lockConnections)
+		{
+			state = State::Stopping;
+			for (auto connection : connections.Values())
+			{
+				connection->server = nullptr;
+			}
+		}
+
+		for (auto connection : connections.Values())
+		{
+			connection->Stop();
+		}
+		connections.Clear();
+	}
+	else
+	{
 		CHECK_FAIL(L"Unexpected HTTP request.");
 	}
 }
 
 void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 {
+	if (state == State::Stopping)
+	{
+		Send404Response(httpRequestQueue, pRequest->RequestId, "Server is stopping");
+		return;
+	}
+
+	bool isValidRequest = wcsncmp(pRequest->CookedUrl.pAbsPath, urlRequestPrefix.Buffer(), urlRequestPrefix.Length()) == 0;
+	bool isValidResponse = wcsncmp(pRequest->CookedUrl.pAbsPath, urlResponsePrefix.Buffer(), urlResponsePrefix.Length()) == 0;
+
 	if (pRequest->Verb == HttpVerbGET && pRequest->CookedUrl.pAbsPath == urlConnect)
 	{
-		GenerateNewUrls();
-		if (state == State::WaitForClientConnection)
+		auto newGuid = HttpServerConnection::GenerateNewGuid();
+		auto connection = Ptr(new HttpServerConnection);
+		connection->server = this;
+		connection->guid = newGuid;
+		SPIN_LOCK(lockConnections)
 		{
-			state = State::Running;
-			SetEvent(hEventWaitForClient);
+			connections.Add(newGuid, connection);
 		}
-		else
+		SPIN_LOCK(lockQueuedConnections)
 		{
-			SPIN_LOCK(pendingRequestLock)
+			queuedConnections.Add(connection.Obj());
+		}
+		semaphoreQueuedConnections.Release();
+		auto completeUrlRequest = urlRequestPrefix + newGuid;
+		auto completeUrlResponse = urlResponsePrefix + newGuid;
+		SendResponse(httpRequestQueue, pRequest->RequestId, completeUrlRequest + L";" + completeUrlResponse);
+	}
+	else if (pRequest->Verb == HttpVerbPOST && isValidRequest)
+	{
+		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlRequestPrefix.Length());
+		Ptr<HttpServerConnection> connection;
+		SPIN_LOCK(lockConnections)
+		{
+			vint index = connections.Keys().IndexOf(guid);
+			if (index == -1)
 			{
-				OnCancelCurrentHttpRequestForPendingRequest();
-				pendingRequestToSend.Reset();
+				Send404Response(httpRequestQueue, pRequest->RequestId, "Unknown connection guid");
+				return;
 			}
-			callback->OnReconnectedUnsafe();
+			connection = connections.Values()[index];
 		}
-		SendConnectResponse(pRequest);
-	}
-	else if (pRequest->Verb == HttpVerbPOST && pRequest->CookedUrl.pAbsPath == urlRequest)
-	{
-		SPIN_LOCK(pendingRequestLock)
+
+		SPIN_LOCK(connection->pendingRequestLock)
 		{
-			OnNewHttpRequestForPendingRequest(pRequest->RequestId);
+			connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
 		}
 	}
-	else if (pRequest->Verb == HttpVerbPOST && pRequest->CookedUrl.pAbsPath == urlResponse)
+	else if (pRequest->Verb == HttpVerbPOST && isValidResponse)
 	{
-		SubmitResponse(pRequest);
-		ULONG result = SendResponse(httpRequestQueue, pRequest->RequestId, WString::Empty, WString::Empty);
-		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Response.");
+		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlResponsePrefix.Length());
+		Ptr<HttpServerConnection> connection;
+		SPIN_LOCK(lockConnections)
+		{
+			vint index = connections.Keys().IndexOf(guid);
+			if (index == -1)
+			{
+				Send404Response(httpRequestQueue, pRequest->RequestId, "Unknown connection guid");
+				return;
+			}
+			connection = connections.Values()[index];
+		}
+
+		SPIN_LOCK(connection->pendingRequestLock)
+		{
+			connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
+		}
 	}
-	else if (pRequest->Verb == HttpVerbOPTIONS && pRequest->CookedUrl.pAbsPath == urlResponse)
+	else if (pRequest->Verb == HttpVerbOPTIONS && (isValidRequest || isValidResponse))
 	{
 		SendOptionsResponse(httpRequestQueue, pRequest->RequestId);
 	}
@@ -324,54 +412,6 @@ void HttpServer::ListenToHttpRequest()
 		this,
 		INFINITE,
 		WT_EXECUTEONLYONCE);
-}
-
-/***********************************************************************
-HttpServer (WaitForClient)
-***********************************************************************/
-
-/***********************************************************************
-HttpServer (BeginReadingLoopUnsafe)
-***********************************************************************/
-
-void HttpServer::SubmitResponse(PHTTP_REQUEST pRequest)
-{
-	ULONG bodyLength = 0;
-	ULONG bodyReceived = 0;
-	{
-		auto& headerContentType = pRequest->Headers.KnownHeaders[HttpHeaderContentType];
-		CHECK_ERROR(headerContentType.pRawValue != NULL, L"/Response missing Content-Type header.");
-		CHECK_ERROR(
-			strncmp((const char*)headerContentType.pRawValue, "application/json; charset=utf8", headerContentType.RawValueLength) == 0,
-			L"/Response Content-Type header must be \"application/json; charset=utf8\".");
-	}
-	{
-		auto& headerContentLength = pRequest->Headers.KnownHeaders[HttpHeaderContentLength];
-		CHECK_ERROR(headerContentLength.pRawValue != NULL, L"/Response missing Content-Type header.");
-		bodyLength = (ULONG)atoi(headerContentLength.pRawValue);
-	}
-	CHECK_ERROR(pRequest->Flags & HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS, L"/Response must contain body data.");
-
-	Array<char8_t> bodyBuffer(bodyLength + 1);
-	ZeroMemory(&bodyBuffer[0], bodyBuffer.Count() * sizeof(char8_t));
-	{
-		ULONG result = NO_ERROR;
-		result = HttpReceiveRequestEntityBody(
-			httpRequestQueue,
-			pRequest->RequestId,
-			HTTP_RECEIVE_REQUEST_ENTITY_BODY_FLAG_FILL_BUFFER,
-			&bodyBuffer[0],
-			bodyLength,
-			&bodyReceived,
-			NULL);
-		CHECK_ERROR(result == NO_ERROR, L"HttpReceiveRequestEntityBody.");
-	}
-	{
-		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		vint channelNameLength = bodyUtf8.IndexOf(L';');
-		CHECK_ERROR(channelNameLength != -1, L"/Response response body is not in the correct format: channelName;str.");
-		callback->OnReadStringThreadUnsafe(u8tow(bodyUtf8.Left(channelNameLength)), u8tow(bodyUtf8.Right(bodyUtf8.Length() - channelNameLength - 1)));
-	}
 }
 
 /***********************************************************************

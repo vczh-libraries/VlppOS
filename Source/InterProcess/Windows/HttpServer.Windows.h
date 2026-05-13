@@ -19,6 +19,7 @@ class HttpServer;
 
 class HttpServerConnection : public Object, public virtual INetworkProtocolConnection
 {
+	friend class HttpServer;
 protected:
 	HttpServer*										server = nullptr;
 	WString											guid;
@@ -34,6 +35,8 @@ protected:
 	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
 	void											OnCancelCurrentHttpRequestForPendingRequest();
 	void											OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId);
+
+	void											SubmitResponse(PHTTP_REQUEST pRequest);
 
 public:
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;
@@ -98,7 +101,6 @@ HttpServer (BeginReadingLoopUnsafe)
 
 protected:
 
-	void											SubmitResponse(PHTTP_REQUEST pRequest);
 
 /***********************************************************************
 HttpServer (Writing)
