@@ -21,4 +21,33 @@ Interfaces:
 #include "../../Threading.h"
 #include "../../Stream/MemoryStream.h"
 
+namespace vl::inter_process
+{
+	/*
+	* GET: /Request
+	* To connect and initialize the server.
+	* Returns available URLs.
+	*
+	* It can only be called once, all subsequence calls will be rejected.
+	*/
+	constexpr const wchar_t* HttpServerUrl_Connect = L"/VlppInterProcess/Connect";
+
+	/*
+	* POST: /Request/GUID
+	* Client should always maintain a living request on the server.
+	*
+	* Returns only when a request is issued.
+	* It will be pending or timeout if no request is issued.
+	* If a request is issued but no living request available, it waits.
+	*/
+	constexpr const wchar_t* HttpServerUrl_Request = L"/VlppInterProcess/Request";
+
+	/*
+	* POST: /Response/GUID
+	* To send responses or events to the server.
+	* Returns nothing.
+	*/
+	constexpr const wchar_t* HttpServerUrl_Response = L"/VlppInterProcess/Response";
+}
+
 #endif

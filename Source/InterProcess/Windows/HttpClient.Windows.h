@@ -15,7 +15,7 @@ Interfaces:
 namespace vl::inter_process
 {
 
-class HttpClient : public INetworkProtocol
+class HttpClient : public Object, public virtual INetworkProtocolConnection, public virtual INetworkProtocolClient
 {
 protected:
 
@@ -29,9 +29,11 @@ protected:
 
 	State											state = State::Ready;
 	INetworkProtocolCallback*						callback = nullptr;
+	WString											baseUrl;
 
 	HINTERNET										httpSession = NULL;
 	HINTERNET										httpConnection = NULL;
+	WString											urlConnect;
 	WString											urlRequest;
 	WString											urlResponse;
 
@@ -62,7 +64,7 @@ protected:
 
 public:
 
-	void											WaitForServer();
+	void											WaitForServer() override;
 
 /***********************************************************************
 HttpClient (Writing)
@@ -75,18 +77,18 @@ protected:
 
 public:
 
-	void											SendString(const WString& channelName, const WString& str) override;
+	void											SendString(const WString& str) override;
 
 /***********************************************************************
 HttpClient
 ***********************************************************************/
 
 public:
-	HttpClient();
+	HttpClient(const WString _baseUrl, vint port);
 	~HttpClient();
-	void											Stop();
 
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;
+	void											Stop() override;
 };
 
 }

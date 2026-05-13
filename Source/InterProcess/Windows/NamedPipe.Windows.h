@@ -95,7 +95,6 @@ public:
 	~NamedPipeServer();
 
 	INetworkProtocolConnection*						WaitForClient() override;
-	void											WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback) override;
 	void											Stop() override;
 };
 
@@ -109,7 +108,6 @@ public:
 	~NamedPipeClient();
 
 	void											WaitForServer();
-	void											WaitForServerAsync(const Func<void()>& callback);
 };
 
 }

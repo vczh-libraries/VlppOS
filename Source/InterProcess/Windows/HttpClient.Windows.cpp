@@ -11,7 +11,7 @@ HttpClient (Reading)
 
 void HttpClient::RaiseErrorUnsafe(WString errorMessage)
 {
-	callback->OnReadStringThreadUnsafe(WString::Unmanaged(L"!"), errorMessage);
+	callback->OnReadError(errorMessage);
 }
 
 void HttpClient::BeginReadingLoopUnsafe()
@@ -159,9 +159,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 								{
 									self->httpRespondBodyBuffer[self->httpRespondBodyBufferWriting] = 0;
 									U8String bodyUtf8 = U8String::Unmanaged(&self->httpRespondBodyBuffer[0]);
-									vint channelNameLength = bodyUtf8.IndexOf(L';');
-									CHECK_ERROR(channelNameLength != -1, L"/Request response body is not in the correct format: channelName;str.");
-									self->callback->OnReadStringThreadUnsafe(u8tow(bodyUtf8.Left(channelNameLength)), u8tow(bodyUtf8.Right(bodyUtf8.Length() - channelNameLength - 1)));
+									self->callback->OnReadString(u8tow(bodyUtf8));
 								}
 								WinHttpCloseHandle(httpRequest);
 								self->BeginReadingLoopUnsafe();
@@ -276,7 +274,7 @@ void HttpClient::WaitForServer()
 	HINTERNET httpRequest = WinHttpOpenRequest(
 		httpConnection,
 		L"GET",
-		L"/GacUIRemoting/Connect",
+		urlConnect.Buffer(),
 		NULL,
 		WINHTTP_NO_REFERER,
 		acceptTypes,
@@ -402,22 +400,26 @@ void HttpClient::WaitForServer()
 		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
 		vint separatorIndex = bodyUtf8.IndexOf(L';');
 		CHECK_ERROR(separatorIndex != -1, L"/Connect response body is not in the correct format: requestUrl;responseUrl.");
-		urlRequest = u8tow(bodyUtf8.Left(separatorIndex));
-		urlResponse = u8tow(bodyUtf8.Right(bodyUtf8.Length() - separatorIndex - 1));
+		urlRequest = baseUrl + u8tow(bodyUtf8.Left(separatorIndex));
+		urlResponse = baseUrl + u8tow(bodyUtf8.Right(bodyUtf8.Length() - separatorIndex - 1));
 	}
 	WinHttpCloseHandle(httpRequest);
 	state = State::Running;
+
+	if (callback)
+	{
+		callback->OnConnected();
+	}
 }
 
 /***********************************************************************
 HttpClient (Writing)
 ***********************************************************************/
 
-void HttpClient::SendString(const WString& channelName, const WString& str)
+void HttpClient::SendString(const WString& str)
 {
 	if (state == State::Stopping) return;
 	CHECK_ERROR(state == State::Running, L"SendString can only be called when client is running.");
-	CHECK_ERROR(channelName.IndexOf(L';') == -1, L"Channel name cannot contain the ';' character.");
 	DWORD lastError = 0;
 	BOOL httpResult = FALSE;
 
@@ -532,7 +534,7 @@ void HttpClient::SendString(const WString& channelName, const WString& str)
 	}
 	CHECK_ERROR(httpResult == TRUE, L"WinHttpAddRequestHeaders failed.");
 
-	U8String bodyUtf8 = wtou8(channelName + L";" + str);
+	U8String bodyUtf8 = wtou8(str);
 	SPIN_LOCK(httpRequestBodiesLock)
 	{
 		httpRequestBodies.Add(httpRequest, bodyUtf8);
@@ -560,14 +562,15 @@ void HttpClient::SendString(const WString& channelName, const WString& str)
 HttpClient
 ***********************************************************************/
 
-HttpClient::HttpClient()
+HttpClient::HttpClient(const WString _baseUrl, vint port)
+	: baseUrl(_baseUrl)
 {
 	DWORD lastError = 0;
 	hEventWaitForServer = CreateEvent(NULL, FALSE, TRUE, NULL);
 	CHECK_ERROR(hEventWaitForServer != NULL, L"HttpClient initialization failed on CreateEvent(hEventWaitForServer).");
 
 	httpSession = WinHttpOpen(
-		L"RemotingTest_Rendering_Win32.exe",
+		L"vl::inter_process::HttpClient",
 		WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 		WINHTTP_NO_PROXY_NAME,
 		WINHTTP_NO_PROXY_BYPASS,
@@ -578,16 +581,24 @@ HttpClient::HttpClient()
 	httpConnection = WinHttpConnect(
 		httpSession,
 		L"localhost",
-		8888,
+		(INTERNET_PORT)port,
 		0);
 	lastError = GetLastError();
 	CHECK_ERROR(httpConnection != NULL, L"WinHttpConnect failed.");
+
+	urlConnect = baseUrl + HttpServerUrl_Connect;
 }
 
 HttpClient::~HttpClient()
 {
 	Stop();
 	CloseHandle(hEventWaitForServer);
+}
+
+void HttpClient::InstallCallback(INetworkProtocolCallback* _callback)
+{
+	callback = _callback;
+	CHECK_ERROR(callback, L"HttpClient::InstallCallback needs a valid INetworkProtocolCallback.");
 }
 
 void HttpClient::Stop()
@@ -607,14 +618,8 @@ void HttpClient::Stop()
 		httpConnection = NULL;
 		httpSession = NULL;
 
-		callback->OnReadStoppedThreadUnsafe();
+		callback->OnDisconnected();
 	}
-}
-
-void HttpClient::InstallCallback(INetworkProtocolCallback* _callback)
-{
-	callback = _callback;
-	CHECK_ERROR(callback, L"HttpClient::InstallCallback needs a valid INetworkProtocolCallback.");
 }
 
 }

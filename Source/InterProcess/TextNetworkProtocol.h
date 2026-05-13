@@ -64,7 +64,8 @@ namespace vl::inter_process
 	class INetworkProtocolCallback : public virtual Interface
 	{
 	public:
-		virtual void				OnReadString(const WString& channelName, const WString& str) = 0;
+		virtual void				OnReadString(const WString& str) = 0;
+		virtual void				OnReadError(const WString& error) = 0;
 		virtual void				OnConnected() = 0;
 		virtual void				OnDisconnected() = 0;
 	};
@@ -82,14 +83,12 @@ namespace vl::inter_process
 	{
 	public:
 		virtual void				WaitForServer() = 0;
-		virtual void				WaitForServerAsync(const Func<void()>& callback) = 0;
 	};
 
 	class INetworkProtocolServer : public virtual Interface
 	{
 	public:
 		virtual INetworkProtocolConnection*		WaitForClient() = 0;
-		virtual void							WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback) = 0;
 		virtual void							Stop() = 0;
 	};
 }

@@ -67,9 +67,7 @@ void NamedPipeConnection::EndReadingUnsafe()
 		}
 	};
 
-	WString channelName = ReadSingleString();
-	WString str = ReadSingleString();
-	callback->OnReadString(channelName, str);
+	callback->OnReadString(ReadSingleString());
 
 	CHECK_ERROR(streamReadFile.Position() == position, L"ReadFile failed on incomplete message.");
 }
@@ -316,10 +314,6 @@ INetworkProtocolConnection* NamedPipeServer::WaitForClient()
 	}
 }
 
-void NamedPipeServer::WaitForClientAsync(const Func<void(INetworkProtocolConnection*)>& callback)
-{
-}
-
 void NamedPipeServer::Stop()
 {
 	SPIN_LOCK(lockConnections)
@@ -379,15 +373,6 @@ void NamedPipeClient::WaitForServer()
 	{
 		callback->OnConnected();
 	}
-}
-
-void NamedPipeClient::WaitForServerAsync(const Func<void()>& callback)
-{
-	ThreadPoolLite::Queue([=]()
-	{
-		WaitForServer();
-		callback();
-	});
 }
 
 }

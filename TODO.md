@@ -5,6 +5,7 @@
 ### IChannelServer
 
 - `INetworkProtocol` implementations currently accept one client, need improvement.
+  - `NamedPipeServer::WaitForClient` needs to stop when `NamedPipeServer::Stop` is called.
   - Fix `HttpServer`.
 - `IChannelServer`:
   - Server need to assign clientId after connection established.
@@ -18,8 +19,8 @@
     - Type `name:text` to send to `Private` channel.
     - Both `Group` and `Private` renders to the CLI application.
     - Support multiple clients, server can chat as admin.
-  - `/Http` to use `HttpServer` (windows only).
-  - `/Pipe` to use `NamedPipe` (windows only).
+  - `/Http` to use `HttpServer` (windows only, `localhost:8765/VlppOSTestPipe`).
+  - `/Pipe` to use `NamedPipe` (windows only, `\\.\pipe\VlppOSTestPipe`).
   - `/Socket`.
 - `HttpServer` to accept customized port and first level url fragment for identifier.
 - Windows stdio
