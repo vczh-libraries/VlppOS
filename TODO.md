@@ -16,7 +16,8 @@
     - `Tom` after receiving `Jerry:Good`, sends `Bye`, release the thread.
     - When server receives both `Bye`, stops, release the thread.
     - Each callback argument assertions writes to each bool variables.
-    - When all threads end, `TEST_ASSERT` if all variables are `true`.
+    - One more thread to wait for 10 seconds verify if server and clients all end.
+    - When all threads end, kill the 10 seconds thread first, `TEST_ASSERT` if all variables are `true`.
     - Run it on `HttpServer` and `NamedPipeServer`.
 - `IChannelServer`:
   - Server need to assign clientId after connection established.
