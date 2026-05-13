@@ -26,16 +26,16 @@ TEST_FILE
 	TEST_CASE(L"NamedPipe")
 	{
 		RunTextNetworkProtocol(
-			[]() { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipe")); },
-			[]() { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
+			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipe")); },
+			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
 		);
 	});
 
 	TEST_CASE(L"HttpServer")
 	{
 		RunTextNetworkProtocol(
-			[]() { return Ptr<INetworkProtocolServer>(new HttpServer(L"VlppOSTestHttpServer", 8765)); },
-			[]() { return Ptr<INetworkProtocolClient>(new HttpClient(L"VlppOSTestHttpServer", 8765)); }
+			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"VlppOSTestHttpServer", 8765)); },
+			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"VlppOSTestHttpServer", 8765)); }
 		);
 	});
 #endif
