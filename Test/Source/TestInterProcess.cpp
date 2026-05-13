@@ -38,16 +38,23 @@ namespace mynamespace
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
+			{
+				auto server = createServer();
+			}
 			timeoutThread->threadCounter++;
 		});
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
+			{
+			}
 			timeoutThread->threadCounter++;
 		});
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
+			{
+			}
 			timeoutThread->threadCounter++;
 		});
 
@@ -72,8 +79,8 @@ TEST_FILE
 	TEST_CASE(L"HttpServer")
 	{
 		RunTextNetworkProtocol(
-			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"VlppOSTestHttpServer", 8765)); },
-			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"VlppOSTestHttpServer", 8765)); }
+			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServer", 8765)); },
+			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServer", 8765)); }
 		);
 	});
 #endif

@@ -77,11 +77,12 @@ protected:
 
 	enum class State
 	{
+		Ready,
 		Running,
 		Stopping,
 	};
 
-	State											state = State::Running;
+	State											state = State::Ready;
 
 	collections::Array<BYTE>						bufferRequest;
 	HANDLE											hWaitHandleRequest = INVALID_HANDLE_VALUE;

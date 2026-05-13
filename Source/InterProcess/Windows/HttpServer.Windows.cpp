@@ -139,12 +139,14 @@ void HttpServerConnection::Stop()
 		{
 			server->connections.Remove(guid);
 		}
-	}
-
-	OnCancelCurrentHttpRequestForPendingRequest();
-	if (callback)
-	{
-		callback->OnDisconnected();
+		SPIN_LOCK(pendingRequestLock)
+		{
+			OnCancelCurrentHttpRequestForPendingRequest();
+		}
+		if (callback)
+		{
+			callback->OnDisconnected();
+		}
 	}
 }
 
@@ -205,6 +207,23 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 	bool isValidRequest = wcsncmp(pRequest->CookedUrl.pAbsPath, urlRequestPrefix.Buffer(), urlRequestPrefix.Length()) == 0;
 	bool isValidResponse = wcsncmp(pRequest->CookedUrl.pAbsPath, urlResponsePrefix.Buffer(), urlResponsePrefix.Length()) == 0;
 
+	auto FindExistingConnection = [=, this](const WString& guid)->Ptr<HttpServerConnection>
+	{
+		SPIN_LOCK(lockConnections)
+		{
+			vint index = connections.Keys().IndexOf(guid);
+			if (index == -1)
+			{
+				Send404Response(httpRequestQueue, pRequest->RequestId, "Unknown connection guid");
+			}
+			else
+			{
+				return connections.Values()[index];
+			}
+		}
+		return {};
+	};
+
 	if (pRequest->Verb == HttpVerbGET && pRequest->CookedUrl.pAbsPath == urlConnect)
 	{
 		auto newGuid = HttpServerConnection::GenerateNewGuid();
@@ -227,41 +246,23 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 	else if (pRequest->Verb == HttpVerbPOST && isValidRequest)
 	{
 		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlRequestPrefix.Length());
-		Ptr<HttpServerConnection> connection;
-		SPIN_LOCK(lockConnections)
+		if (auto connection = FindExistingConnection(guid))
 		{
-			vint index = connections.Keys().IndexOf(guid);
-			if (index == -1)
+			SPIN_LOCK(connection->pendingRequestLock)
 			{
-				Send404Response(httpRequestQueue, pRequest->RequestId, "Unknown connection guid");
-				return;
+				connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
 			}
-			connection = connections.Values()[index];
-		}
-
-		SPIN_LOCK(connection->pendingRequestLock)
-		{
-			connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
 		}
 	}
 	else if (pRequest->Verb == HttpVerbPOST && isValidResponse)
 	{
 		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlResponsePrefix.Length());
-		Ptr<HttpServerConnection> connection;
-		SPIN_LOCK(lockConnections)
+		if (auto connection = FindExistingConnection(guid))
 		{
-			vint index = connections.Keys().IndexOf(guid);
-			if (index == -1)
+			SPIN_LOCK(connection->pendingRequestLock)
 			{
-				Send404Response(httpRequestQueue, pRequest->RequestId, "Unknown connection guid");
-				return;
+				connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
 			}
-			connection = connections.Values()[index];
-		}
-
-		SPIN_LOCK(connection->pendingRequestLock)
-		{
-			connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
 		}
 	}
 	else if (pRequest->Verb == HttpVerbOPTIONS && (isValidRequest || isValidResponse))
@@ -636,18 +637,33 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 	}
 
 	semaphoreQueuedConnections.Create(0, 9999);
-	ListenToHttpRequest();
 }
 
 HttpServer::~HttpServer()
 {
 	Stop();
+	SPIN_LOCK(lockConnections)
+	{
+		for (auto connection : connections.Values())
+		{
+			connection->server = nullptr;
+			SPIN_LOCK(connection->pendingRequestLock)
+			{
+				connection->OnCancelCurrentHttpRequestForPendingRequest();
+			}
+		}
+	}
 	CloseHandle(hEventRequest);
 }
 
 INetworkProtocolConnection* HttpServer::WaitForClient()
 {
-	CHECK_ERROR(state == State::Running, L"WaitForClient() cannot be called after Stop().");
+	CHECK_ERROR(state != State::Stopping, L"WaitForClient() cannot be called after Stop().");
+	if (state == State::Ready)
+	{
+		state = State::Running;
+		ListenToHttpRequest();
+	}
 	while (state == State::Running && semaphoreQueuedConnections.Wait())
 	{
 		SPIN_LOCK(lockQueuedConnections)
