@@ -107,6 +107,7 @@ public:
 	NamedPipeClient(const WString& _pipeName);
 	~NamedPipeClient();
 
+	INetworkProtocolConnection*						GetConnection() override;
 	void											WaitForServer() override;
 };
 

@@ -88,6 +88,7 @@ void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
 	SPIN_LOCK(lockQueuedStrings)
 	{
 		callback = _callback;
+		callback->OnInstalled(this);
 		for (const auto& str : queuedStrings)
 		{
 			callback->OnReadString(str);

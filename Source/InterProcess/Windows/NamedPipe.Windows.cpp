@@ -230,6 +230,7 @@ void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
 	callback = _callback;
 	CHECK_ERROR(callback, L"NamedPipeConnection::InstallCallback needs a valid INetworkProtocolCallback.");
+	callback->OnInstalled(this);
 }
 
 void NamedPipeConnection::Stop()
@@ -355,6 +356,11 @@ NamedPipeClient::NamedPipeClient(const WString& _pipeName)
 
 NamedPipeClient::~NamedPipeClient()
 {
+}
+
+INetworkProtocolConnection* NamedPipeClient::GetConnection()
+{
+	return this;
 }
 
 void NamedPipeClient::WaitForServer()

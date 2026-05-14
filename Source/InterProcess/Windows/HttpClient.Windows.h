@@ -63,7 +63,8 @@ protected:
 	DWORD											dwStatusInformationLength_WaitForServer = 0;
 
 public:
-
+	
+	INetworkProtocolConnection*						GetConnection() override;
 	void											WaitForServer() override;
 
 /***********************************************************************

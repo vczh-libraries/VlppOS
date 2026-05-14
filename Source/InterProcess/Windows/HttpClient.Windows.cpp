@@ -266,6 +266,11 @@ void HttpClient::BeginReadingLoopUnsafe()
 HttpClient (WaitForServer)
 ***********************************************************************/
 
+INetworkProtocolConnection* HttpClient::GetConnection()
+{
+	return this;
+}
+
 void HttpClient::WaitForServer()
 {
 	if (state == State::Stopping) return;
@@ -603,6 +608,7 @@ void HttpClient::InstallCallback(INetworkProtocolCallback* _callback)
 {
 	callback = _callback;
 	CHECK_ERROR(callback, L"HttpClient::InstallCallback needs a valid INetworkProtocolCallback.");
+	callback->OnInstalled(this);
 }
 
 void HttpClient::Stop()

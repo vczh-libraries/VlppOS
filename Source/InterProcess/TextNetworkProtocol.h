@@ -61,28 +61,32 @@ namespace vl::inter_process
 		}
 	};
 
+	class INetworkProtocolConnection;
+
 	class INetworkProtocolCallback : public virtual Interface
 	{
 	public:
-		virtual void				OnReadString(const WString& str) = 0;
-		virtual void				OnReadError(const WString& error) = 0;
-		virtual void				OnConnected() = 0;
-		virtual void				OnDisconnected() = 0;
+		virtual void							OnReadString(const WString& str) = 0;
+		virtual void							OnReadError(const WString& error) = 0;
+		virtual void							OnConnected() = 0;
+		virtual void							OnDisconnected() = 0;
+		virtual void							OnInstalled(INetworkProtocolConnection* connection) = 0;
 	};
 
 	class INetworkProtocolConnection : public virtual Interface
 	{
 	public:
-		virtual void				InstallCallback(INetworkProtocolCallback* callback) = 0;
-		virtual void				BeginReadingLoopUnsafe() = 0;
-		virtual void				SendString(const WString& str) = 0;
-		virtual void				Stop() = 0;
+		virtual void							InstallCallback(INetworkProtocolCallback* callback) = 0;
+		virtual void							BeginReadingLoopUnsafe() = 0;
+		virtual void							SendString(const WString& str) = 0;
+		virtual void							Stop() = 0;
 	};
 
 	class INetworkProtocolClient : public virtual Interface
 	{
 	public:
-		virtual void				WaitForServer() = 0;
+		virtual INetworkProtocolConnection*		GetConnection() = 0;
+		virtual void							WaitForServer() = 0;
 	};
 
 	class INetworkProtocolServer : public virtual Interface

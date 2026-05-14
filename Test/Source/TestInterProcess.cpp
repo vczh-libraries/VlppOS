@@ -6,6 +6,7 @@
 #endif
 
 using namespace vl;
+using namespace vl::collections;
 using namespace vl::inter_process;
 
 namespace mynamespace
@@ -29,20 +30,100 @@ namespace mynamespace
 		}
 	};
 
+	struct ChatData
+	{
+		SpinLock						lockServer, lockTom, lockJerry;
+		EventObject						eventServer, eventTom, eventJerry;
+		List<WString>					chatTom, chatJerry;
+		INetworkProtocolConnection*		connectionTom = nullptr;
+		INetworkProtocolConnection*		connectionJerry = nullptr;
+
+		ChatData()
+		{
+			eventServer.CreateManualUnsignal(false);
+			eventTom.CreateManualUnsignal(false);
+			eventJerry.CreateManualUnsignal(false);
+		}
+	};
+
+	class NetworkProtocolCallback : public Object, public virtual INetworkProtocolCallback
+	{
+	protected:
+		ChatData*						chatData = nullptr;
+		INetworkProtocolConnection*		connection = nullptr;
+
+	public:
+		NetworkProtocolCallback(ChatData& _chatData)
+			:chatData(&_chatData)
+		{
+		}
+
+		void OnReadError(const WString& error) override {}
+		void OnConnected() override {}
+		void OnDisconnected() override {}
+
+		void OnInstalled(INetworkProtocolConnection* _connection) override
+		{
+			connection = _connection;
+		}
+	};
+
+	class ServerCallback : public NetworkProtocolCallback
+	{
+	public:
+		ServerCallback(ChatData& _chatData)
+			:NetworkProtocolCallback(_chatData)
+		{
+		}
+
+		void OnReadString(const WString& str) override
+		{
+		}
+	};
+
+	class TomCallback : public NetworkProtocolCallback
+	{
+	public:
+		TomCallback(ChatData& _chatData)
+			:NetworkProtocolCallback(_chatData)
+		{
+		}
+
+		void OnReadString(const WString& str) override
+		{
+		}
+	};
+
+	class JerryCallback : public NetworkProtocolCallback
+	{
+	public:
+		JerryCallback(ChatData& _chatData)
+			:NetworkProtocolCallback(_chatData)
+		{
+		}
+
+		void OnReadString(const WString& str) override
+		{
+		}
+	};
+
 	void RunTextNetworkProtocol(
 		Func<Ptr<INetworkProtocolServer>()> createServer,
 		Func<Ptr<INetworkProtocolClient>()> createClient
 		)
 	{
 		auto timeoutThread = Ptr(new TimeoutThread);
+		ChatData chatData;
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				ServerCallback callback1(chatData), callback2(chatData);
 				auto server = createServer();
-				auto connection1 = server->WaitForClient();
-				auto connection2 = server->WaitForClient();
-				Thread::Sleep(3000);
+				server->WaitForClient()->InstallCallback(&callback1);
+				server->WaitForClient()->InstallCallback(&callback2);
+				chatData.eventServer.Wait();
+				Thread::Sleep(1000);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -50,9 +131,12 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				TomCallback callback(chatData);
 				auto client = createClient();
+				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
-				Thread::Sleep(3000);
+				chatData.eventTom.Wait();
+				Thread::Sleep(1000);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -60,9 +144,12 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				JerryCallback callback(chatData);
 				auto client = createClient();
+				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
-				Thread::Sleep(3000);
+				chatData.eventJerry.Wait();
+				Thread::Sleep(1000);
 			}
 			timeoutThread->threadCounter++;
 		});
