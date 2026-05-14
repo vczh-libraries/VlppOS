@@ -178,6 +178,16 @@ namespace mynamespace
 		Func<Ptr<INetworkProtocolClient>()> createClient
 		)
 	{
+		/*
+		* This test case tests multiple inter-process communication implementations.
+		* Each client will send its name to the server, when the server receives both, OK is sent back.
+		* Tom when receiving OK, sends Hello to Jerry, when receiving Good, sends Stop to the Server and ends.
+		* Jerry when receiving Hello, sends Good to Tom and Stop to the Server and ends.
+		* Both sends Stop to the server, when both are received, the server ends.
+		* 
+		* Ending means signaling a perticular event, and each thread will wait for one more second to stop.
+		* If the whole process cannot end in 5 seconds, the timeout thread will signal the test case and the test case will fail.
+		*/
 		auto timeoutThread = Ptr(new TimeoutThread);
 		ChatData chatData;
 
@@ -222,6 +232,8 @@ namespace mynamespace
 
 		timeoutThread->Start();
 		timeoutThread->Wait();
+
+		// Failure here means not all threads have stopped, at least one may be blocked forever.
 		TEST_ASSERT(!timeoutThread->timeout);
 	}
 }
