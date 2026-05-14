@@ -196,8 +196,12 @@ namespace mynamespace
 			{
 				ServerCallback callback1(chatData), callback2(chatData);
 				auto server = createServer();
-				server->WaitForClient()->InstallCallback(&callback1);
-				server->WaitForClient()->InstallCallback(&callback2);
+				auto connection1 = server->WaitForClient();
+				auto connection2 = server->WaitForClient();
+				connection1->InstallCallback(&callback1);
+				connection2->InstallCallback(&callback2);
+				connection1->BeginReadingLoopUnsafe();
+				connection2->BeginReadingLoopUnsafe();
 				chatData.eventServer.Wait();
 				Thread::Sleep(1000);
 			}
@@ -211,6 +215,7 @@ namespace mynamespace
 				auto client = createClient();
 				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
+				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventTom.Wait();
 				Thread::Sleep(1000);
 			}
@@ -224,6 +229,7 @@ namespace mynamespace
 				auto client = createClient();
 				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
+				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventJerry.Wait();
 				Thread::Sleep(1000);
 			}
