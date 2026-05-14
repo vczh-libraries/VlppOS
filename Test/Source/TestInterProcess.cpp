@@ -234,6 +234,9 @@ namespace mynamespace
 		timeoutThread->Wait();
 
 		// Failure here means not all threads have stopped, at least one may be blocked forever.
+		// To debug this, you can change the wait time from 5000 to 500000, so the timeout will not trigger in 500 seconds
+		// By doing this, you have plenty of time to use the debugger.
+		// Remember to change it back after finishing debugging.
 		TEST_ASSERT(!timeoutThread->timeout);
 	}
 }
