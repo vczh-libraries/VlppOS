@@ -32,11 +32,12 @@ namespace mynamespace
 
 	struct ChatData
 	{
-		SpinLock						lockServer, lockTom, lockJerry;
 		EventObject						eventServer, eventTom, eventJerry;
-		List<WString>					chatTom, chatJerry;
+		SpinLock						lockServer;
 		INetworkProtocolConnection*		connectionTom = nullptr;
 		INetworkProtocolConnection*		connectionJerry = nullptr;
+		bool							tomStopped = false;
+		bool							jerryStopped = false;
 
 		ChatData()
 		{
@@ -70,6 +71,9 @@ namespace mynamespace
 
 	class ServerCallback : public NetworkProtocolCallback
 	{
+	protected:
+		WString						name;
+
 	public:
 		ServerCallback(ChatData& _chatData)
 			:NetworkProtocolCallback(_chatData)
@@ -78,6 +82,43 @@ namespace mynamespace
 
 		void OnReadString(const WString& str) override
 		{
+			if (str == L"Tom" || str == L"Jerry")
+			{
+				name = str;
+				SPIN_LOCK(chatData->lockServer)
+				{
+					if (str == L"Tom") chatData->connectionTom = connection;
+					if (str == L"Jerry") chatData->connectionJerry = connection;
+					if (chatData->connectionTom && chatData->connectionJerry)
+					{
+						chatData->connectionTom->SendString(L"OK");
+						chatData->connectionJerry->SendString(L"OK");
+					}
+				}
+			}
+			else if (str == L"Stop")
+			{
+				SPIN_LOCK(chatData->lockServer)
+				{
+					if (connection == chatData->connectionTom) chatData->tomStopped = true;
+					if (connection == chatData->connectionJerry) chatData->jerryStopped = true;
+					if (chatData->tomStopped && chatData->jerryStopped)
+					{
+						chatData->eventServer.Signal();
+					}
+				}
+			}
+			else
+			{
+				if (str.Length() >= 4 && str.Left(4) == L"Tom:")
+				{
+					chatData->connectionTom->SendString(name + L">" + str.Sub(4, str.Length() - 4));
+				}
+				if (str.Length() >= 6 && str.Left(6) == L"Jerry:")
+				{
+					chatData->connectionJerry->SendString(name + L">" + str.Sub(6, str.Length() - 6));
+				}
+			}
 		}
 	};
 
@@ -89,8 +130,22 @@ namespace mynamespace
 		{
 		}
 
+		void OnConnected() override
+		{
+			connection->SendString(L"Tom");
+		}
+
 		void OnReadString(const WString& str) override
 		{
+			if (str == L"OK")
+			{
+				connection->SendString(L"Jerry:Hello");
+			}
+			else if (str == L"Jerry>Good")
+			{
+				connection->SendString(L"Stop");
+				chatData->eventTom.Signal();
+			}
 		}
 	};
 
@@ -102,8 +157,19 @@ namespace mynamespace
 		{
 		}
 
+		void OnConnected() override
+		{
+			connection->SendString(L"Jerry");
+		}
+
 		void OnReadString(const WString& str) override
 		{
+			if(str==L"Tom>Hello")
+			{
+				connection->SendString(L"Tom:Good");
+				connection->SendString(L"Stop");
+				chatData->eventJerry.Signal();
+			}
 		}
 	};
 
