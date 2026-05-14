@@ -27,6 +27,7 @@ class NamedPipeConnection : public Object, public virtual INetworkProtocolConnec
 
 private:
 	bool											firstRead = true;
+	atomic_vint										stopped = 0;
 	collections::Array<BYTE>						bufferReadFile;
 	stream::MemoryStream							streamReadFile;
 	HANDLE											hWaitHandleReadFile = INVALID_HANDLE_VALUE;

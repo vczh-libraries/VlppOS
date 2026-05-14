@@ -37,6 +37,15 @@ protected:
 	WString											urlRequest;
 	WString											urlResponse;
 
+	atomic_vint										pendingCallbacks = 0;
+	EventObject										eventPendingCallbacks;
+	void											BeginPendingCallback();
+	void											EndPendingCallback();
+	void											QueueCallback(const Func<void()>& proc);
+	void											AttachRequest(HINTERNET httpRequest);
+	void											CloseRequest(HINTERNET httpRequest);
+	void											OnRequestHandleClosing(HINTERNET httpRequest);
+
 /***********************************************************************
 HttpClient (Reading)
 ***********************************************************************/
@@ -74,6 +83,8 @@ HttpClient (Writing)
 protected:
 	SpinLock										httpRequestBodiesLock;
 	collections::Dictionary<HINTERNET, U8String>	httpRequestBodies;
+	SpinLock										httpActiveRequestsLock;
+	collections::List<HINTERNET>					httpActiveRequests;
 
 
 public:

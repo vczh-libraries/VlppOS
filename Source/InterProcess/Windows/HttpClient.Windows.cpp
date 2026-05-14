@@ -52,7 +52,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 				{
 				case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
 					{
-						ThreadPoolLite::Queue([=]()
+						self->QueueCallback([=]()
 						{
 							if (self->state == State::Stopping) return;
 							DWORD lastError = 0;
@@ -70,8 +70,9 @@ void HttpClient::BeginReadingLoopUnsafe()
 					break;
 				case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
 					{
-						ThreadPoolLite::Queue([=]()
+						self->QueueCallback([=]()
 						{
+							if (self->state == State::Stopping) return;
 							DWORD lastError = 0;
 							DWORD statusCode = 0;
 							DWORD dwordLength = sizeof(DWORD);
@@ -93,7 +94,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 								CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
 								if (statusCode != 200)
 								{
-									WinHttpCloseHandle(httpRequest);
+									self->CloseRequest(httpRequest);
 									self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
 									return;
 								}
@@ -154,9 +155,10 @@ void HttpClient::BeginReadingLoopUnsafe()
 					break;
 				case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
 					{
-						ThreadPoolLite::Queue([=]()
+						DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
+						self->QueueCallback([=]()
 						{
-							DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
+							if (self->state == State::Stopping) return;
 							if (dataAvailable == 0)
 							{
 								if (self->callback)
@@ -165,7 +167,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 									U8String bodyUtf8 = U8String::Unmanaged(&self->httpRespondBodyBuffer[0]);
 									self->callback->OnReadString(u8tow(bodyUtf8));
 								}
-								WinHttpCloseHandle(httpRequest);
+								self->CloseRequest(httpRequest);
 								self->BeginReadingLoopUnsafe();
 								return;
 							}
@@ -195,8 +197,9 @@ void HttpClient::BeginReadingLoopUnsafe()
 					break;
 				case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
 					{
-						ThreadPoolLite::Queue([=]()
+						self->QueueCallback([=]()
 						{
+							if (self->state == State::Stopping) return;
 							CHECK_ERROR(
 								self->httpRespondBodyBufferWritingAvailable == dwStatusInformationLength,
 								L"WinHttpReadData failed to read all available data."
@@ -219,15 +222,16 @@ void HttpClient::BeginReadingLoopUnsafe()
 					break;
 				case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
 					{
-						ThreadPoolLite::Queue([=]()
+						self->QueueCallback([=]()
 						{
-							WinHttpCloseHandle(httpRequest);
-							if (self->state != State::Stopping)
-							{
-								self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request canceled, another renderer may have connected to the core."));
-							}
+							if (self->state == State::Stopping) return;
+							self->CloseRequest(httpRequest);
+							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request canceled, another renderer may have connected to the core."));
 						});
 					}
+					break;
+				case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
+					self->OnRequestHandleClosing(httpRequest);
 					break;
 				}
 			},
@@ -243,6 +247,7 @@ void HttpClient::BeginReadingLoopUnsafe()
 		CHECK_ERROR(previousCallback != WINHTTP_INVALID_STATUS_CALLBACK, L"WinHttpSetStatusCallback failed.");
 	}
 	{
+		AttachRequest(httpRequest);
 		httpResult = WinHttpSendRequest(
 			httpRequest,
 			WINHTTP_NO_ADDITIONAL_HEADERS,
@@ -254,11 +259,17 @@ void HttpClient::BeginReadingLoopUnsafe()
 		lastError = GetLastError();
 		if (httpResult == FALSE && lastError == ERROR_INVALID_HANDLE)
 		{
+			OnRequestHandleClosing(httpRequest);
 			CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE but client is not stopping.");
 			WinHttpCloseHandle(httpRequest);
 			return;
 		}
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpSendRequest failed.");
+		if (httpResult == FALSE)
+		{
+			OnRequestHandleClosing(httpRequest);
+			WinHttpCloseHandle(httpRequest);
+			CHECK_FAIL(L"WinHttpSendRequest failed.");
+		}
 	}
 }
 
@@ -462,8 +473,9 @@ void HttpClient::SendString(const WString& str)
 					{
 						self->httpRequestBodies.Remove(httpRequest);
 					}
-					ThreadPoolLite::Queue([=]()
+					self->QueueCallback([=]()
 					{
+						if (self->state == State::Stopping) return;
 						DWORD lastError = 0;
 						BOOL httpResult = WinHttpReceiveResponse(httpRequest, NULL);
 						lastError = GetLastError();
@@ -478,8 +490,9 @@ void HttpClient::SendString(const WString& str)
 				break;
 			case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
 				{
-					ThreadPoolLite::Queue([=]()
+					self->QueueCallback([=]()
 					{
+						if (self->state == State::Stopping) return;
 						DWORD lastError = 0;
 						DWORD statusCode = 0;
 						DWORD dwordLength = sizeof(DWORD);
@@ -498,7 +511,7 @@ void HttpClient::SendString(const WString& str)
 						}
 						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
 
-						WinHttpCloseHandle(httpRequest);
+						self->CloseRequest(httpRequest);
 						if (statusCode != 200)
 						{
 							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
@@ -512,15 +525,16 @@ void HttpClient::SendString(const WString& str)
 					{
 						self->httpRequestBodies.Remove(httpRequest);
 					}
-					ThreadPoolLite::Queue([=]()
+					self->QueueCallback([=]()
 					{
-						WinHttpCloseHandle(httpRequest);
-						if (self->state != State::Stopping)
-						{
-							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response canceled, another renderer may have connected to the core."));
-						}
+						if (self->state == State::Stopping) return;
+						self->CloseRequest(httpRequest);
+						self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response canceled, another renderer may have connected to the core."));
 					});
 				}
+				break;
+			case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
+				self->OnRequestHandleClosing(httpRequest);
 				break;
 			}
 		},
@@ -549,27 +563,124 @@ void HttpClient::SendString(const WString& str)
 		httpRequestBodies.Add(httpRequest, bodyUtf8);
 	}
 
-	httpResult = WinHttpSendRequest(
-		httpRequest,
-		WINHTTP_NO_ADDITIONAL_HEADERS,
-		0,
-		(LPVOID)bodyUtf8.Buffer(),
-		(DWORD)bodyUtf8.Length(),
-		(DWORD)bodyUtf8.Length(),
-		reinterpret_cast<DWORD_PTR>(this));
-	lastError = GetLastError();
-	if (lastError == ERROR_INVALID_HANDLE)
 	{
-		CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE.");
-		WinHttpCloseHandle(httpRequest);
-		return;
+		AttachRequest(httpRequest);
+		httpResult = WinHttpSendRequest(
+			httpRequest,
+			WINHTTP_NO_ADDITIONAL_HEADERS,
+			0,
+			(LPVOID)bodyUtf8.Buffer(),
+			(DWORD)bodyUtf8.Length(),
+			(DWORD)bodyUtf8.Length(),
+			reinterpret_cast<DWORD_PTR>(this));
+		lastError = GetLastError();
+		if (lastError == ERROR_INVALID_HANDLE)
+		{
+			SPIN_LOCK(httpRequestBodiesLock)
+			{
+				httpRequestBodies.Remove(httpRequest);
+			}
+			OnRequestHandleClosing(httpRequest);
+			CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE.");
+			WinHttpCloseHandle(httpRequest);
+			return;
+		}
+		if (httpResult == FALSE)
+		{
+			SPIN_LOCK(httpRequestBodiesLock)
+			{
+				httpRequestBodies.Remove(httpRequest);
+			}
+			OnRequestHandleClosing(httpRequest);
+			WinHttpCloseHandle(httpRequest);
+			CHECK_FAIL(L"WinHttpSendRequest failed.");
+		}
 	}
-	CHECK_ERROR(httpResult == TRUE, L"WinHttpSendRequest failed.");
 }
 
 /***********************************************************************
 HttpClient
 ***********************************************************************/
+
+void HttpClient::BeginPendingCallback()
+{
+	if (pendingCallbacks++ == 0)
+	{
+		eventPendingCallbacks.Unsignal();
+	}
+}
+
+void HttpClient::EndPendingCallback()
+{
+	if (--pendingCallbacks == 0)
+	{
+		eventPendingCallbacks.Signal();
+	}
+}
+
+void HttpClient::QueueCallback(const Func<void()>& proc)
+{
+	BeginPendingCallback();
+	auto queued = ThreadPoolLite::Queue([=]()
+	{
+		try
+		{
+			proc();
+		}
+		catch (...)
+		{
+			EndPendingCallback();
+			throw;
+		}
+
+		EndPendingCallback();
+	});
+	if (!queued)
+	{
+		EndPendingCallback();
+		CHECK_FAIL(L"HttpClient failed to queue asynchronous callback.");
+	}
+}
+
+void HttpClient::AttachRequest(HINTERNET httpRequest)
+{
+	BeginPendingCallback();
+	SPIN_LOCK(httpActiveRequestsLock)
+	{
+		httpActiveRequests.Add(httpRequest);
+	}
+}
+
+void HttpClient::CloseRequest(HINTERNET httpRequest)
+{
+	bool closeRequest = false;
+	SPIN_LOCK(httpActiveRequestsLock)
+	{
+		vint index = httpActiveRequests.IndexOf(httpRequest);
+		if (index != -1)
+		{
+			httpActiveRequests.RemoveAt(index);
+			closeRequest = true;
+		}
+	}
+	if (closeRequest)
+	{
+		WinHttpCloseHandle(httpRequest);
+	}
+}
+
+void HttpClient::OnRequestHandleClosing(HINTERNET httpRequest)
+{
+	SPIN_LOCK(httpActiveRequestsLock)
+	{
+		vint index = httpActiveRequests.IndexOf(httpRequest);
+		if (index != -1)
+		{
+			httpActiveRequests.RemoveAt(index);
+		}
+	}
+	EndPendingCallback();
+}
 
 HttpClient::HttpClient(const WString _baseUrl, vint port)
 	: baseUrl(_baseUrl)
@@ -577,6 +688,7 @@ HttpClient::HttpClient(const WString _baseUrl, vint port)
 	DWORD lastError = 0;
 	hEventWaitForServer = CreateEvent(NULL, FALSE, TRUE, NULL);
 	CHECK_ERROR(hEventWaitForServer != NULL, L"HttpClient initialization failed on CreateEvent(hEventWaitForServer).");
+	CHECK_ERROR(eventPendingCallbacks.CreateManualUnsignal(true), L"HttpClient initialization failed on eventPendingCallbacks.CreateManualUnsignal.");
 
 	httpSession = WinHttpOpen(
 		L"vl::inter_process::HttpClient",
@@ -617,6 +729,20 @@ void HttpClient::Stop()
 	{
 		state = State::Stopping;
 
+		List<HINTERNET> stoppingRequests;
+		SPIN_LOCK(httpActiveRequestsLock)
+		{
+			for (auto httpRequest : httpActiveRequests)
+			{
+				stoppingRequests.Add(httpRequest);
+			}
+			httpActiveRequests.Clear();
+		}
+		for (auto httpRequest : stoppingRequests)
+		{
+			WinHttpCloseHandle(httpRequest);
+		}
+
 		WinHttpCloseHandle(httpConnection);
 		WinHttpSetStatusCallback(
 			httpSession,
@@ -624,6 +750,8 @@ void HttpClient::Stop()
 			WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS,
 			NULL);
 		WinHttpCloseHandle(httpSession);
+
+		eventPendingCallbacks.Wait();
 
 		httpConnection = NULL;
 		httpSession = NULL;

@@ -43,10 +43,6 @@ void NamedPipeConnection::EndReadingUnsafe()
 	CHECK_ERROR(bytes == position - sizeof(bytes), L"ReadFile failed on corrupted message.");
 	firstRead = true;
 
-	vint32_t count = 0;
-	consumed = streamReadFile.Read(&count, sizeof(count));
-	CHECK_ERROR(consumed == sizeof(count), L"ReadFile failed on incomplete message.");
-
 	Array<wchar_t> strBuffer;
 	auto ReadSingleString = [&]()
 	{
@@ -74,6 +70,7 @@ void NamedPipeConnection::EndReadingUnsafe()
 
 void NamedPipeConnection::BeginReadingLoopUnsafe()
 {
+	if (stopped) return;
 RESTART_LOOP:
 	{
 		BeginReadingUnsafe();
@@ -104,8 +101,11 @@ RESTART_LOOP:
 			[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 			{
 				auto self = (NamedPipeConnection*)lpParameter;
-				UnregisterWait(self->hWaitHandleReadFile);
-				self->hWaitHandleReadFile = INVALID_HANDLE_VALUE;
+				auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&self->hWaitHandleReadFile, INVALID_HANDLE_VALUE);
+				if (waitHandle != INVALID_HANDLE_VALUE)
+				{
+					UnregisterWait(waitHandle);
+				}
 
 				DWORD read = 0;
 				BOOL result = GetOverlappedResult(self->hPipe, &self->overlappedReadFile, &read, FALSE);
@@ -125,7 +125,10 @@ RESTART_LOOP:
 					CHECK_ERROR(error == ERROR_MORE_DATA, L"GetOverlappedResult(ReadFile) failed on unexpected GetLastError.");
 					self->SubmitReadBufferUnsafe((vint)read);
 				}
-				self->BeginReadingLoopUnsafe();
+				if (!self->stopped)
+				{
+					self->BeginReadingLoopUnsafe();
+				}
 			},
 			this,
 			INFINITE,
@@ -209,6 +212,7 @@ void NamedPipeConnection::OnDisconnected()
 }
 
 NamedPipeConnection::NamedPipeConnection(HANDLE _hPipe)
+	: bufferReadFile(MaxMessageSize)
 {
 	hPipe = _hPipe;
 
@@ -235,8 +239,16 @@ void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 
 void NamedPipeConnection::Stop()
 {
+	stopped = 1;
+	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleReadFile, INVALID_HANDLE_VALUE);
+	if (waitHandle != INVALID_HANDLE_VALUE)
+	{
+		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+	}
+
 	if (hPipe != INVALID_HANDLE_VALUE)
 	{
+		CancelIoEx(hPipe, NULL);
 		CloseHandle(hPipe);
 		hPipe = INVALID_HANDLE_VALUE;
 	}
@@ -336,17 +348,35 @@ NamedPipeClient
 
 HANDLE NamedPipeClient::ClientCreatePipe(const WString& pipeName)
 {
-	HANDLE hPipe = CreateFile(
-		(L"\\\\.\\pipe\\" + pipeName).Buffer(),
-		GENERIC_READ | GENERIC_WRITE,
-		0,
-		NULL,
-		OPEN_EXISTING,
-		FILE_FLAG_OVERLAPPED,
-		NULL);
-	CHECK_ERROR(hPipe != INVALID_HANDLE_VALUE, L"CreateFile failed.");
-	CHECK_ERROR(GetLastError() == 0, L"Another renderer already connected.");
-	return hPipe;
+	auto fullPipeName = L"\\\\.\\pipe\\" + pipeName;
+	auto start = GetTickCount64();
+	while (true)
+	{
+		HANDLE hPipe = CreateFile(
+			fullPipeName.Buffer(),
+			GENERIC_READ | GENERIC_WRITE,
+			0,
+			NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED,
+			NULL);
+		if (hPipe != INVALID_HANDLE_VALUE)
+		{
+			return hPipe;
+		}
+
+		auto error = GetLastError();
+		CHECK_ERROR(error == ERROR_FILE_NOT_FOUND || error == ERROR_PIPE_BUSY, L"CreateFile failed.");
+		CHECK_ERROR(GetTickCount64() - start < 6000, L"CreateFile failed because the pipe server did not become available.");
+		if (error == ERROR_PIPE_BUSY)
+		{
+			WaitNamedPipe(fullPipeName.Buffer(), 100);
+		}
+		else
+		{
+			Thread::Sleep(1);
+		}
+	}
 }
 
 NamedPipeClient::NamedPipeClient(const WString& _pipeName)

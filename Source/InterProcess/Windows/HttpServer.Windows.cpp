@@ -13,6 +13,11 @@ void HttpServerConnection::OnCancelCurrentHttpRequestForPendingRequest()
 {
 	if (httpPendingRequestId != HTTP_NULL_ID)
 	{
+		if (!server)
+		{
+			httpPendingRequestId = HTTP_NULL_ID;
+			return;
+		}
 		ULONG result = HttpCancelHttpRequest(
 			server->httpRequestQueue,
 			httpPendingRequestId,
@@ -32,6 +37,7 @@ void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID htt
 	{
 		ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, pendingRequestToSend.Value());
 		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
+		httpPendingRequestId = HTTP_NULL_ID;
 		pendingRequestToSend.Reset();
 	}
 }
@@ -118,6 +124,7 @@ void HttpServerConnection::SendString(const WString& str)
 			else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
 			{
 				httpPendingRequestId = HTTP_NULL_ID;
+				pendingRequestToSend = str;
 			}
 			else
 			{
@@ -236,8 +243,8 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 			queuedConnections.Add(connection.Obj());
 		}
 		semaphoreQueuedConnections.Release();
-		auto completeUrlRequest = urlRequestPrefix + newGuid;
-		auto completeUrlResponse = urlResponsePrefix + newGuid;
+		auto completeUrlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + newGuid;
+		auto completeUrlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + newGuid;
 		SendResponse(httpRequestQueue, pRequest->RequestId, completeUrlRequest + L";" + completeUrlResponse);
 	}
 	else if (pRequest->Verb == HttpVerbPOST && isValidRequest)
@@ -256,10 +263,9 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlResponsePrefix.Length());
 		if (auto connection = FindExistingConnection(guid))
 		{
-			SPIN_LOCK(connection->pendingRequestLock)
-			{
-				connection->OnNewHttpRequestForPendingRequest(pRequest->RequestId);
-			}
+			connection->SubmitResponse(pRequest);
+			auto result = SendResponse(httpRequestQueue, pRequest->RequestId, WString::Empty);
+			CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Response.");
 		}
 	}
 	else if (pRequest->Verb == HttpVerbOPTIONS && (isValidRequest || isValidResponse))
@@ -327,6 +333,8 @@ ULONG HttpServer::ListenToHttpRequest_OverlappedMoreData(vint expectedBufferSize
 
 void HttpServer::ListenToHttpRequest()
 {
+	if (state == State::Stopping) return;
+
 	ResetEvent(hEventRequest);
 	ZeroMemory(&overlappedRequest, sizeof(overlappedRequest));
 	overlappedRequest.hEvent = hEventRequest;
@@ -379,8 +387,11 @@ void HttpServer::ListenToHttpRequest()
 		[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 		{
 			auto self = (HttpServer*)lpParameter;
-			UnregisterWait(self->hWaitHandleRequest);
-			self->hWaitHandleRequest = INVALID_HANDLE_VALUE;
+			auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&self->hWaitHandleRequest, INVALID_HANDLE_VALUE);
+			if (waitHandle != INVALID_HANDLE_VALUE)
+			{
+				UnregisterWait(waitHandle);
+			}
 
 			DWORD read = 0;
 			BOOL result = GetOverlappedResult(self->httpRequestQueue, &self->overlappedRequest, &read, FALSE);
@@ -512,13 +523,16 @@ ULONG HttpServer::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestI
 
 	httpResponse.StatusCode = 200;
 	httpResponse.pReason = "OK";
-	httpResponse.EntityChunkCount = 1;
-	httpResponse.pEntityChunks = &httpResponseBody;
 
 	U8String body = wtou8(str);
-	httpResponseBody.DataChunkType = HttpDataChunkFromMemory;
-	httpResponseBody.FromMemory.pBuffer = (PVOID)body.Buffer();
-	httpResponseBody.FromMemory.BufferLength = (ULONG)body.Length();
+	if (body.Length() > 0)
+	{
+		httpResponse.EntityChunkCount = 1;
+		httpResponse.pEntityChunks = &httpResponseBody;
+		httpResponseBody.DataChunkType = HttpDataChunkFromMemory;
+		httpResponseBody.FromMemory.pBuffer = (PVOID)body.Buffer();
+		httpResponseBody.FromMemory.BufferLength = (ULONG)body.Length();
+	}
 
 	static const char headerContentType[] = "application/json; charset=utf8";
 	httpResponse.Headers.KnownHeaders[HttpHeaderContentType].pRawValue = headerContentType;
@@ -638,19 +652,6 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 
 HttpServer::~HttpServer()
 {
-	state = State::Stopping;
-	SPIN_LOCK(lockConnections)
-	{
-		for (auto connection : connections.Values())
-		{
-			connection->server = nullptr;
-			SPIN_LOCK(connection->pendingRequestLock)
-			{
-				connection->OnCancelCurrentHttpRequestForPendingRequest();
-			}
-		}
-		connections.Clear();
-	}
 	Stop();
 	CloseHandle(hEventRequest);
 }
@@ -677,6 +678,42 @@ INetworkProtocolConnection* HttpServer::WaitForClient()
 
 void HttpServer::Stop()
 {
+	state = State::Stopping;
+	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleRequest, INVALID_HANDLE_VALUE);
+	if (waitHandle != INVALID_HANDLE_VALUE)
+	{
+		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+	}
+
+	List<Ptr<HttpServerConnection>> stoppingConnections;
+	SPIN_LOCK(lockConnections)
+	{
+		for (auto connection : connections.Values())
+		{
+			stoppingConnections.Add(connection);
+		}
+		connections.Clear();
+	}
+	SPIN_LOCK(lockQueuedConnections)
+	{
+		queuedConnections.Clear();
+	}
+	for (auto connection : stoppingConnections)
+	{
+		SPIN_LOCK(connection->pendingRequestLock)
+		{
+			connection->OnCancelCurrentHttpRequestForPendingRequest();
+		}
+		connection->server = nullptr;
+	}
+	for (auto connection : stoppingConnections)
+	{
+		if (connection->callback)
+		{
+			connection->callback->OnDisconnected();
+		}
+	}
+
 	if (httpRequestQueue != INVALID_HANDLE_VALUE)
 	{
 		HttpCloseUrlGroup(httpUrlGroupId);
