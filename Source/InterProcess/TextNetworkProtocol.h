@@ -226,6 +226,11 @@ Later
 NetworkProtocolChannel
 ***********************************************************************/
 
+	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolChannel : public Object, public virtual IChannel<TPackage>
+	{
+	};
+
 /***********************************************************************
 NetworkProtocolChannelClient
 ***********************************************************************/
@@ -240,7 +245,7 @@ NetworkProtocolChannelClient
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 
-		class Channel : public Object, public virtual IChannel<TPackage>
+		class Channel : public NetworkProtocolChannel<TPackage, TSerialization>
 		{
 		protected:
 			NetworkProtocolChannelClient*					client = nullptr;
@@ -641,7 +646,7 @@ NetworkProtocolChannelServer
 			TPackage										package;
 		};
 
-		class Channel : public Object, public virtual IChannel<TPackage>
+		class Channel : public NetworkProtocolChannel<TPackage, TSerialization>
 		{
 		protected:
 			NetworkProtocolChannelServer*					server = nullptr;
