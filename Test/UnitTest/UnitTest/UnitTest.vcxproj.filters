@@ -177,6 +177,9 @@
     <ClCompile Include="..\..\Source\TestInterProcess.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\TextNetworkProtocol.cpp">
+      <Filter>Common\InterProcess</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
@@ -248,9 +251,6 @@
     <ClInclude Include="..\..\..\Source\InterProcess\Channel.h">
       <Filter>Common\InterProcess</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Source\InterProcess\ChannelServer.h">
-      <Filter>Common\InterProcess</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
@@ -265,6 +265,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h">
       <Filter>Common\InterProcess\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelSerializer.h">
+      <Filter>Common\InterProcess</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

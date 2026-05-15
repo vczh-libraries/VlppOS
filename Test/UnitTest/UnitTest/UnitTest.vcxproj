@@ -183,6 +183,7 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\HttpUtility.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\TextNetworkProtocol.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp" />
@@ -259,7 +260,7 @@
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\HttpUtility.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Channel.h" />
-    <ClInclude Include="..\..\..\Source\InterProcess\ChannelServer.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelSerializer.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\TextNetworkProtocol.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.h" />

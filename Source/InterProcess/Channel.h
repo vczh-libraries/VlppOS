@@ -14,126 +14,227 @@ Interfaces:
 
 namespace vl::inter_process
 {
+	constexpr const wchar_t* ErrorChannel = L"!Error";
+	constexpr const wchar_t* SystemChannel = L"!System";
+	constexpr vint AdminClientId = -32768;
 
 /***********************************************************************
 IGuiRemoteProtocolChannel<T>
 ***********************************************************************/
 
+	/// <summary>
+	/// Callbacks for channel events.
+	/// </summary>
+	/// <typeparam name="TPackage">The type of the package.</typeparam>
 	template<typename TPackage>
 	class IChannelReader : public virtual Interface
 	{
 	public:
+		/// <summary>
+		/// Called when the channel receives a message.
+		/// </summary>
+		/// <param name="package">The message.</param>
 		virtual void							OnRead(const TPackage& package) = 0;
 	};
 
+	/// <summary>
+	/// Represents a channel.
+	/// One server to client connection can host multiple channels, but each channel might only cover part of clients.
+	/// Channels are distinguished by their names.
+	/// Channel name is not allowed to start with "!", which is reserved for system channels.
+	/// There will be no system channel representations, the channel name is used as a symbol between the server and clients for system events.
+	/// </summary>
+	/// <typeparam name="TPackage">The type of the package.</typeparam>
 	template<typename TPackage>
 	class IChannel : public virtual Interface
 	{
 	public:
+		/// <summary>
+		/// Get the channel name.
+		/// </summary>
+		/// <returns>The name of the channel.</returns>
 		virtual const WString&					GetChannelName() = 0;
+
+		/// <summary>
+		/// Get the installed reader.
+		/// </summary>
+		/// <returns>The installed reader.</returns>
 		virtual IChannelReader<TPackage>*		GetReader() = 0;
+
+		/// <summary>
+		/// Install a reader.
+		/// If multiple text messages are received before installing the reader, all messages will be pushed to the reader right away.
+		/// This function can only be called once to install a reader, and no uninstallation is supported.
+		/// </summary>
+		/// <param name="receiver">The reader to install.</param>
 		virtual void							Initialize(IChannelReader<TPackage>* receiver) = 0;
+
+		/// <summary>
+		/// Queue a message to send to a client using the same channel.
+		/// If the remote client doesn't have this channel, the message will be discarded.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		/// <param name="package">The message to send.</param>
 		virtual void							SendToClient(vint clientId, const TPackage& package) = 0;
+
+		/// <summary>
+		/// Queue a message to broadcast to all other clients using the same channel.
+		/// If the remote client doesn't have this channel, the message will be discarded.
+		/// </summary>
+		/// <param name="package">The message to broadcast.</param>
 		virtual void							BroadcastFromClient(const TPackage& package) = 0;
+
+		/// <summary>
+		/// Send all queued messages.
+		/// </summary>
+		/// <param name="disconnected">Indicates whether the client is disconnected.</param>
 		virtual void							BatchWrite(bool& disconnected) = 0;
 	};
 
 /***********************************************************************
-Serialization
+IChannelClient
 ***********************************************************************/
 
-	template<typename TFrom, typename TTo>
-	class ChannelTransformerBase
-		: public Object
-		, public virtual IChannel<TTo>
-		, protected virtual IChannelReader<TFrom>
+	/// <summary>
+	/// Represents a client.
+	/// </summary>
+	/// <typeparam name="TPackage">The type of the package.</typeparam>
+	template<typename TPackage>
+	class IChannelClient : public virtual Interface
 	{
-	protected:
-		IChannel<TTo>*						channel = nullptr;
-		IChannelReader<TFrom>*				reader = nullptr;
 	public:
-		ChannelTransformerBase(IChannel<TTo>* _channel)
-			: channel(_channel)
-		{
-		}
+		using ChannelMap = collections::Dictionary<WString, IChannel<TPackage>*>;
+		using ChannelNameList = typename ChannelMap::KeyContainer;
 
-		IChannelReader<TTo>* GetReader() override
-		{
-			return reader;
-		}
+		/// <summary>
+		/// Called when the connection is established.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		virtual void						OnConnected(vint clientId) = 0;
 
-		void Initialize(IChannelReader<TFrom>* _reader) override
-		{
-			reader = _reader;
-			channel->Initialize(this);
-		}
+		/// <summary>
+		/// Called when the connection is disconnected.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		virtual void						OnDisconnected() = 0;
 
-		void BatchWrite(bool& disconnected) override
-		{
-			channel->BatchWrite(disconnected);
-		}
-	};
+		/// <summary>
+		/// Called when a fetal error occurs.
+		/// When any fetal error occurs at client side or server side, all clients is supposed to receive such error if possible, and the server will shut down.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		/// <param name="errorMessage">The error message.</param>
+		virtual void						OnError(const WString& errorMessage) = 0;
 
-	template<typename TSerialization>
-	class ChannelSerializer
-		: public ChannelTransformerBase<typename TSerialization::SourceType, typename TSerialization::DestType>
-	{
-	protected:
-		typename TSerialization::ContextType					context;
+		/// <summary>
+		/// Called when available connection names are required.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		/// <returns>All connection names.</returns>
+		virtual const ChannelNameList&		OnGetChannelNames() = 0;
 
-		void OnReceive(const typename TSerialization::DestType& package) override
-		{
-			typename TSerialization::SourceType deserialized;
-			TSerialization::Deserialize(context, package, deserialized);
-			this->reader->OnRead(deserialized);
-		}
+		/// <summary>
+		/// Get all channels.
+		/// The returned map should be empty before the connection is established.
+		/// Channel objects will be created by the client implementation.
+		/// </summary>
+		/// <returns>All connections.</returns>
+		virtual const ChannelMap&			GetChannels() = 0;
 
-	public:
-		ChannelSerializer(IChannel<typename TSerialization::DestType>* _channel, const typename TSerialization::ContextType& _context = {})
-			: ChannelTransformerBase<typename TSerialization::SourceType, typename TSerialization::DestType>(_channel)
-			, context(_context)
-		{
-		}
+		/// <summary>
+		/// Get the client id.
+		/// It should return -1 before the connection is established.
+		/// The client id will be assigned by the server.
+		/// </summary>
+		/// <returns>The client id.</returns>
+		virtual vint						GetClientId() = 0;
 
-		void SendToClient(vint clientId, const typename TSerialization::SourceType& package) override
-		{
-			typename TSerialization::DestType serialized;
-			TSerialization::Serialize(context, package, serialized);
-			this->channel->SendToClient(clientId, serialized);
-		}
+		/// <summary>
+		/// Block until the connection to the server is established.
+		/// Calling it more than once or on a local client returns immediately.
+		/// </summary>
+		virtual void						WaitForServer() = 0;
 
-		void BroadcastFromClient(const typename TSerialization::SourceType& package) override
-		{
-			typename TSerialization::DestType serialized;
-			TSerialization::Serialize(context, package, serialized);
-			this->channel->BroadcastFromClient(serialized);
-		}
+		/// <summary>
+		/// Raise a fatal error.
+		/// </summary>
+		/// <param name="errorMessage">The fatal error.</param>
+		virtual void						BroadcastError(const WString& errorMessage) = 0;
 	};
 
 /***********************************************************************
-String Transformation
+IChannelServer
 ***********************************************************************/
 
-	template<typename TFrom, typename TTo>
-	struct UtfStringSerializer
+	/// <summary>
+	/// Represents a server.
+	/// </summary>
+	/// <typeparam name="TPackage">The type of the package.</typeparam>
+	template<typename TPackage>
+	class IChannelServer : public virtual Interface
 	{
-		using SourceType = ObjectString<TFrom>;
-		using DestType = ObjectString<TTo>;
-		using ContextType = std::nullptr_t;
+	public:
+		using ClientChannelMap = collections::Group<vint, WString>;
+		using ClientIdList = typename ClientChannelMap::KeyContainer;
 
-		static void Serialize(const ContextType&, const SourceType& source, DestType& dest)
-		{
-			ConvertUtfString(source, dest);
-		}
+		/// <summary>
+		/// Called when any client connects to the server.
+		/// This function will be implemented by the user, the default implementation will return true.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		/// <param name="availableChannels">The available channels.</param>
+		/// <returns>Returns true if the client is allowed to connect, false otherwise.</returns>
+		virtual bool						OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels) = 0;
 
-		static void Deserialize(const ContextType&, const DestType& source, SourceType& dest)
-		{
-			ConvertUtfString(source, dest);
-		}
+		/// <summary>
+		/// Called when any client disconnects from the server.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		virtual void						OnClientDisconnected(vint clientId) = 0;
+
+		/// <summary>
+		/// Connect a local client to the server.
+		/// Connections between such client to the server will be local and established immediately, no network transmission is involved.
+		/// </summary>
+		/// <param name="localClient">The local client.</param>
+		/// <returns>Returns false if the connection is already established, no matter local or remote.</returns>
+		virtual bool						ConnectLocalClient(Ptr<IChannelClient<TPackage>> localClient) = 0;
+
+		/// <summary>
+		/// Test if a client id is local.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		/// <returns>Returns true if the client id is local, false otherwise.</returns>
+		virtual bool						IsLocalClient(vint clientId) = 0;
+
+		/// <summary>
+		/// Disconnect a client.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		/// <returns>Returns true if the client is successfully disconnected, false otherwise.</returns>
+		virtual bool						DisconnectClient(vint clientId) = 0;
+
+		/// <summary>
+		/// Get all client ids.
+		/// </summary>
+		/// <returns>All client ids.</returns>
+		virtual const ClientIdList&			GetClientIds() = 0;
+
+		/// <summary>
+		/// Get all client channels.
+		/// Channel objects will be created by the server implementation.
+		/// </summary>
+		/// <returns>Returns a map from client id to available channels.</returns>
+		virtual const ClientChannelMap&		GetClientChannels() = 0;
+
+		/// <summary>
+		/// Raise a fatal error.
+		/// </summary>
+		/// <param name="errorMessage">The fatal error.</param>
+		virtual void						BroadcastError(const WString& errorMessage) = 0;
 	};
-
-	template<typename TFrom, typename TTo>
-	using UtfStringChannelSerializer = ChannelSerializer<UtfStringSerializer<TFrom, TTo>>;
 }
 
 #endif
