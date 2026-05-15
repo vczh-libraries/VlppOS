@@ -8,6 +8,7 @@
   - It is important to do task one by one strictly, by me designing tasks in this way, we can achieve:
   - Easy-to-understand commits for file changing that is easy to review.
   - Limit side effects so that you don't have to deal with massive of issues at the same time.
+- each task will be treated as a new `# Repro`, that is, to wipe the document before execution.
 
 All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
@@ -15,55 +16,26 @@ I think this is the only test file you need.
 
 ## Task 1
 
-- `INetworkProtocolClient::GetStatus` and `INetworkProtocolServer::IsStopped` is added but `(NamedPipe|Http)(Server|Client)` do not implement them. You need to implement it.
-  - To test them, you need to `CHECK_ERROR` before/after `WaitForClient` (for client) and `Thread::Sleep` (for all) in the test case. Therefore `ClientStatus::WaitingForClient` will be unreachable in the test, which is fine.
+**IMPORTANT** This work happens in `VlppOS` repo.
 
-## Task 2
-
-- Complete `NetworkProtocolChannelClient` and `NetworkProtocolChannelServer`.
-- All requirements are in comments, follow them strictly.
-- Add `RunNetworkProtocolChannel` in `TestInterProcess.cpp`.
-  - Organize in a new `namespace mynamespace` after the existing one, better organizing the code.
-  - Two more `(Channel)` versions of `TEST_CASE` should be added at the end inside `#ifdef VCZH_MSVC`.
-  - Form the test case in a similar way.
-  - In `mynamespace` it will be necessary to create sub classes for:
-    - `NetworkProtocolChannelClient<WString, xxx>` for listening to client callbacks.
-    - `NetworkProtocolChannelServer<WString, xxx>` for listening to client callbacks.
-    - The serialization helper so that serialization from `List<WString>` to `WString` is doable.
-      - Since this is only for unit test, we can assume there will be no ";" in text message, therefore this could be a delimiter.
-      - Use `wcschr` to traverse through all ";" will be easier.
-  - To make the code clean, `(NamedPipe|Http)(Server|Client)` could be created and feed to `NetworkProtocolChannel(Server|Client)` in lambda in test cases.
+Refactor `NetworkProtocolChannelClient` and `NetworkProtocolChannelServer`.
+- Check two latest commit titled `Update TextNetworkProtocol.h` you will find I performed some change to `NetworkProtocolChannelClient::Channel`. I would like you to:
+  - Pay attention to the change in `NetworkProtocolChannelClient::Channel`, I improved the code, similar issues will also be in the server version.
+  - Extract similar part from both channel to NetworkProtocolChannel as much as you can. If there is any differences, respect the client version.
+  - Both channel calls `client->BatchWrite` and `server->BatchWrite`, you can add a `BatchWrite` virtual function to the base class (`NetworkProtocolChannel`), and I think no other places call `client->` and `server->`. And two versions of channels inherit from that base class and implement `BatchWrite` for redirection.
+  - Check if any shared code that appear in both client and server, will it be extracted to static helper functions in `NetworkProtocolChannel`, or any better form, so that implementation would become simpler? Make your own judgement. But more importantly, I don't want you to just randomly find something to extract so that you can say you extracted more. All extraction must be reasonable.
+- Review data structures.
+  - I have changed `NetworkProtocolChannelClient::Channel::queuedPackages` from a list to group, so that the list for each group is naturally maintained and can be feed to `BatchWrite` directly, avoiding unnecessary copying. You can check existing code and see if anything could be improved.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Task 1 uses the existing `Test/Source/TestInterProcess.cpp` transport workflow and adds `CHECK_ERROR` assertions for the new status APIs:
+Task 1 uses the existing inter-process channel tests in `Test/Source/TestInterProcess.cpp`. The refactor should preserve behavior for both channel transports:
 
-- Server status is checked before accepting clients, after each `WaitForClient`, before and after `Thread::Sleep`, and after `Stop`.
-- Client status is checked before `WaitForServer`, after `WaitForServer`, before and after `Thread::Sleep`, and after explicitly stopping the connection.
-- `ClientStatus::WaitingForServer` is only observable while `WaitForServer` is running, so the test confirms the reachable `Ready`, `Connected`, and `Disconnected` states.
-
-Success criteria:
-
-- The Debug x64 build has 0 warnings and 0 errors.
-- The unit test project passes, including both existing `NamedPipe (NetworkProtocol)` and `HttpServer (NetworkProtocol)` cases.
-
-Confirmed with:
-
-- `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 113/113`.
-
-Task 2 adds the missing network protocol channel implementation and exercises it through the same transport matrix:
-
-- `NetworkProtocolChannelClient` now creates named channels, sends the channel list during connection, tracks client status and id, batches outgoing packages, dispatches incoming batches, replays unread packages after reader installation, and propagates fatal errors.
-- `NetworkProtocolChannelServer` now accepts network clients, assigns client ids, records each client's available channels, routes broadcasts and directed messages, batches server-originated packages, disconnects clients, and stops without touching protocol connection pointers after the underlying server owns their shutdown.
-- `RunNetworkProtocolChannel` verifies a two-client chat over both named pipes and HTTP, using a `List<WString>` to `WString` serializer with `;` as the test-only delimiter.
-
-Success criteria:
-
-- The Debug x64 build has 0 warnings and 0 errors.
-- The unit test project passes, including `NamedPipe (Channel)` and `HttpServer (Channel)`.
+- `NamedPipe (Channel)` must pass.
+- `HttpServer (Channel)` must pass.
+- The whole Debug x64 UnitTest project should still build with 0 warnings and 0 errors.
 
 Confirmed with:
 
@@ -72,30 +44,22 @@ Confirmed with:
 
 # PROPOSALS
 
-- No.1 [CONFIRMED] Implement transport status APIs
-- No.2 [CONFIRMED] Complete network protocol channels
+- No.1 Refactor shared network protocol channel behavior [CONFIRMED]
 
-## No.1 Implement transport status APIs
-
-### CODE CHANGE
-
-- Implemented `NamedPipeServer::IsStopped` and `HttpServer::IsStopped`.
-- Implemented `NamedPipeClient::GetStatus` and `HttpClient::GetStatus`.
-- Added `NamedPipeClient::Stop` so stopping through `INetworkProtocolConnection` updates client status to `Disconnected`.
-- Added status `CHECK_ERROR` assertions to the existing named-pipe and HTTP protocol unit tests.
-
-### CONFIRMED
-
-The new accessors compile for all four Windows protocol classes, and the status assertions pass in the existing inter-process workflow. The Debug x64 build is warning-free, and the unit test wrapper completed successfully.
-
-## No.2 Complete network protocol channels
+## No.1 Refactor shared network protocol channel behavior
 
 ### CODE CHANGE
 
-- Implemented client-side and server-side channel adapters in `TextNetworkProtocol.h`.
-- Added channel message batching, channel-name registration, client-id assignment, status tracking, disconnected/error handling, and unread-package replay before `IChannelReader` installation.
-- Added channel integration tests for named pipes and HTTP with two clients exchanging messages through the `Chat` channel.
+- Moved common channel state and behavior into `NetworkProtocolChannel<TPackage, TSerialization>`:
+  - channel name and reader access
+  - unread package replay
+  - grouped queued packages
+  - public `BatchWrite(bool&)`
+  - `SendToClient` and `BroadcastFromClient`
+- Changed the server-side channel queue from `List<QueuedPackage>` to `Group<Nullable<vint>, TPackage>`, matching the improved client-side structure and avoiding the manual regrouping copy.
+- Kept client and server differences in small derived `WriteBatch` redirects to their owning protocol adapters.
+- Moved channel-name validation and the channel-name join/split wire-format helpers into the shared base.
 
 ### CONFIRMED
 
-The channel adapters compile and the new named-pipe and HTTP channel cases pass. The shutdown path was confirmed to avoid using raw protocol connection pointers after `INetworkProtocolServer::Stop`, because the underlying server owns those connection lifetimes.
+The refactor keeps the existing named-pipe and HTTP channel workflows passing. The grouped queue now feeds each target batch directly to the transport writer on both client and server paths, while the derived channel classes only encode the client/server-specific destination semantics.

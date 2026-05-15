@@ -229,6 +229,157 @@ NetworkProtocolChannel
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannel : public Object, public virtual IChannel<TPackage>
 	{
+		static_assert(std::is_same_v<typename TSerialization::SourceType, collections::List<TPackage>>);
+		static_assert(std::is_same_v<typename TSerialization::DestType, WString>);
+	protected:
+		using PackageList = typename TSerialization::SourceType;
+		using ChannelMap = collections::Dictionary<WString, IChannel<TPackage>*>;
+		using ChannelNameList = typename ChannelMap::KeyContainer;
+
+		WString											channelName;
+		IChannelReader<TPackage>*						reader = nullptr;
+		SpinLock										lockUnreadPackages;
+		PackageList										unreadPackages;
+		SpinLock										lockQueuedPackages;
+		collections::Group<Nullable<vint>, TPackage>	queuedPackages;
+
+		virtual bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) = 0;
+
+		void ReadBatchToReader(const PackageList& batch)
+		{
+			for (auto&& package : batch)
+			{
+				reader->OnRead(package);
+			}
+		}
+
+	public:
+		NetworkProtocolChannel(const WString& _channelName)
+			: channelName(_channelName)
+		{
+		}
+
+		static void ValidateChannelName(const WString& channelName)
+		{
+			CHECK_ERROR(channelName.Length() > 0, L"Channel name should not be empty.");
+			CHECK_ERROR(wcschr(channelName.Buffer(), L'!') == nullptr, L"Channel name should not contain !.");
+		}
+
+		static WString JoinChannelNames(const ChannelNameList& channelNames)
+		{
+			WString joinedNames;
+			for (auto&& channelName : channelNames)
+			{
+				if (joinedNames.Length() > 0)
+				{
+					joinedNames += L"!";
+				}
+				joinedNames += channelName;
+			}
+			return joinedNames;
+		}
+
+		static void SplitChannelNames(const WString& joinedNames, ChannelMap& availableChannels)
+		{
+			const wchar_t* reading = joinedNames.Buffer();
+			while (true)
+			{
+				auto delimiter = wcschr(reading, L'!');
+				auto channelName =
+					delimiter
+					? WString::CopyFrom(reading, (vint)(delimiter - reading))
+					: WString::CopyFrom(reading, (vint)wcslen(reading));
+				if (channelName.Length() > 0)
+				{
+					ValidateChannelName(channelName);
+					availableChannels.Add(channelName, nullptr);
+				}
+
+				if (!delimiter)
+				{
+					break;
+				}
+				reading = delimiter + 1;
+			}
+		}
+
+		const WString& GetChannelName() override
+		{
+			return channelName;
+		}
+
+		IChannelReader<TPackage>* GetReader() override
+		{
+			return reader;
+		}
+
+		void Initialize(IChannelReader<TPackage>* _reader) override
+		{
+			CHECK_ERROR(_reader, L"NetworkProtocolChannel::Initialize needs a valid reader.");
+			SPIN_LOCK(lockUnreadPackages)
+			{
+				reader = _reader;
+				ReadBatchToReader(unreadPackages);
+				unreadPackages.Clear();
+			}
+		}
+
+		void SendToClient(vint clientId, const TPackage& package) override
+		{
+			QueuePackage(clientId, package);
+		}
+
+		void BroadcastFromClient(const TPackage& package) override
+		{
+			QueuePackage({}, package);
+		}
+
+		void BatchWrite(bool& disconnected) override
+		{
+			collections::Group<Nullable<vint>, TPackage> packages;
+			SPIN_LOCK(lockQueuedPackages)
+			{
+				packages = std::move(queuedPackages);
+			}
+
+			for (vint i = 0; i < packages.Count(); i++)
+			{
+				auto clientId = packages.Keys()[i];
+				auto&& batch = packages.GetByIndex(i);
+				if (WriteBatch(clientId, batch))
+				{
+					disconnected = true;
+					return;
+				}
+			}
+		}
+
+		void ReadBatch(const PackageList& batch)
+		{
+			SPIN_LOCK(lockUnreadPackages)
+			{
+				if (reader)
+				{
+					ReadBatchToReader(batch);
+				}
+				else
+				{
+					for (auto&& package : batch)
+					{
+						unreadPackages.Add(package);
+					}
+				}
+			}
+		}
+
+	protected:
+		void QueuePackage(Nullable<vint> clientId, const TPackage& package)
+		{
+			SPIN_LOCK(lockQueuedPackages)
+			{
+				queuedPackages.Add(clientId, package);
+			}
+		}
 	};
 
 /***********************************************************************
@@ -238,110 +389,29 @@ NetworkProtocolChannelClient
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelClient : public Object, public virtual IChannelClient<TPackage>
 	{
-		static_assert(std::is_same_v<typename TSerialization::SourceType, collections::List<TPackage>>);
-		static_assert(std::is_same_v<typename TSerialization::DestType, WString>);
 	protected:
+		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 
 		class Channel : public NetworkProtocolChannel<TPackage, TSerialization>
 		{
+			using Base = NetworkProtocolChannel<TPackage, TSerialization>;
+
 		protected:
 			NetworkProtocolChannelClient*					client = nullptr;
-			WString											channelName;
-			IChannelReader<TPackage>*						reader = nullptr;
-			SpinLock										lockUnreadPackages;
-			PackageList										unreadPackages;
-			SpinLock										lockQueuedPackages;
-			collections::Group<Nullable<vint>, TPackage>	queuedPackages;
+
+			bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) override
+			{
+				return client->SendBatch(clientId, this->channelName, batch);
+			}
 
 		public:
 			Channel(NetworkProtocolChannelClient* _client, const WString& _channelName)
-				: client(_client)
-				, channelName(_channelName)
+				: Base(_channelName)
+				, client(_client)
 			{
-			}
-
-			const WString& GetChannelName() override
-			{
-				return channelName;
-			}
-
-			IChannelReader<TPackage>* GetReader() override
-			{
-				return reader;
-			}
-
-			void Initialize(IChannelReader<TPackage>* _reader) override
-			{
-				CHECK_ERROR(_reader, L"NetworkProtocolChannelClient::Channel::Initialize needs a valid reader.");
-				SPIN_LOCK(lockUnreadPackages)
-				{
-					reader = _reader;
-					ReadBatch(unreadPackages);
-					unreadPackages.Clear();
-				}
-			}
-
-			void SendToClient(vint clientId, const TPackage& package) override
-			{
-				QueuePackage(clientId, package);
-			}
-
-			void BroadcastFromClient(const TPackage& package) override
-			{
-				QueuePackage({}, package);
-			}
-
-			void BatchWrite(bool& disconnected) override
-			{
-				collections::Group<Nullable<vint>, TPackage> packages;
-				SPIN_LOCK(lockQueuedPackages)
-				{
-					packages = std::move(queuedPackages);
-				}
-
-				for (vint i = 0; i < packages.Count(); i++)
-				{
-					auto clientId = packages.Keys()[i];
-					auto&& batch = packages.GetByIndex(i);
-					if (client->SendBatch(clientId, channelName, batch))
-					{
-						disconnected = true;
-						return;
-					}
-				}
-			}
-
-			void ReadBatch(const PackageList& batch)
-			{
-				if (reader)
-				{
-					for (auto&& package : batch)
-					{
-						reader->OnRead(package);
-					}
-				}
-				else
-				{
-					SPIN_LOCK(lockUnreadPackages)
-					{
-						for (auto&& package : batch)
-						{
-							unreadPackages.Add(package);
-						}
-					}
-				}
-			}
-
-		protected:
-			void QueuePackage(Nullable<vint> clientId, const TPackage& package)
-			{
-				SPIN_LOCK(lockQueuedPackages)
-				{
-					queuedPackages.Add(clientId, package);
-				}
 			}
 		};
 
@@ -391,26 +461,6 @@ NetworkProtocolChannelClient
 		vint													clientId = -1;
 		ChannelMap												channels;
 		collections::Dictionary<WString, Ptr<Channel>>			ownedChannels;
-
-		static void ValidateChannelName(const WString& channelName)
-		{
-			CHECK_ERROR(channelName.Length() > 0, L"Channel name should not be empty.");
-			CHECK_ERROR(wcschr(channelName.Buffer(), L'!') == nullptr, L"Channel name should not contain !.");
-		}
-
-		WString JoinChannelNames()
-		{
-			WString channelNames;
-			for (auto&& channelName : OnGetChannelNames())
-			{
-				if (channelNames.Length() > 0)
-				{
-					channelNames += L"!";
-				}
-				channelNames += channelName;
-			}
-			return channelNames;
-		}
 
 		Channel* FindChannel(const WString& channelName)
 		{
@@ -545,7 +595,7 @@ NetworkProtocolChannelClient
 
 		IChannel<TPackage>* CreateChannel(const WString& channelName)
 		{
-			ValidateChannelName(channelName);
+			BaseChannel::ValidateChannelName(channelName);
 			vint index = channels.Keys().IndexOf(channelName);
 			if (index != -1)
 			{
@@ -601,7 +651,7 @@ NetworkProtocolChannelClient
 				return;
 			}
 
-			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, JoinChannelNames())));
+			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, BaseChannel::JoinChannelNames(OnGetChannelNames()))));
 			npClient->GetConnection()->BeginReadingLoopUnsafe();
 			eventWaitForServer.Wait();
 			NotifyConnected();
@@ -631,139 +681,31 @@ NetworkProtocolChannelServer
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>
 	{
-		static_assert(std::is_same_v<typename TSerialization::SourceType, collections::List<TPackage>>);
-		static_assert(std::is_same_v<typename TSerialization::DestType, WString>);
 	protected:
+		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 		using ClientChannelMap = typename IChannelServer<TPackage>::ClientChannelMap;
 		using ClientIdList = typename IChannelServer<TPackage>::ClientIdList;
 
-		struct QueuedPackage
-		{
-			Nullable<vint>									clientId;
-			TPackage										package;
-		};
-
 		class Channel : public NetworkProtocolChannel<TPackage, TSerialization>
 		{
+			using Base = NetworkProtocolChannel<TPackage, TSerialization>;
+
 		protected:
 			NetworkProtocolChannelServer*					server = nullptr;
-			WString											channelName;
-			IChannelReader<TPackage>*						reader = nullptr;
-			SpinLock										lockReader;
-			PackageList										unreadPackages;
-			SpinLock										lockQueuedPackages;
-			collections::List<QueuedPackage>				queuedPackages;
+
+			bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) override
+			{
+				return server->SendBatch(clientId, {}, -1, this->channelName, batch);
+			}
 
 		public:
 			Channel(NetworkProtocolChannelServer* _server, const WString& _channelName)
-				: server(_server)
-				, channelName(_channelName)
+				: Base(_channelName)
+				, server(_server)
 			{
-			}
-
-			const WString& GetChannelName() override
-			{
-				return channelName;
-			}
-
-			IChannelReader<TPackage>* GetReader() override
-			{
-				IChannelReader<TPackage>* result = nullptr;
-				SPIN_LOCK(lockReader)
-				{
-					result = reader;
-				}
-				return result;
-			}
-
-			void Initialize(IChannelReader<TPackage>* _reader) override
-			{
-				CHECK_ERROR(_reader, L"NetworkProtocolChannelServer::Channel::Initialize needs a valid reader.");
-				SPIN_LOCK(lockReader)
-				{
-					CHECK_ERROR(!reader, L"NetworkProtocolChannelServer::Channel::Initialize can only be called once.");
-					reader = _reader;
-					for (auto&& package : unreadPackages)
-					{
-						reader->OnRead(package);
-					}
-					unreadPackages.Clear();
-				}
-			}
-
-			void SendToClient(vint clientId, const TPackage& package) override
-			{
-				QueuePackage(clientId, package);
-			}
-
-			void BroadcastFromClient(const TPackage& package) override
-			{
-				QueuePackage({}, package);
-			}
-
-			void BatchWrite(bool& disconnected) override
-			{
-				collections::List<QueuedPackage> packages;
-				SPIN_LOCK(lockQueuedPackages)
-				{
-					for (auto&& package : queuedPackages)
-					{
-						packages.Add(package);
-					}
-					queuedPackages.Clear();
-				}
-
-				while (packages.Count() > 0)
-				{
-					auto clientId = packages[0].clientId;
-					PackageList batch;
-					for (vint i = packages.Count() - 1; i >= 0; i--)
-					{
-						if (NetworkProtocolChannelServer::IsSameClientId(packages[i].clientId, clientId))
-						{
-							batch.Insert(0, packages[i].package);
-							packages.RemoveAt(i);
-						}
-					}
-
-					disconnected = server->SendBatch(clientId, {}, -1, channelName, batch) || disconnected;
-				}
-			}
-
-			void ReadBatch(const PackageList& batch)
-			{
-				SPIN_LOCK(lockReader)
-				{
-					if (reader)
-					{
-						for (auto&& package : batch)
-						{
-							reader->OnRead(package);
-						}
-					}
-					else
-					{
-						for (auto&& package : batch)
-						{
-							unreadPackages.Add(package);
-						}
-					}
-				}
-			}
-
-		protected:
-			void QueuePackage(Nullable<vint> clientId, const TPackage& package)
-			{
-				QueuedPackage queuedPackage;
-				queuedPackage.clientId = std::move(clientId);
-				queuedPackage.package = package;
-				SPIN_LOCK(lockQueuedPackages)
-				{
-					queuedPackages.Add(std::move(queuedPackage));
-				}
 			}
 		};
 
@@ -821,42 +763,6 @@ NetworkProtocolChannelServer
 		vint													nextClientId = 1;
 		bool													stopped = false;
 
-		static bool IsSameClientId(Nullable<vint> a, Nullable<vint> b)
-		{
-			if (a && b) return a.Value() == b.Value();
-			return !a && !b;
-		}
-
-		static void ValidateChannelName(const WString& channelName)
-		{
-			CHECK_ERROR(channelName.Length() > 0, L"Channel name should not be empty.");
-			CHECK_ERROR(wcschr(channelName.Buffer(), L'!') == nullptr, L"Channel name should not contain !.");
-		}
-
-		static void SplitChannelNames(const WString& joinedNames, ChannelMap& availableChannels)
-		{
-			const wchar_t* reading = joinedNames.Buffer();
-			while (true)
-			{
-				auto delimiter = wcschr(reading, L'!');
-				auto channelName =
-					delimiter
-					? WString::CopyFrom(reading, (vint)(delimiter - reading))
-					: WString::CopyFrom(reading, (vint)wcslen(reading));
-				if (channelName.Length() > 0)
-				{
-					ValidateChannelName(channelName);
-					availableChannels.Add(channelName, nullptr);
-				}
-
-				if (!delimiter)
-				{
-					break;
-				}
-				reading = delimiter + 1;
-			}
-		}
-
 		Channel* FindChannel(const WString& channelName)
 		{
 			vint index = ownedChannels.Keys().IndexOf(channelName);
@@ -892,7 +798,7 @@ NetworkProtocolChannelServer
 			{
 				CHECK_ERROR(!package.clientId && package.channelName == WString::Empty, L"NetworkProtocolChannelServer received an invalid connection request.");
 				ChannelMap availableChannels;
-				SplitChannelNames(package.messageBody, availableChannels);
+				BaseChannel::SplitChannelNames(package.messageBody, availableChannels);
 
 				Ptr<Connection> pendingConnection;
 				vint assignedClientId = -1;
@@ -1057,7 +963,7 @@ NetworkProtocolChannelServer
 
 		IChannel<TPackage>* CreateChannel(const WString& channelName)
 		{
-			ValidateChannelName(channelName);
+			BaseChannel::ValidateChannelName(channelName);
 			vint index = channels.Keys().IndexOf(channelName);
 			if (index != -1)
 			{
