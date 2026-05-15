@@ -6,6 +6,7 @@ investigate repro
   - It is important to do task one by one strictly, by me designing tasks in this way, we can achieve:
   - Easy-to-understand commits for file changing that is easy to review.
   - Limit side effects so that you don't have to deal with massive of issues at the same time.
+- each task will be treated as a new `# Repro`, that is, to wipe the document before execution.
 
 All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
