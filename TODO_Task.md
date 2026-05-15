@@ -16,35 +16,19 @@ I think this is the only test file you need.
 
 **IMPORTANT** This work happens in `VlppOS` repo.
 
-Refactor `TestInterProcess.cpp` to change `RunNetworkProtocolChannel` works like:
-- Split `ChannelClient` to `TomChannelClient` and `JerryChannelClient`, no mixing of handling together.
-- Instead of server returning `OK` to both client, it returns the "client id of another client" to each client.
-  - On connected, no name is sent, instead sends `Hello Server`. Name will be no longer useful in thie test case.
-  - This would be the first message receiving from the server and each client can remember the other client id.
-- Message deliverying do not based one name anymore.
-  - No `Jerry:Hello` anymore, just send `Hello` using the client id, so the message got delivered to another client. Server will never convert this message to `Tom>Hello`. The same to other messages.
-  - `vint senderClientId` will be added as the first argument to `IChannelReader::OnRead` so that the callback knows who is sending this message. `CHECK_ERROR` should be used to ensure `senderClientId` is exactly the "client id of another client" sending from the server. And when the message is sending from the server, the server should use `AdminClientId` so that the client knows it is comming from the server.
+Refactor `TestInterProcess.cpp` and `NetworkProtocolChannel(Server|Client)`.
+- I realized that adding `IChannelServer::GetChannel` is a bad idea, you are going to delete this function.
+  - Because `NetworkProtocolChannelServer` should just handle message delivering, anything leaking to `IChannelServer::GetChannel` is a bad idea. So I think you could read the commit `Refactor inter-process channel sender ids` and revert just this part, but others should kept.
+- In order to let `RunNetworkProtocolChannel`'s server being able to send messages:
+  - Add a `ServerChannelClient`, and the server thread will call `ConnectLocalClient` on that instance after two clients are connected.
+  - Now the `ChannelServer` should no longer implements `IChannelReader<WString>`, being able to do that might mean the original implementationa has fundemental problems. For example, there should be no such things like `ownedChannels`.
+  - `ConnectLocalClient` returns the client id for `ServerChannelClient`, and now it has 3 ids.
+  - When `ServerChannelClient` is connected, it broadcast "clientid1;clientId2;" to other two clients.
+  - This message will be the first message received by Tom and Jerry, the `senderClientId` reveals the client id of `ServerChannelClient`, and then by comparing their client id to `clientId1;clientId2`, Tom knows Jerry and Jerry knows Tom.
+  - Continue to do, until Tom and Client sends `Stop` to `ServerChannelClient`.
+  - After `ServerChannelClient` receives both stops, the stopping process begins.
+- The change means, `AdminClientId` will not be used in the implementation, although it is declared. So any usage of `AdminClientId` in `NetworkProtocolChannel(Server|Client)?` should be removed.
 
-Refactor of `NetworkProtocolChannel(Server|Client)`
-  - `vint senderClientId` is added to `IChannel::(SendTo|BroadcastFrom)Client` but it is not implemented.
-    - `clientId` renamed to `receiverClientId` in `SendToClient`. Use this name in implementations too.
-    - If a message is generated from a server, it should use `AdminClientId`. Check if `-1` is used anywhere, they will be not allowed.
-     - Ensure `senderClientId` exists, and `receiverClientId` exists to unless it is `AdminClientId`.
-  - `NetworkProtocolChannelServer::Channel::WriteBatch` might need to fix.
-  - `IChannelServer::GetChannel` is added so that the user of `NetworkProtocolChannelServer` is able to do communication. Channel objects will be maintained in the server implementation, but only when a channel from a name is required, the object will be created. When the channel does not exist, `CHECK_ERROR`.
-    - Check all other functions, if any argument is wrong and the caller is able to know that by querying with other methods, `CHECK_ERROR`.
-  - For all members that are not in `IChannel(Server|Client)`, they should all be private. Therefore users of `NetworkProtocolChannel(Server|Client)` can only use members in the interface. This will affect sub classes in the test case. Here is also a chance to delete useless members.
+The goal is to make the responsibility of interfaces clean. `IChannelServer` could only deliver messages, it doesn't send messages unless to broadcast errors or system messages, which are not implemented and not involved in the test.
 
-`RunTextNetworkProtocol` should not change.
-
-## Task 2
-
-**IMPORTANT** This work changes many repos.
-**IMPORTANT** If my proposal is not working in Task 2 because the assumption is wrong, skip Task 3.
-
-Add `new int;` at the last line of `TEST_CASE(L"HttpServer (Channel)")` so that the test case will leak memory.
-I found when I was doing this, no memory leak are detected at the end of `Execute.log`. Figure this out. You are granted permission to change files in the `Import` and `.github` folder. Probably `Vlpp.cpp` and `copilotExecute.ps1` will be affected.
-
-Any changes should be also port to `Vlpp` repo (if `Vlpp.h` and `Vlpp.cpp` in `Import` folder is changed) and `Tools` repo (if files in `.github` folder is changed, those files are from `Tools/Copilot`).
-
-After fixing the issue, remove `new int` and check again to see the leak in `Execute.log` is gone, and push all 3 repos if they have local changes.
+To act like a talking server, a local client registered in the server side is what the original design meant to do.
