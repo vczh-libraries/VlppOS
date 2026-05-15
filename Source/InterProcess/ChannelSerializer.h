@@ -16,7 +16,24 @@ namespace vl::inter_process
 {
 
 /***********************************************************************
-Serialization
+Serialization, it requires a serialization contract that defines as below
+
+struct
+{
+	using SourceType = ...;
+	using DestType = ...;
+	using ContextType = ... (use std::nullptr_t if no context is needed);
+
+	static void Serialize(const ContextType&, const SourceType& source, DestType& dest)
+	{
+		// Convert from source to dest with the context.
+	}
+
+	static void Deserialize(const ContextType&, const DestType& dest, SourceType& source)
+	{
+		// Convert from dest to source with the context.
+	}
+};
 ***********************************************************************/
 
 	template<typename TFrom, typename TTo>
@@ -103,9 +120,9 @@ String Transformation
 			ConvertUtfString(source, dest);
 		}
 
-		static void Deserialize(const ContextType&, const DestType& source, SourceType& dest)
+		static void Deserialize(const ContextType&, const DestType& dest, SourceType& source)
 		{
-			ConvertUtfString(source, dest);
+			ConvertUtfString(dest, source);
 		}
 	};
 

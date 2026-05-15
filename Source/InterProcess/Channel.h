@@ -41,7 +41,7 @@ IGuiRemoteProtocolChannel<T>
 	/// Represents a channel.
 	/// One server to client connection can host multiple channels, but each channel might only cover part of clients.
 	/// Channels are distinguished by their names.
-	/// Channel name is not allowed to start with "!", which is reserved for system channels.
+	/// Channel name cannot contain "!", channel name starting with "!" is reserved for system channels.
 	/// There will be no system channel representations, the channel name is used as a symbol between the server and clients for system events.
 	/// </summary>
 	/// <typeparam name="TPackage">The type of the package.</typeparam>
@@ -94,6 +94,14 @@ IGuiRemoteProtocolChannel<T>
 /***********************************************************************
 IChannelClient
 ***********************************************************************/
+
+	enum class ClientStatus
+	{
+		Ready,				// Created, ready to call WaitForServer.
+		WaitingForServer,	// WaitForServer is called, blocked.
+		Connected,			// Connection established.
+		Disconnected,		// Connection lost.
+	};
 
 	/// <summary>
 	/// Represents a client.
@@ -152,9 +160,15 @@ IChannelClient
 
 		/// <summary>
 		/// Block until the connection to the server is established.
-		/// Calling it more than once or on a local client returns immediately.
+		/// Calling it more than once, after disconnecting or on a local client returns immediately.
 		/// </summary>
 		virtual void						WaitForServer() = 0;
+
+		/// <summary>
+		/// Returns the status of the client.
+		/// </summary>
+		/// <returns>The status of the client.</returns>
+		virtual ClientStatus				GetStatus() = 0;
 
 		/// <summary>
 		/// Raise a fatal error.
@@ -210,6 +224,12 @@ IChannelServer
 		virtual bool						IsLocalClient(vint clientId) = 0;
 
 		/// <summary>
+		/// Block until the connection to the client is established.
+		/// </summary> 
+		/// <returns>The client id of the connected client.</returns>
+		virtual vint						WaitForClient() = 0;
+
+		/// <summary>
 		/// Disconnect a client.
 		/// </summary>
 		/// <param name="clientId">The client id.</param>
@@ -234,6 +254,18 @@ IChannelServer
 		/// </summary>
 		/// <param name="errorMessage">The fatal error.</param>
 		virtual void						BroadcastError(const WString& errorMessage) = 0;
+
+		/// <summary>
+		/// Stop the server.
+		/// </summary>
+		virtual void						Stop() = 0;
+
+		/// <summary>
+		/// Test if the server has stopped.
+		/// A stopped server could be caused by either calling <see cref="Stop"/> or the underlying mechanism failing.
+		/// </summary>
+		/// <returns>Returns true if the server has stopped, false otherwise.</returns>
+		virtual bool						IsStopped() = 0;
 	};
 }
 

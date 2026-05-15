@@ -152,7 +152,17 @@ INetworkProtocolServer
 		/// </summary>
 		/// <returns>The connection to the server.</returns>
 		virtual INetworkProtocolConnection*		GetConnection() = 0;
+
+		/// <summary>
+		/// Block until the connection to the server is established.
+		/// </summary>
 		virtual void							WaitForServer() = 0;
+
+		/// <summary>
+		/// Returns the status of the client.
+		/// </summary>
+		/// <returns>The status of the client.</returns>
+		virtual ClientStatus					GetStatus() = 0;
 	};
 
 	/// <summary>
@@ -171,15 +181,120 @@ INetworkProtocolServer
 		/// Stop the server.
 		/// </summary>
 		virtual void							Stop() = 0;
+
+		/// <summary>
+		/// Test if the server has stopped.
+		/// A stopped server could be caused by either calling <see cref="Stop"/> or the underlying mechanism failing.
+		/// </summary>
+		/// <returns>Returns true if the server has stopped, false otherwise.</returns>
+		virtual bool							IsStopped() = 0;
 	};
+
+/***********************************************************************
+Hooking IChannelServer/IChannelClient to INetworkProtocolServer/INetworkProtocolClient
+
+The serialization contract is the same to the one described in ChannelSerialization.h
+SourceType will be List<TPackage>
+DestType will be WString
+
+NetworkPackage will be used as text message parsing and formatting for INetworkProtocolConnection.
+BatchWrite belongs to IChannel, meaning each channel sends its own batch messages in one NetworkPackage.
+channelName will be either a system channel or a user defined channel.
+messageBody represents a list of TPackage.
+When sending from client to server, clientId means the target client.
+  Empty means broadcasting.
+When sending from server to client, clientId means the source client.
+  Empty means there is no source client, for example, a message generated from the server.
+
+When a client establishes a connection to the server, channel names will be sent to the server:
+  clientId will be empty, it does not mean broadcasting.
+  channelName will be empty.
+  messageBody will be all available channel names joined by "!", as "!" cannot be part of the channel name anyway.
+After the server receives the first message from a client, an client id will be sent to the client:
+  clientId is the assigned client id, starting from 1.
+  channelName will be empty.
+  messageBody will be empty.
+After the client receives the first message from the server, WaitForClient unblocks.
+  This can be implemented using EventObject.
+If the server stops in any reason before the client receiving the client id, WaitForClient should also unblock.
+
+Later 
+***********************************************************************/
 
 /***********************************************************************
 NetworkProtocolChannelClient
 ***********************************************************************/
 
+	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolChannelClient : public Object, public virtual IChannelClient<TPackage>
+	{
+		static_assert(std::is_same_v<collections::List<typename TSerialization::SourceType>, TPackage>);
+		static_assert(std::is_same_v<typename TSerialization::DestType, WString>);
+	protected:
+		typename TSerialization::ContextType					context;
+		Ptr<INetworkProtocolClient>								npClient;
+
+	public:
+		void OnConnected(vint clientId) override
+		{
+			// default implementation does nothing
+		}
+
+		void OnDisconnected() override
+		{
+			// default implementation does nothing
+		}
+
+		void OnError(const WString& errorMessage) override
+		{
+			// default implementation does nothing
+		}
+
+		NetworkProtocolChannelClient(
+			Ptr<INetworkProtocolClient> _npClient,
+			const typename TSerialization::ContextType& _context = {}
+		)
+			: npClient(_npClient)
+			, context(_context)
+		{
+		}
+	};
+
 /***********************************************************************
 NetworkProtocolChannelServer
 ***********************************************************************/
+
+	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>
+	{
+		static_assert(std::is_same_v<collections::List<typename TSerialization::SourceType>, TPackage>);
+		static_assert(std::is_same_v<typename TSerialization::DestType, WString>);
+	protected:
+		typename TSerialization::ContextType					context;
+		Ptr<INetworkProtocolServer>								npServer;
+
+	public:
+
+		bool OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels) override
+		{
+			// default implementation allows all clients to connect
+			return true;
+		}
+
+		void OnClientDisconnected(vint clientId) override
+		{
+			// default implementation does nothing
+		}
+
+		NetworkProtocolChannelServer(
+			Ptr<INetworkProtocolServer> _npServer,
+			const typename TSerialization::ContextType& _context = {}
+		)
+			: npServer(_npServer)
+			, context(_context)
+		{
+		}
+	};
 }
 
 #endif
