@@ -22,10 +22,5 @@ Refactor `TestInterProcess.cpp` and `NetworkProtocolChannel(Server|Client)`.
   - In this way, no lock needs to protect the `localServer` field.
   - If `NetworkProtocolLocalChannelClient` needs to use any `NetworkProtocolChannelClient` variables, make them protected only.
 
-Move internal class out.
-There are multiple internal classes in `NetworkProtocolChannel(Server|Client)`:
-- Move the before the outer class.
-- Forward declare just below the title comment, and internal classes will be able to friend the outer class.
-
 Verify `SPIN_LOCK`:
 - Just like `NetworkProtocolChannel`, you should reorder and group all protected fields under each `SpinLock`, and comment the coverage.
