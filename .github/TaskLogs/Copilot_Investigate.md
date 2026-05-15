@@ -14,62 +14,49 @@ All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
 I think this is the only test file you need.
 
-## Task 1
+## Task 2
 
-**IMPORTANT** This work happens in `VlppOS` repo.
+**IMPORTANT** This work changes many repos.
+**IMPORTANT** If my proposal is not working in Task 2 because the assumption is wrong, skip Task 3.
 
-Refactor `TestInterProcess.cpp` to change `RunNetworkProtocolChannel` works like:
-- Split `ChannelClient` to `TomChannelClient` and `JerryChannelClient`, no mixing of handling together.
-- Instead of server returning `OK` to both client, it returns the "client id of another client" to each client.
-  - On connected, no name is sent, instead sends `Hello Server`. Name will be no longer useful in thie test case.
-  - This would be the first message receiving from the server and each client can remember the other client id.
-- Message deliverying do not based one name anymore.
-  - No `Jerry:Hello` anymore, just send `Hello` using the client id, so the message got delivered to another client. Server will never convert this message to `Tom>Hello`. The same to other messages.
-  - `vint senderClientId` will be added as the first argument to `IChannelReader::OnRead` so that the callback knows who is sending this message. `CHECK_ERROR` should be used to ensure `senderClientId` is exactly the "client id of another client" sending from the server. And when the message is sending from the server, the server should use `AdminClientId` so that the client knows it is comming from the server.
+Add `new int;` at the last line of `TEST_CASE(L"HttpServer (Channel)")` so that the test case will leak memory.
+I found when I was doing this, no memory leak are detected at the end of `Execute.log`. Figure this out. You are granted permission to change files in the `Import` and `.github` folder. Probably `Vlpp.cpp` and `copilotExecute.ps1` will be affected.
 
-Refactor of `NetworkProtocolChannel(Server|Client)`
-  - `vint senderClientId` is added to `IChannel::(SendTo|BroadcastFrom)Client` but it is not implemented.
-    - `clientId` renamed to `receiverClientId` in `SendToClient`. Use this name in implementations too.
-    - If a message is generated from a server, it should use `AdminClientId`. Check if `-1` is used anywhere, they will be not allowed.
-     - Ensure `senderClientId` exists, and `receiverClientId` exists to unless it is `AdminClientId`.
-  - `NetworkProtocolChannelServer::Channel::WriteBatch` might need to fix.
-  - `IChannelServer::GetChannel` is added so that the user of `NetworkProtocolChannelServer` is able to do communication. Channel objects will be maintained in the server implementation, but only when a channel from a name is required, the object will be created. When the channel does not exist, `CHECK_ERROR`.
-    - Check all other functions, if any argument is wrong and the caller is able to know that by querying with other methods, `CHECK_ERROR`.
-  - For all members that are not in `IChannel(Server|Client)`, they should all be private. Therefore users of `NetworkProtocolChannel(Server|Client)` can only use members in the interface. This will affect sub classes in the test case. Here is also a chance to delete useless members.
+Any changes should be also port to `Vlpp` repo (if `Vlpp.h` and `Vlpp.cpp` in `Import` folder is changed) and `Tools` repo (if files in `.github` folder is changed, those files are from `Tools/Copilot`).
 
-`RunTextNetworkProtocol` should not change.
+After fixing the issue, remove `new int` and check again to see the leak in `Execute.log` is gone, and push all 3 repos if they have local changes.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-The existing Debug x64 UnitTest filter runs `TestInterProcess.cpp`; this task changes the inter-process network protocol channel behavior and the corresponding test. Success criteria:
+The reproduction is to temporarily add `new int;` at the end of `TEST_CASE(L"HttpServer (Channel)")`, build Debug x64, and run UnitTest through `copilotExecute.ps1`. Success criteria:
 
-- Build the Debug x64 `UnitTest` project successfully.
-- Run `UnitTest` through `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`.
-- `TestInterProcess.cpp` passes with sender client ids validated by the refactored channel clients.
-- No memory leak dump appears at the end of `Execute.log`.
-
-Confirmed with:
-
-- `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 115/115`.
-- `Execute.log` contains no `Detected memory leaks!` or `Dumping objects ->`.
+- With the intentional leak present, `Execute.log` contains the memory leak dump after the passed test summary.
+- After removing the intentional leak, the same UnitTest run passes and no memory leak dump remains at the end of `Execute.log`.
+- If leak-capture code or scripts need changes, matching changes are ported to `Vlpp` and `Tools/Copilot` as required.
 
 # PROPOSALS
 
-- No.1 Add sender client ids to channel delivery [CONFIRMED]
+- No.1 Verify and port debug-output memory leak capture [CONFIRMED]
 
-## No.1 Add sender client ids to channel delivery
+## No.1 Verify and port debug-output memory leak capture
 
 ### CODE CHANGE
 
-- Updated `IChannelReader::OnRead` to receive `senderClientId`, and propagated this through channel serializers and `NetworkProtocolChannel`.
-- Implemented sender/receiver-aware channel queues. Client-to-server packages use `clientId` as receiver, server-to-client packages use it as sender, and server-originated channel messages use `AdminClientId`.
-- Added `IChannelServer::GetChannel(const WString&)` and moved server channel creation behind it.
-- Added validation for connected sender and receiver ids, including `AdminClientId` for server-only or server-originated messages.
-- Refactored `RunNetworkProtocolChannel` so Tom and Jerry are separate client classes. Both send `Hello Server`, receive the other client id from `AdminClientId`, and route `Hello` / `Good` / `Stop` by client id instead of embedding names in message bodies.
+- Updated `Vlpp/Source/UnitTest/UnitTest.cpp` and regenerated `Vlpp/Release/Vlpp.cpp`.
+- Ported the regenerated `Vlpp/Release/Vlpp.cpp` to `VlppOS/Import/Vlpp.cpp`.
+- Enabled debug CRT allocation tracking while unit tests run by setting `_CRTDBG_ALLOC_MEM_DF` when `VCZH_CHECK_MEMORY_LEAKS` is defined.
+- Redirected `_CRT_WARN`, `_CRT_ERROR`, and `_CRT_ASSERT` reports to the debug-output file using the OS handle from `_get_osfhandle(_fileno(file))`, instead of passing `FILE*` to `_CrtSetReportFile`.
+- No `Tools/Copilot` script change was needed; `copilotExecute.ps1` was already passing `/DebugOutput` and appending the non-empty memory-leak file to `Execute.log`.
 
 ### CONFIRMED
 
-The Debug x64 build succeeded with 0 warnings and 0 errors. The UnitTest script ran the configured test binary successfully, including the refactored channel cases, and `Execute.log` ended with `Passed test files: 12/12` and `Passed test cases: 115/115` without a memory leak dump.
+- With temporary `new int;` at the end of `TEST_CASE(L"HttpServer (Channel)")`, Debug x64 UnitTest passed and `Execute.log` appended:
+  - `Detected memory leaks!`
+  - `TestInterProcess.cpp(613) ... normal block ... 4 bytes long.`
+- After removing the temporary `new int;`, Debug x64 build succeeded with `0 Warning(s)` and `0 Error(s)`.
+- Final `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64` passed with `Passed test files: 12/12` and `Passed test cases: 115/115`.
+- Final `Execute.log` contains no `Detected memory leaks!`, `Dumping objects ->`, or `Object dump complete`.
+- Upstream `Vlpp` Debug x64 build succeeded with `0 Warning(s)` and `0 Error(s)`.
+- Upstream `Vlpp` UnitTest run passed with `Passed test files: 31/31` and `Passed test cases: 462/462`, with no memory leak dump.
