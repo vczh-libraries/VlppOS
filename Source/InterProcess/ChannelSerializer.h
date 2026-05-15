@@ -51,6 +51,11 @@ struct
 		{
 		}
 
+		const WString& GetChannelName() override
+		{
+			return channel->GetChannelName();
+		}
+
 		IChannelReader<TTo>* GetReader() override
 		{
 			return reader;
@@ -75,11 +80,11 @@ struct
 	protected:
 		typename TSerialization::ContextType					context;
 
-		void OnReceive(const typename TSerialization::DestType& package) override
+		void OnRead(vint senderClientId, const typename TSerialization::DestType& package) override
 		{
 			typename TSerialization::SourceType deserialized;
 			TSerialization::Deserialize(context, package, deserialized);
-			this->reader->OnRead(deserialized);
+			this->reader->OnRead(senderClientId, deserialized);
 		}
 
 	public:
@@ -89,18 +94,18 @@ struct
 		{
 		}
 
-		void SendToClient(vint clientId, const typename TSerialization::SourceType& package) override
+		void SendToClient(vint senderClientId, vint receiverClientId, const typename TSerialization::SourceType& package) override
 		{
 			typename TSerialization::DestType serialized;
 			TSerialization::Serialize(context, package, serialized);
-			this->channel->SendToClient(clientId, serialized);
+			this->channel->SendToClient(senderClientId, receiverClientId, serialized);
 		}
 
-		void BroadcastFromClient(const typename TSerialization::SourceType& package) override
+		void BroadcastFromClient(vint senderClientId, const typename TSerialization::SourceType& package) override
 		{
 			typename TSerialization::DestType serialized;
 			TSerialization::Serialize(context, package, serialized);
-			this->channel->BroadcastFromClient(serialized);
+			this->channel->BroadcastFromClient(senderClientId, serialized);
 		}
 	};
 

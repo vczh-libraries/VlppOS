@@ -33,8 +33,9 @@ IGuiRemoteProtocolChannel<T>
 		/// <summary>
 		/// Called when the channel receives a message.
 		/// </summary>
+		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
 		/// <param name="package">The message.</param>
-		virtual void							OnRead(const TPackage& package) = 0;
+		virtual void							OnRead(vint senderClientId, const TPackage& package) = 0;
 	};
 
 	/// <summary>
@@ -73,7 +74,8 @@ IGuiRemoteProtocolChannel<T>
 		/// Queue a message to send to a client using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
-		/// <param name="clientId">The client id.</param>
+		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
+		/// <param name="receiverClientId">The receiver client id, or AdminClientId if the message is targeting the server.</param>
 		/// <param name="package">The message to send.</param>
 		virtual void							SendToClient(vint senderClientId, vint receiverClientId, const TPackage& package) = 0;
 
@@ -81,6 +83,7 @@ IGuiRemoteProtocolChannel<T>
 		/// Queue a message to broadcast to all other clients using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
+		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
 		/// <param name="package">The message to broadcast.</param>
 		virtual void							BroadcastFromClient(vint senderClientId, const TPackage& package) = 0;
 
@@ -252,9 +255,9 @@ IChannelServer
 		/// <summary>
 		/// Get the channel object to exchange message to clients.
 		/// </summary>
-		/// <param name="clientName">The client name.</param>
+		/// <param name="channelName">The channel name.</param>
 		/// <returns>Returns the channel object to exchange message to the client.</returns>
-		virtual IChannel<TPackage>*			GetChannel(WString& clientName) = 0;
+		virtual IChannel<TPackage>*			GetChannel(const WString& channelName) = 0;
 
 		/// <summary>
 		/// Raise a fatal error.

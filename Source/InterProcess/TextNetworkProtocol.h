@@ -204,8 +204,9 @@ channelName will be either a system channel or a user defined channel.
 messageBody represents a list of TPackage.
 When sending from client to server, clientId means the target client.
   Empty means broadcasting.
+  AdminClientId means targeting the server only.
 When sending from server to client, clientId means the source client.
-  Empty means there is no source client, for example, a message generated from the server.
+  AdminClientId means there is no source client, for example, a message generated from the server.
 
 When a client establishes a connection to the server, channel names will be sent to the server:
   clientId will be empty, it does not mean broadcasting.
@@ -236,20 +237,42 @@ NetworkProtocolChannel
 		using ChannelMap = collections::Dictionary<WString, IChannel<TPackage>*>;
 		using ChannelNameList = typename ChannelMap::KeyContainer;
 
+		struct UnreadPackage
+		{
+			vint											senderClientId = AdminClientId;
+			TPackage										package;
+		};
+
+		struct QueuedPackage
+		{
+			vint											senderClientId = AdminClientId;
+			Nullable<vint>									receiverClientId;
+			TPackage										package;
+		};
+
 		WString											channelName;
 		IChannelReader<TPackage>*						reader = nullptr;
 		SpinLock										lockUnreadPackages;
-		PackageList										unreadPackages;
+		collections::List<UnreadPackage>				unreadPackages;
 		SpinLock										lockQueuedPackages;
-		collections::Group<Nullable<vint>, TPackage>	queuedPackages;
+		collections::List<QueuedPackage>				queuedPackages;
 
-		virtual bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) = 0;
+		virtual void ValidatePackage(vint senderClientId, Nullable<vint> receiverClientId) = 0;
+		virtual bool WriteBatch(vint senderClientId, Nullable<vint> receiverClientId, const PackageList& batch) = 0;
 
-		void ReadBatchToReader(const PackageList& batch)
+		void ReadBatchToReader(vint senderClientId, const PackageList& batch)
 		{
 			for (auto&& package : batch)
 			{
-				reader->OnRead(package);
+				reader->OnRead(senderClientId, package);
+			}
+		}
+
+		void ReadUnreadPackagesToReader()
+		{
+			for (auto&& package : unreadPackages)
+			{
+				reader->OnRead(package.senderClientId, package.package);
 			}
 		}
 
@@ -318,35 +341,38 @@ NetworkProtocolChannel
 			CHECK_ERROR(_reader, L"NetworkProtocolChannel::Initialize needs a valid reader.");
 			SPIN_LOCK(lockUnreadPackages)
 			{
+				CHECK_ERROR(!reader, L"NetworkProtocolChannel::Initialize cannot be called more than once.");
 				reader = _reader;
-				ReadBatchToReader(unreadPackages);
+				ReadUnreadPackagesToReader();
 				unreadPackages.Clear();
 			}
 		}
 
-		void SendToClient(vint clientId, const TPackage& package) override
+		void SendToClient(vint senderClientId, vint receiverClientId, const TPackage& package) override
 		{
-			QueuePackage(clientId, package);
+			ValidatePackage(senderClientId, receiverClientId);
+			QueuePackage(senderClientId, receiverClientId, package);
 		}
 
-		void BroadcastFromClient(const TPackage& package) override
+		void BroadcastFromClient(vint senderClientId, const TPackage& package) override
 		{
-			QueuePackage({}, package);
+			ValidatePackage(senderClientId, {});
+			QueuePackage(senderClientId, {}, package);
 		}
 
 		void BatchWrite(bool& disconnected) override
 		{
-			collections::Group<Nullable<vint>, TPackage> packages;
+			collections::List<QueuedPackage> packages;
 			SPIN_LOCK(lockQueuedPackages)
 			{
 				packages = std::move(queuedPackages);
 			}
 
-			for (vint i = 0; i < packages.Count(); i++)
+			for (auto&& package : packages)
 			{
-				auto clientId = packages.Keys()[i];
-				auto&& batch = packages.GetByIndex(i);
-				if (WriteBatch(clientId, batch))
+				PackageList batch;
+				batch.Add(package.package);
+				if (WriteBatch(package.senderClientId, package.receiverClientId, batch))
 				{
 					disconnected = true;
 					return;
@@ -354,30 +380,37 @@ NetworkProtocolChannel
 			}
 		}
 
-		void ReadBatch(const PackageList& batch)
+		void ReadBatch(vint senderClientId, const PackageList& batch)
 		{
 			SPIN_LOCK(lockUnreadPackages)
 			{
 				if (reader)
 				{
-					ReadBatchToReader(batch);
+					ReadBatchToReader(senderClientId, batch);
 				}
 				else
 				{
 					for (auto&& package : batch)
 					{
-						unreadPackages.Add(package);
+						UnreadPackage unreadPackage;
+						unreadPackage.senderClientId = senderClientId;
+						unreadPackage.package = package;
+						unreadPackages.Add(unreadPackage);
 					}
 				}
 			}
 		}
 
 	protected:
-		void QueuePackage(Nullable<vint> clientId, const TPackage& package)
+		void QueuePackage(vint senderClientId, Nullable<vint> receiverClientId, const TPackage& package)
 		{
 			SPIN_LOCK(lockQueuedPackages)
 			{
-				queuedPackages.Add(clientId, package);
+				QueuedPackage queuedPackage;
+				queuedPackage.senderClientId = senderClientId;
+				queuedPackage.receiverClientId = receiverClientId;
+				queuedPackage.package = package;
+				queuedPackages.Add(queuedPackage);
 			}
 		}
 	};
@@ -389,7 +422,7 @@ NetworkProtocolChannelClient
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelClient : public Object, public virtual IChannelClient<TPackage>
 	{
-	protected:
+	private:
 		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
@@ -399,12 +432,23 @@ NetworkProtocolChannelClient
 		{
 			using Base = NetworkProtocolChannel<TPackage, TSerialization>;
 
-		protected:
+		private:
 			NetworkProtocolChannelClient*					client = nullptr;
 
-			bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) override
+			void ValidatePackage(vint senderClientId, Nullable<vint> receiverClientId) override
 			{
-				return client->SendBatch(clientId, this->channelName, batch);
+				auto currentClientId = client->GetClientId();
+				CHECK_ERROR(currentClientId != -1, L"NetworkProtocolChannelClient::Channel needs to be connected before sending.");
+				CHECK_ERROR(senderClientId == currentClientId, L"NetworkProtocolChannelClient::Channel needs senderClientId to match the current client id.");
+				if (receiverClientId)
+				{
+					CHECK_ERROR(receiverClientId.Value() == AdminClientId || receiverClientId.Value() > 0, L"NetworkProtocolChannelClient::Channel needs a valid receiverClientId.");
+				}
+			}
+
+			bool WriteBatch(vint, Nullable<vint> receiverClientId, const PackageList& batch) override
+			{
+				return client->SendBatch(receiverClientId, this->channelName, batch);
 			}
 
 		public:
@@ -417,7 +461,7 @@ NetworkProtocolChannelClient
 
 		class Callback : public Object, public virtual INetworkProtocolCallback
 		{
-		protected:
+		private:
 			NetworkProtocolChannelClient*					client = nullptr;
 
 		public:
@@ -476,7 +520,7 @@ NetworkProtocolChannelClient
 			}
 		}
 
-		bool SendBatch(Nullable<vint> targetClientId, const WString& channelName, const PackageList& batch)
+		bool SendBatch(Nullable<vint> receiverClientId, const WString& channelName, const PackageList& batch)
 		{
 			if (GetStatus() != ClientStatus::Connected)
 			{
@@ -485,7 +529,7 @@ NetworkProtocolChannelClient
 
 			WString messageBody;
 			TSerialization::Serialize(context, batch, messageBody);
-			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create(std::move(targetClientId), channelName, messageBody)));
+			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create(std::move(receiverClientId), channelName, messageBody)));
 			return false;
 		}
 
@@ -502,6 +546,7 @@ NetworkProtocolChannelClient
 			else if (package.channelName == WString::Empty)
 			{
 				CHECK_ERROR(package.clientId, L"NetworkProtocolChannelClient received an invalid connection response.");
+				CHECK_ERROR(package.clientId.Value() > 0, L"NetworkProtocolChannelClient received an invalid client id.");
 				{
 					SPIN_LOCK(lockStatus)
 					{
@@ -516,9 +561,12 @@ NetworkProtocolChannelClient
 			auto channel = FindChannel(package.channelName);
 			if (channel)
 			{
+				CHECK_ERROR(package.clientId, L"NetworkProtocolChannelClient received a channel message without senderClientId.");
+				auto senderClientId = package.clientId.Value();
+				CHECK_ERROR(senderClientId == AdminClientId || senderClientId > 0, L"NetworkProtocolChannelClient received an invalid senderClientId.");
 				PackageList batch;
 				TSerialization::Deserialize(context, package.messageBody, batch);
-				channel->ReadBatch(batch);
+				channel->ReadBatch(senderClientId, batch);
 			}
 		}
 
@@ -593,6 +641,7 @@ NetworkProtocolChannelClient
 			npClient->GetConnection()->Stop();
 		}
 
+	private:
 		IChannel<TPackage>* CreateChannel(const WString& channelName)
 		{
 			BaseChannel::ValidateChannelName(channelName);
@@ -608,6 +657,15 @@ NetworkProtocolChannelClient
 			return channel.Obj();
 		}
 
+		void EnsureChannels(const ChannelNameList& channelNames)
+		{
+			for (auto&& channelName : channelNames)
+			{
+				CreateChannel(channelName);
+			}
+		}
+
+	public:
 		const ChannelNameList& OnGetChannelNames() override
 		{
 			return channels.Keys();
@@ -615,6 +673,7 @@ NetworkProtocolChannelClient
 
 		const ChannelMap& GetChannels() override
 		{
+			EnsureChannels(OnGetChannelNames());
 			return channels;
 		}
 
@@ -651,7 +710,9 @@ NetworkProtocolChannelClient
 				return;
 			}
 
-			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, BaseChannel::JoinChannelNames(OnGetChannelNames()))));
+			auto&& channelNames = OnGetChannelNames();
+			EnsureChannels(channelNames);
+			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, BaseChannel::JoinChannelNames(channelNames))));
 			npClient->GetConnection()->BeginReadingLoopUnsafe();
 			eventWaitForServer.Wait();
 			NotifyConnected();
@@ -681,7 +742,7 @@ NetworkProtocolChannelServer
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>
 	{
-	protected:
+	private:
 		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
@@ -693,12 +754,21 @@ NetworkProtocolChannelServer
 		{
 			using Base = NetworkProtocolChannel<TPackage, TSerialization>;
 
-		protected:
+		private:
 			NetworkProtocolChannelServer*					server = nullptr;
 
-			bool WriteBatch(Nullable<vint> clientId, const PackageList& batch) override
+			void ValidatePackage(vint senderClientId, Nullable<vint> receiverClientId) override
 			{
-				return server->SendBatch(clientId, {}, -1, this->channelName, batch);
+				CHECK_ERROR(senderClientId == AdminClientId || server->ClientHasChannel(senderClientId, this->channelName), L"NetworkProtocolChannelServer::Channel needs a valid senderClientId.");
+				if (receiverClientId)
+				{
+					CHECK_ERROR(receiverClientId.Value() == AdminClientId || server->ClientHasChannel(receiverClientId.Value(), this->channelName), L"NetworkProtocolChannelServer::Channel needs a valid receiverClientId.");
+				}
+			}
+
+			bool WriteBatch(vint senderClientId, Nullable<vint> receiverClientId, const PackageList& batch) override
+			{
+				return server->SendBatch(receiverClientId, senderClientId, senderClientId, this->channelName, batch);
 			}
 
 		public:
@@ -711,7 +781,7 @@ NetworkProtocolChannelServer
 
 		class Connection : public Object, public virtual INetworkProtocolCallback
 		{
-		protected:
+		private:
 			NetworkProtocolChannelServer*					server = nullptr;
 
 		public:
@@ -765,8 +835,23 @@ NetworkProtocolChannelServer
 
 		Channel* FindChannel(const WString& channelName)
 		{
-			vint index = ownedChannels.Keys().IndexOf(channelName);
-			return index == -1 ? nullptr : ownedChannels.Values()[index].Obj();
+			Channel* result = nullptr;
+			SPIN_LOCK(lockChannels)
+			{
+				vint index = ownedChannels.Keys().IndexOf(channelName);
+				result = index == -1 ? nullptr : ownedChannels.Values()[index].Obj();
+			}
+			return result;
+		}
+
+		bool ClientHasChannel(vint clientId, const WString& channelName)
+		{
+			bool result = false;
+			SPIN_LOCK(lockConnections)
+			{
+				result = connections.Keys().Contains(clientId) && clientChannels.Contains(clientId, channelName);
+			}
+			return result;
 		}
 
 		Ptr<Connection> RemovePendingConnection(Connection* connection)
@@ -840,22 +925,21 @@ NetworkProtocolChannelServer
 			{
 				return;
 			}
+			CHECK_ERROR(ClientHasChannel(connection->clientId, package.channelName), L"NetworkProtocolChannelServer received a message from a client without the specified channel.");
+			if (package.clientId)
 			{
-				SPIN_LOCK(lockConnections)
-				{
-					if (!clientChannels.Contains(connection->clientId, package.channelName))
-					{
-						return;
-					}
-				}
+				auto receiverClientId = package.clientId.Value();
+				CHECK_ERROR(receiverClientId == AdminClientId || ClientHasChannel(receiverClientId, package.channelName), L"NetworkProtocolChannelServer received a message to a client without the specified channel.");
 			}
 
 			PackageList batch;
 			TSerialization::Deserialize(context, package.messageBody, batch);
-			channel->ReadBatch(batch);
+			channel->ReadBatch(connection->clientId, batch);
 
-			Nullable<vint> sourceClientId = connection->clientId;
-			SendBatch(package.clientId, sourceClientId, connection->clientId, package.channelName, batch);
+			if (!package.clientId || package.clientId.Value() != AdminClientId)
+			{
+				SendBatch(package.clientId, connection->clientId, connection->clientId, package.channelName, batch);
+			}
 		}
 
 		void OnConnectionDisconnected(Connection* connection)
@@ -884,7 +968,7 @@ NetworkProtocolChannelServer
 			}
 		}
 
-		bool SendBatch(Nullable<vint> targetClientId, Nullable<vint> sourceClientId, vint excludedClientId, const WString& channelName, const PackageList& batch)
+		bool SendBatch(Nullable<vint> receiverClientId, vint senderClientId, vint excludedClientId, const WString& channelName, const PackageList& batch)
 		{
 			if (IsStopped())
 			{
@@ -893,21 +977,25 @@ NetworkProtocolChannelServer
 
 			WString messageBody;
 			TSerialization::Serialize(context, batch, messageBody);
-			if (targetClientId)
+			if (receiverClientId)
 			{
+				if (receiverClientId.Value() == AdminClientId)
+				{
+					return false;
+				}
 				Ptr<Connection> connection;
 				{
 					SPIN_LOCK(lockConnections)
 					{
-						if (connections.Keys().Contains(targetClientId.Value()) && clientChannels.Contains(targetClientId.Value(), channelName))
+						if (connections.Keys().Contains(receiverClientId.Value()) && clientChannels.Contains(receiverClientId.Value(), channelName))
 						{
-							connection = connections[targetClientId.Value()];
+							connection = connections[receiverClientId.Value()];
 						}
 					}
 				}
 				if (connection)
 				{
-					connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(std::move(sourceClientId), channelName, messageBody)));
+					connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(senderClientId, channelName, messageBody)));
 				}
 			}
 			else
@@ -927,7 +1015,7 @@ NetworkProtocolChannelServer
 				}
 				for (auto&& connection : targetConnections)
 				{
-					connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(sourceClientId, channelName, messageBody)));
+					connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(senderClientId, channelName, messageBody)));
 				}
 			}
 			return false;
@@ -961,6 +1049,7 @@ NetworkProtocolChannelServer
 			Stop();
 		}
 
+	private:
 		IChannel<TPackage>* CreateChannel(const WString& channelName)
 		{
 			BaseChannel::ValidateChannelName(channelName);
@@ -976,8 +1065,10 @@ NetworkProtocolChannelServer
 			return channel.Obj();
 		}
 
+	public:
 		bool ConnectLocalClient(Ptr<IChannelClient<TPackage>> localClient) override
 		{
+			CHECK_ERROR(localClient, L"NetworkProtocolChannelServer::ConnectLocalClient needs a valid localClient.");
 			return false;
 		}
 
@@ -1035,6 +1126,17 @@ NetworkProtocolChannelServer
 		const ClientChannelMap& GetClientChannels() override
 		{
 			return clientChannels;
+		}
+
+		IChannel<TPackage>* GetChannel(const WString& channelName) override
+		{
+			BaseChannel::ValidateChannelName(channelName);
+			IChannel<TPackage>* result = nullptr;
+			SPIN_LOCK(lockChannels)
+			{
+				result = CreateChannel(channelName);
+			}
+			return result;
 		}
 
 		void BroadcastError(const WString& errorMessage) override

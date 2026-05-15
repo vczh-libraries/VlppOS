@@ -14,74 +14,62 @@ All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
 I think this is the only test file you need.
 
-## Task 2
+## Task 1
 
 **IMPORTANT** This work happens in `VlppOS` repo.
 
-For debug execution, `_CrtDumpMemoryLeaks` dumps memory leaks:
-- It appears even when only `TestInterProcess.cpp` is executed so the previous work may introduce the memory leaks.
-- But I am not telling just to fix this, you should do:
-  - I specifically grand you permission to change `Vlpp.cpp`, and do this:
-    - Besides of `/C`, `/D`, `/R`, `/F:xxx`, recognize `/DebugOutput:file`.
-    - Only one `/DebugOutput:file` is allowed, and it does this:
-      - Create a `vint debugOutputArgIndex = -1` below `vl::unittest::execution_impl::failureMode`, if the option is specified, set it in `RunAndDisposeTests`.
-    - Write a new `UnitTest::DumpMemoryLeak(argc, argv)` function:
-      - `#ifdef` `VCZH_MSVC` and `VCZH_CHECK_MEMORY_LEAKS`, does this:
-        - Call `_CrtSetReportFile` and `_CrtSetReportMode` so that `_CRT_WARN` redirects to the file.
-        - `argv[debugOutputArgIndex+1]` will be the string `/DebugOutput:file`, now you can extract the file name.
-        - Calls `_CrtDumpMemoryLeaks` and closes the file.
-      - Otherwise, it is blank.
-  - In `Main.cpp`, the 3 lines of code will be replaced by `UnitTest::DumpMemoryLeak`.
-  - In `copilotExecute.ps1`, **ONLY WHEN** `UnitTest` mode is specified, specify `/C` and `/DebugOutput:xxx`, and use `Execution.log.memoryleaks`. This file should be removed before and after execution just like `Execution.log.unfinished`. After finishing execution, `Execution.log.memoryleaks` will be appended at the end of copied `Execution.log`. `/DebugOutput` should use absolute path.
-  - `REPO-ROOT/.github/Scripts/.gitignore` in the same folder should be fixed.
-  - `REPO-ROOT/.github/Guidelines/Running-UnitTest.md`'s `### The Correct Way to Read Test Result` should say, only when Windows + Debug, if memory leaks happen, it will appear at the end of the log. and memory leaks should always be fixed after test cases passed. Fixing memory leaks is important and it is a must have, organize your own workd and update this document.
-  - My proposal is based on an assumption, `_CrtDumpMemoryLeaks` calls `OutputDebugString` by default.
-- After you are able to dump it, try to fix the issue, and keep verifying until the memory leaks are gone.
+Refactor `TestInterProcess.cpp` to change `RunNetworkProtocolChannel` works like:
+- Split `ChannelClient` to `TomChannelClient` and `JerryChannelClient`, no mixing of handling together.
+- Instead of server returning `OK` to both client, it returns the "client id of another client" to each client.
+  - On connected, no name is sent, instead sends `Hello Server`. Name will be no longer useful in thie test case.
+  - This would be the first message receiving from the server and each client can remember the other client id.
+- Message deliverying do not based one name anymore.
+  - No `Jerry:Hello` anymore, just send `Hello` using the client id, so the message got delivered to another client. Server will never convert this message to `Tom>Hello`. The same to other messages.
+  - `vint senderClientId` will be added as the first argument to `IChannelReader::OnRead` so that the callback knows who is sending this message. `CHECK_ERROR` should be used to ensure `senderClientId` is exactly the "client id of another client" sending from the server. And when the message is sending from the server, the server should use `AdminClientId` so that the client knows it is comming from the server.
 
-```
-Detected memory leaks!
-Dumping objects ->
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {156} normal block at 0x000001A208EF3E30, 16 bytes long.
- Data: <`f X            > 60 66 9D 58 F6 7F 00 00 00 00 00 00 00 00 00 00
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {155} normal block at 0x000001A208EF3C00, 16 bytes long.
- Data: < f X    0>      > A0 66 9D 58 F6 7F 00 00 30 3E EF 08 A2 01 00 00
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {154} normal block at 0x000001A208EF2FD0, 16 bytes long.
- Data: <8f X     <      > 38 66 9D 58 F6 7F 00 00 00 3C EF 08 A2 01 00 00
-Object dump complete.
-```
+Refactor of `NetworkProtocolChannel(Server|Client)`
+  - `vint senderClientId` is added to `IChannel::(SendTo|BroadcastFrom)Client` but it is not implemented.
+    - `clientId` renamed to `receiverClientId` in `SendToClient`. Use this name in implementations too.
+    - If a message is generated from a server, it should use `AdminClientId`. Check if `-1` is used anywhere, they will be not allowed.
+     - Ensure `senderClientId` exists, and `receiverClientId` exists to unless it is `AdminClientId`.
+  - `NetworkProtocolChannelServer::Channel::WriteBatch` might need to fix.
+  - `IChannelServer::GetChannel` is added so that the user of `NetworkProtocolChannelServer` is able to do communication. Channel objects will be maintained in the server implementation, but only when a channel from a name is required, the object will be created. When the channel does not exist, `CHECK_ERROR`.
+    - Check all other functions, if any argument is wrong and the caller is able to know that by querying with other methods, `CHECK_ERROR`.
+  - For all members that are not in `IChannel(Server|Client)`, they should all be private. Therefore users of `NetworkProtocolChannel(Server|Client)` can only use members in the interface. This will affect sub classes in the test case. Here is also a chance to delete useless members.
+
+`RunTextNetworkProtocol` should not change.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Task 2 is verified by the Debug x64 UnitTest project through the repository scripts. Success criteria:
+The existing Debug x64 UnitTest filter runs `TestInterProcess.cpp`; this task changes the inter-process network protocol channel behavior and the corresponding test. Success criteria:
 
-- The unit-test framework accepts `/DebugOutput:file` in combination with `/C`.
-- `copilotExecute.ps1` writes the memory-leak report to `Execute.log.memoryleaks`, appends it to `Execute.log`, and removes the temporary file after execution.
-- `Execute.log` ends with the normal pass summary and has no appended memory leak dump.
-- The Debug x64 build has 0 warnings and 0 errors.
+- Build the Debug x64 `UnitTest` project successfully.
+- Run `UnitTest` through `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`.
+- `TestInterProcess.cpp` passes with sender client ids validated by the refactored channel clients.
+- No memory leak dump appears at the end of `Execute.log`.
 
 Confirmed with:
 
 - `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: command line included `/C /DebugOutput:"C:\Code\VczhLibraries\VlppOS\.github\Scripts\Execute.log.memoryleaks"`, with `Passed test files: 12/12`, `Passed test cases: 115/115`.
-- `Execute.log` contains no `Detected memory leaks!`, `Dumping objects ->`, or `Threading.cpp` leak entries after the summary.
-- `Execute.log.memoryleaks` and `Execute.log.unfinished` do not remain after execution.
+- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 115/115`.
+- `Execute.log` contains no `Detected memory leaks!` or `Dumping objects ->`.
 
 # PROPOSALS
 
-- No.1 Add debug-output leak capture and dispose TLS storages [CONFIRMED]
+- No.1 Add sender client ids to channel delivery [CONFIRMED]
 
-## No.1 Add debug-output leak capture and dispose TLS storages
+## No.1 Add sender client ids to channel delivery
 
 ### CODE CHANGE
 
-- Added `/DebugOutput:file` option parsing to `UnitTest::RunAndDisposeTests`, with duplicate detection and usage text.
-- Added `UnitTest::DumpMemoryLeak(argc, argv)` overloads. On MSVC debug leak builds they redirect `_CRT_WARN` to the requested file, call `_CrtDumpMemoryLeaks`, restore the previous report settings, and close the file. On unsupported builds the function is blank.
-- Replaced the direct `_CrtDumpMemoryLeaks` call in `Test/UnitTest/UnitTest/Main.cpp` with `UnitTest::DumpMemoryLeak`, and called `ThreadLocalStorage::DisposeStorages()` before leak detection.
-- Updated `copilotExecute.ps1` to pass `/C /DebugOutput:"absolute path"` in UnitTest mode, append the memory leak file to `Execute.log`, and remove `Execute.log.memoryleaks` before and after execution.
-- Updated `.github/Scripts/.gitignore` and `Running-UnitTest.md` for the new memory leak log behavior.
+- Updated `IChannelReader::OnRead` to receive `senderClientId`, and propagated this through channel serializers and `NetworkProtocolChannel`.
+- Implemented sender/receiver-aware channel queues. Client-to-server packages use `clientId` as receiver, server-to-client packages use it as sender, and server-originated channel messages use `AdminClientId`.
+- Added `IChannelServer::GetChannel(const WString&)` and moved server channel creation behind it.
+- Added validation for connected sender and receiver ids, including `AdminClientId` for server-only or server-originated messages.
+- Refactored `RunNetworkProtocolChannel` so Tom and Jerry are separate client classes. Both send `Hello Server`, receive the other client id from `AdminClientId`, and route `Hello` / `Good` / `Stop` by client id instead of embedding names in message bodies.
 
 ### CONFIRMED
 
-The reported leak blocks came from `ThreadLocalStorage::PushStorage` records for global `ThreadVariable` instances. Disposing thread-local storages in `Main.cpp` removes those records before memory leak detection runs. The updated UnitTest script passes the new `/DebugOutput` option, the test binary accepts it, all tests pass, and no leak dump is appended to the final log.
+The Debug x64 build succeeded with 0 warnings and 0 errors. The UnitTest script ran the configured test binary successfully, including the refactored channel cases, and `Execute.log` ended with `Passed test files: 12/12` and `Passed test cases: 115/115` without a memory leak dump.
