@@ -238,42 +238,30 @@ NetworkProtocolChannel
 
 		struct UnreadPackage
 		{
-			vint											senderClientId = -1;
-			TPackage										package;
+			vint								senderClientId = -1;
+			TPackage							package;
 		};
 
 		struct QueuedPackage
 		{
-			vint											senderClientId = -1;
-			Nullable<vint>									receiverClientId;
-			TPackage										package;
+			vint								senderClientId = -1;
+			Nullable<vint>						receiverClientId;
+			TPackage							package;
 		};
 
-		WString											channelName;
-		IChannelReader<TPackage>*						reader = nullptr;
-		SpinLock										lockUnreadPackages;
-		collections::List<UnreadPackage>				unreadPackages;
-		SpinLock										lockQueuedPackages;
-		collections::List<QueuedPackage>				queuedPackages;
+		WString									channelName;
+
+		// covers reader and unreadPackages
+		SpinLock								lockUnreadPackages;
+		IChannelReader<TPackage>*				reader = nullptr;
+		collections::List<UnreadPackage>		unreadPackages;
+
+		// covers queuedPackages
+		SpinLock								lockQueuedPackages;
+		collections::List<QueuedPackage>		queuedPackages;
 
 		virtual void ValidatePackage(vint senderClientId, Nullable<vint> receiverClientId) = 0;
 		virtual bool WriteBatch(vint senderClientId, Nullable<vint> receiverClientId, const PackageList& batch) = 0;
-
-		void ReadBatchToReader(vint senderClientId, const PackageList& batch)
-		{
-			for (auto&& package : batch)
-			{
-				reader->OnRead(senderClientId, package);
-			}
-		}
-
-		void ReadUnreadPackagesToReader()
-		{
-			for (auto&& package : unreadPackages)
-			{
-				reader->OnRead(package.senderClientId, package.package);
-			}
-		}
 
 	public:
 		NetworkProtocolChannel(const WString& _channelName)
@@ -342,7 +330,10 @@ NetworkProtocolChannel
 			{
 				CHECK_ERROR(!reader, L"NetworkProtocolChannel::Initialize cannot be called more than once.");
 				reader = _reader;
-				ReadUnreadPackagesToReader();
+				for (auto&& package : unreadPackages)
+				{
+					reader->OnRead(package.senderClientId, package.package);
+				}
 				unreadPackages.Clear();
 			}
 		}
@@ -383,11 +374,7 @@ NetworkProtocolChannel
 		{
 			SPIN_LOCK(lockUnreadPackages)
 			{
-				if (reader)
-				{
-					ReadBatchToReader(senderClientId, batch);
-				}
-				else
+				if (!reader)
 				{
 					for (auto&& package : batch)
 					{
@@ -396,7 +383,12 @@ NetworkProtocolChannel
 						unreadPackage.package = package;
 						unreadPackages.Add(unreadPackage);
 					}
+					return;
 				}
+			}
+			for (auto&& package : batch)
+			{
+				reader->OnRead(senderClientId, package);
 			}
 		}
 
@@ -802,6 +794,10 @@ NetworkProtocolChannelClient
 	};
 
 /***********************************************************************
+NetworkProtocolLocalChannelClient
+***********************************************************************/
+
+/***********************************************************************
 NetworkProtocolChannelServer
 ***********************************************************************/
 
@@ -860,16 +856,15 @@ NetworkProtocolChannelServer
 			}
 		};
 
-		typename TSerialization::ContextType					context;
-		Ptr<INetworkProtocolServer>								npServer;
-		SpinLock												lockConnections;
-		collections::Dictionary<vint, Ptr<Connection>>			connections;
-		collections::Dictionary<vint, Ptr<IChannelClient<TPackage>>>
-																localClients;
-		collections::List<Ptr<Connection>>						pendingConnections;
-		ClientChannelMap										clientChannels;
-		vint													nextClientId = 1;
-		bool													stopped = false;
+		typename TSerialization::ContextType							context;
+		Ptr<INetworkProtocolServer>										npServer;
+		SpinLock														lockConnections;
+		collections::Dictionary<vint, Ptr<Connection>>					connections;
+		collections::Dictionary<vint, Ptr<IChannelClient<TPackage>>>	localClients;
+		collections::List<Ptr<Connection>>								pendingConnections;
+		ClientChannelMap												clientChannels;
+		vint															nextClientId = 1;
+		bool															stopped = false;
 
 		bool ClientHasChannel(vint clientId, const WString& channelName)
 		{

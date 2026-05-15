@@ -16,7 +16,6 @@ namespace vl::inter_process
 {
 	constexpr const wchar_t* ErrorChannel = L"!Error";
 	constexpr const wchar_t* SystemChannel = L"!System";
-	constexpr vint AdminClientId = -32768;
 
 /***********************************************************************
 IGuiRemoteProtocolChannel<T>

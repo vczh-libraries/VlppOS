@@ -14,21 +14,18 @@ I think this is the only test file you need.
 
 ## Task 1
 
-**IMPORTANT** This work happens in `VlppOS` repo.
-
 Refactor `TestInterProcess.cpp` and `NetworkProtocolChannel(Server|Client)`.
-- I realized that adding `IChannelServer::GetChannel` is a bad idea, you are going to delete this function.
-  - Because `NetworkProtocolChannelServer` should just handle message delivering, anything leaking to `IChannelServer::GetChannel` is a bad idea. So I think you could read the commit `Refactor inter-process channel sender ids` and revert just this part, but others should kept.
-- In order to let `RunNetworkProtocolChannel`'s server being able to send messages:
-  - Add a `ServerChannelClient`, and the server thread will call `ConnectLocalClient` on that instance after two clients are connected.
-  - Now the `ChannelServer` should no longer implements `IChannelReader<WString>`, being able to do that might mean the original implementationa has fundemental problems. For example, there should be no such things like `ownedChannels`.
-  - `ConnectLocalClient` returns the client id for `ServerChannelClient`, and now it has 3 ids.
-  - When `ServerChannelClient` is connected, it broadcast "clientid1;clientId2;" to other two clients.
-  - This message will be the first message received by Tom and Jerry, the `senderClientId` reveals the client id of `ServerChannelClient`, and then by comparing their client id to `clientId1;clientId2`, Tom knows Jerry and Jerry knows Tom.
-  - Continue to do, until Tom and Client sends `Stop` to `ServerChannelClient`.
-  - After `ServerChannelClient` receives both stops, the stopping process begins.
-- The change means, `AdminClientId` will not be used in the implementation, although it is declared. So any usage of `AdminClientId` in `NetworkProtocolChannel(Server|Client)?` should be removed.
+- `NetworkProtocolChannelClient` has a little extra code for handling local client, I would like you to make a sub class called `NetworkProtocolLocalChannelClient` and move things there.
+  - One important pattern is that some functions handle local client branch and then do common things. In the sub class you can override the function, do local client branch, and call the base method.
+  - Remember to move local client specific members to the sub class.
+  - In server's ConnectLocalClient it can just `dynamic_cast` to `NetworkProtocolLocalChannelClient` and make sure it succeeds, everything will be cleaner.
+  - In this way, no lock needs to protect the `localServer` field.
+  - If `NetworkProtocolLocalChannelClient` needs to use any `NetworkProtocolChannelClient` variables, make them protected only.
 
-The goal is to make the responsibility of interfaces clean. `IChannelServer` could only deliver messages, it doesn't send messages unless to broadcast errors or system messages, which are not implemented and not involved in the test.
+Move internal class out.
+There are multiple internal classes in `NetworkProtocolChannel(Server|Client)`:
+- Move the before the outer class.
+- Forward declare just below the title comment, and internal classes will be able to friend the outer class.
 
-To act like a talking server, a local client registered in the server side is what the original design meant to do.
+Verify `SPIN_LOCK`:
+- Just like `NetworkProtocolChannel`, you should reorder and group all protected fields under each `SpinLock`, and comment the coverage.
