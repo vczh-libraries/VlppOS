@@ -54,9 +54,26 @@ Confirmed with:
 - `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
 - `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 113/113`.
 
+Task 2 adds the missing network protocol channel implementation and exercises it through the same transport matrix:
+
+- `NetworkProtocolChannelClient` now creates named channels, sends the channel list during connection, tracks client status and id, batches outgoing packages, dispatches incoming batches, replays unread packages after reader installation, and propagates fatal errors.
+- `NetworkProtocolChannelServer` now accepts network clients, assigns client ids, records each client's available channels, routes broadcasts and directed messages, batches server-originated packages, disconnects clients, and stops without touching protocol connection pointers after the underlying server owns their shutdown.
+- `RunNetworkProtocolChannel` verifies a two-client chat over both named pipes and HTTP, using a `List<WString>` to `WString` serializer with `;` as the test-only delimiter.
+
+Success criteria:
+
+- The Debug x64 build has 0 warnings and 0 errors.
+- The unit test project passes, including `NamedPipe (Channel)` and `HttpServer (Channel)`.
+
+Confirmed with:
+
+- `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
+- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 115/115`.
+
 # PROPOSALS
 
 - No.1 [CONFIRMED] Implement transport status APIs
+- No.2 [CONFIRMED] Complete network protocol channels
 
 ## No.1 Implement transport status APIs
 
@@ -70,3 +87,15 @@ Confirmed with:
 ### CONFIRMED
 
 The new accessors compile for all four Windows protocol classes, and the status assertions pass in the existing inter-process workflow. The Debug x64 build is warning-free, and the unit test wrapper completed successfully.
+
+## No.2 Complete network protocol channels
+
+### CODE CHANGE
+
+- Implemented client-side and server-side channel adapters in `TextNetworkProtocol.h`.
+- Added channel message batching, channel-name registration, client-id assignment, status tracking, disconnected/error handling, and unread-package replay before `IChannelReader` installation.
+- Added channel integration tests for named pipes and HTTP with two clients exchanging messages through the `Chat` channel.
+
+### CONFIRMED
+
+The channel adapters compile and the new named-pipe and HTTP channel cases pass. The shutdown path was confirmed to avoid using raw protocol connection pointers after `INetworkProtocolServer::Stop`, because the underlying server owns those connection lifetimes.

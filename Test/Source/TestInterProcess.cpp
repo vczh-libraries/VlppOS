@@ -266,6 +266,269 @@ namespace mynamespace
 		TEST_ASSERT(!timeoutThread->timeout);
 	}
 }
+
+namespace mynamespace
+{
+	constexpr const wchar_t* ChatChannelName = L"Chat";
+
+	struct WStringListSerializer
+	{
+		using SourceType = List<WString>;
+		using DestType = WString;
+		using ContextType = std::nullptr_t;
+
+		static void Serialize(const ContextType&, const SourceType& source, DestType& dest)
+		{
+			dest = WString::Empty;
+			for (auto&& item : source)
+			{
+				if (dest.Length() > 0)
+				{
+					dest += L";";
+				}
+				dest += item;
+			}
+		}
+
+		static void Deserialize(const ContextType&, const DestType& dest, SourceType& source)
+		{
+			source.Clear();
+			if (dest.Length() == 0)
+			{
+				return;
+			}
+
+			const wchar_t* reading = dest.Buffer();
+			while (true)
+			{
+				auto delimiter = wcschr(reading, L';');
+				source.Add(
+					delimiter
+					? WString::CopyFrom(reading, (vint)(delimiter - reading))
+					: WString::CopyFrom(reading, (vint)wcslen(reading))
+					);
+				if (!delimiter)
+				{
+					break;
+				}
+				reading = delimiter + 1;
+			}
+		}
+	};
+
+	struct ChannelChatData
+	{
+		EventObject						eventServer, eventTom, eventJerry;
+		SpinLock						lockServer;
+		vint							tomId = -1;
+		vint							jerryId = -1;
+		bool							okSent = false;
+		bool							tomStopped = false;
+		bool							jerryStopped = false;
+
+		ChannelChatData()
+		{
+			eventServer.CreateManualUnsignal(false);
+			eventTom.CreateManualUnsignal(false);
+			eventJerry.CreateManualUnsignal(false);
+		}
+	};
+
+	class ChannelServer
+		: public NetworkProtocolChannelServer<WString, WStringListSerializer>
+		, public virtual IChannelReader<WString>
+	{
+		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer>;
+
+	protected:
+		ChannelChatData*				chatData = nullptr;
+		IChannel<WString>*				channel = nullptr;
+
+	public:
+		ChannelServer(Ptr<INetworkProtocolServer> server, ChannelChatData& _chatData)
+			: Base(server)
+			, chatData(&_chatData)
+		{
+			channel = CreateChannel(ChatChannelName);
+			channel->Initialize(this);
+		}
+
+		bool OnClientConnected(vint clientId, const ChannelNameList& availableChannels) override
+		{
+			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
+			return true;
+		}
+
+		void OnRead(const WString& package) override
+		{
+			bool sendOk = false;
+			bool stopServer = false;
+			vint tomId = -1;
+			vint jerryId = -1;
+
+			SPIN_LOCK(chatData->lockServer)
+			{
+				if (package.Length() >= 4 && package.Left(4) == L"Tom:")
+				{
+					auto message = package.Sub(4, package.Length() - 4);
+					if (message == L"Stop")
+					{
+						chatData->tomStopped = true;
+					}
+					else if (message != L"Hello")
+					{
+						chatData->tomId = wtoi(message);
+					}
+				}
+				else if (package.Length() >= 6 && package.Left(6) == L"Jerry:")
+				{
+					auto message = package.Sub(6, package.Length() - 6);
+					if (message == L"Stop")
+					{
+						chatData->jerryStopped = true;
+					}
+					else if (message != L"Good")
+					{
+						chatData->jerryId = wtoi(message);
+					}
+				}
+
+				if (chatData->tomId != -1 && chatData->jerryId != -1 && !chatData->okSent)
+				{
+					chatData->okSent = true;
+					sendOk = true;
+					tomId = chatData->tomId;
+					jerryId = chatData->jerryId;
+				}
+				stopServer = chatData->tomStopped && chatData->jerryStopped;
+			}
+
+			if (sendOk)
+			{
+				bool disconnected = false;
+				channel->SendToClient(tomId, L"OK");
+				channel->SendToClient(jerryId, L"OK");
+				channel->BatchWrite(disconnected);
+				CHECK_ERROR(!disconnected, L"Channel server should send OK to both clients.");
+			}
+			if (stopServer)
+			{
+				chatData->eventServer.Signal();
+			}
+		}
+	};
+
+	class ChannelClient
+		: public NetworkProtocolChannelClient<WString, WStringListSerializer>
+		, public virtual IChannelReader<WString>
+	{
+		using Base = NetworkProtocolChannelClient<WString, WStringListSerializer>;
+
+	protected:
+		ChannelChatData*				chatData = nullptr;
+		IChannel<WString>*				channel = nullptr;
+		WString							name;
+
+	public:
+		ChannelClient(Ptr<INetworkProtocolClient> client, ChannelChatData& _chatData, const WString& _name)
+			: Base(client)
+			, chatData(&_chatData)
+			, name(_name)
+		{
+			channel = CreateChannel(ChatChannelName);
+			channel->Initialize(this);
+		}
+
+		void OnConnected(vint clientId) override
+		{
+			Send(name + L":" + itow(clientId));
+		}
+
+		void OnRead(const WString& package) override
+		{
+			if (name == L"Tom")
+			{
+				if (package == L"OK")
+				{
+					Send(L"Tom:Hello");
+				}
+				else if (package == L"Jerry:Good")
+				{
+					Send(L"Tom:Stop");
+					chatData->eventTom.Signal();
+				}
+			}
+			else if (name == L"Jerry")
+			{
+				if (package == L"Tom:Hello")
+				{
+					Send(L"Jerry:Good");
+					Send(L"Jerry:Stop");
+					chatData->eventJerry.Signal();
+				}
+			}
+		}
+
+	protected:
+		void Send(const WString& package)
+		{
+			bool disconnected = false;
+			channel->BroadcastFromClient(package);
+			channel->BatchWrite(disconnected);
+			CHECK_ERROR(!disconnected, L"Channel client should be connected when sending.");
+		}
+	};
+
+	void RunNetworkProtocolChannel(
+		Func<Ptr<INetworkProtocolServer>()> createServer,
+		Func<Ptr<INetworkProtocolClient>()> createClient
+		)
+	{
+		auto timeoutThread = Ptr(new TimeoutThread);
+		ChannelChatData chatData;
+
+		ThreadPoolLite::QueueLambda([&]()
+		{
+			{
+				auto server = Ptr(new ChannelServer(createServer(), chatData));
+				auto clientId1 = server->WaitForClient();
+				auto clientId2 = server->WaitForClient();
+				CHECK_ERROR(clientId1 != clientId2, L"Channel server should assign different client ids.");
+				chatData.eventServer.Wait();
+				Thread::Sleep(1000);
+				server->Stop();
+			}
+			timeoutThread->threadCounter++;
+		});
+
+		ThreadPoolLite::QueueLambda([&]()
+		{
+			{
+				auto client = Ptr(new ChannelClient(createClient(), chatData, L"Tom"));
+				client->WaitForServer();
+				chatData.eventTom.Wait();
+				Thread::Sleep(1000);
+			}
+			timeoutThread->threadCounter++;
+		});
+
+		ThreadPoolLite::QueueLambda([&]()
+		{
+			{
+				auto client = Ptr(new ChannelClient(createClient(), chatData, L"Jerry"));
+				client->WaitForServer();
+				chatData.eventJerry.Wait();
+				Thread::Sleep(1000);
+			}
+			timeoutThread->threadCounter++;
+		});
+
+		timeoutThread->Start();
+		timeoutThread->Wait();
+
+		TEST_ASSERT(!timeoutThread->timeout);
+	}
+}
 using namespace mynamespace;
 
 TEST_FILE
@@ -284,6 +547,22 @@ TEST_FILE
 		RunTextNetworkProtocol(
 			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServer", 8765)); },
 			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServer", 8765)); }
+		);
+	});
+
+	TEST_CASE(L"NamedPipe (Channel)")
+	{
+		RunNetworkProtocolChannel(
+			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipeChannel")); },
+			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipeChannel")); }
+		);
+	});
+
+	TEST_CASE(L"HttpServer (Channel)")
+	{
+		RunNetworkProtocolChannel(
+			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServerChannel", 8766)); },
+			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServerChannel", 8766)); }
 		);
 	});
 #endif
