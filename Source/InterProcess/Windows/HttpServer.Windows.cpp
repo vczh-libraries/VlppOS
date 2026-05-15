@@ -33,12 +33,13 @@ void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID htt
 {
 	OnCancelCurrentHttpRequestForPendingRequest();
 	httpPendingRequestId = httpRequestId;
-	if (pendingRequestToSend)
+	if (pendingRequestsToSend.Count() > 0)
 	{
-		ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, pendingRequestToSend.Value());
+		auto pendingRequest = pendingRequestsToSend[0];
+		pendingRequestsToSend.RemoveAt(0);
+		ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, pendingRequest);
 		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
 		httpPendingRequestId = HTTP_NULL_ID;
-		pendingRequestToSend.Reset();
 	}
 }
 
@@ -115,7 +116,6 @@ void HttpServerConnection::SendString(const WString& str)
 	{
 		if (httpPendingRequestId != HTTP_NULL_ID)
 		{
-			pendingRequestToSend.Reset();
 			ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, str);
 			if (result == NO_ERROR)
 			{
@@ -124,7 +124,7 @@ void HttpServerConnection::SendString(const WString& str)
 			else if (result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED)
 			{
 				httpPendingRequestId = HTTP_NULL_ID;
-				pendingRequestToSend = str;
+				pendingRequestsToSend.Add(str);
 			}
 			else
 			{
@@ -133,7 +133,7 @@ void HttpServerConnection::SendString(const WString& str)
 		}
 		else
 		{
-			pendingRequestToSend = str;
+			pendingRequestsToSend.Add(str);
 		}
 	}
 }

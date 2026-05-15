@@ -30,7 +30,7 @@ protected:
 
 	SpinLock										pendingRequestLock;
 	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
-	Nullable<WString>								pendingRequestToSend;
+	collections::List<WString>						pendingRequestsToSend;
 
 	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
 	void											OnCancelCurrentHttpRequestForPendingRequest();

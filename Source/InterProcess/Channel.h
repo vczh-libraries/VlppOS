@@ -33,7 +33,7 @@ IGuiRemoteProtocolChannel<T>
 		/// <summary>
 		/// Called when the channel receives a message.
 		/// </summary>
-		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
+		/// <param name="senderClientId">The sender client id.</param>
 		/// <param name="package">The message.</param>
 		virtual void							OnRead(vint senderClientId, const TPackage& package) = 0;
 	};
@@ -74,8 +74,8 @@ IGuiRemoteProtocolChannel<T>
 		/// Queue a message to send to a client using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
-		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
-		/// <param name="receiverClientId">The receiver client id, or AdminClientId if the message is targeting the server.</param>
+		/// <param name="senderClientId">The sender client id.</param>
+		/// <param name="receiverClientId">The receiver client id.</param>
 		/// <param name="package">The message to send.</param>
 		virtual void							SendToClient(vint senderClientId, vint receiverClientId, const TPackage& package) = 0;
 
@@ -83,7 +83,7 @@ IGuiRemoteProtocolChannel<T>
 		/// Queue a message to broadcast to all other clients using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
-		/// <param name="senderClientId">The sender client id, or AdminClientId if the message is generated from the server.</param>
+		/// <param name="senderClientId">The sender client id.</param>
 		/// <param name="package">The message to broadcast.</param>
 		virtual void							BroadcastFromClient(vint senderClientId, const TPackage& package) = 0;
 
@@ -216,8 +216,8 @@ IChannelServer
 		/// Connections between such client to the server will be local and established immediately, no network transmission is involved.
 		/// </summary>
 		/// <param name="localClient">The local client.</param>
-		/// <returns>Returns false if the connection is already established, no matter local or remote.</returns>
-		virtual bool						ConnectLocalClient(Ptr<IChannelClient<TPackage>> localClient) = 0;
+		/// <returns>Returns the assigned client id, or -1 if the connection is already established, no matter local or remote.</returns>
+		virtual vint						ConnectLocalClient(Ptr<IChannelClient<TPackage>> localClient) = 0;
 
 		/// <summary>
 		/// Test if a client id is local.
@@ -251,13 +251,6 @@ IChannelServer
 		/// </summary>
 		/// <returns>Returns a map from client id to available channels.</returns>
 		virtual const ClientChannelMap&		GetClientChannels() = 0;
-
-		/// <summary>
-		/// Get the channel object to exchange message to clients.
-		/// </summary>
-		/// <param name="channelName">The channel name.</param>
-		/// <returns>Returns the channel object to exchange message to the client.</returns>
-		virtual IChannel<TPackage>*			GetChannel(const WString& channelName) = 0;
 
 		/// <summary>
 		/// Raise a fatal error.

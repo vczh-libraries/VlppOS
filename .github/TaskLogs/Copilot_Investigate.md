@@ -14,49 +14,55 @@ All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
 I think this is the only test file you need.
 
-## Task 2
+## Task 1
 
-**IMPORTANT** This work changes many repos.
-**IMPORTANT** If my proposal is not working in Task 2 because the assumption is wrong, skip Task 3.
+Refactor `TestInterProcess.cpp` and `NetworkProtocolChannel(Server|Client)`.
+- I realized that adding `IChannelServer::GetChannel` is a bad idea, you are going to delete this function.
+  - Because `NetworkProtocolChannelServer` should just handle message delivering, anything leaking to `IChannelServer::GetChannel` is a bad idea. So I think you could read the commit `Refactor inter-process channel sender ids` and revert just this part, but others should kept.
+- In order to let `RunNetworkProtocolChannel`'s server being able to send messages:
+  - Add a `ServerChannelClient`, and the server thread will call `ConnectLocalClient` on that instance after two clients are connected.
+  - Now the `ChannelServer` should no longer implements `IChannelReader<WString>`, being able to do that might mean the original implementationa has fundemental problems. For example, there should be no such things like `ownedChannels`.
+  - `ConnectLocalClient` returns the client id for `ServerChannelClient`, and now it has 3 ids.
+  - When `ServerChannelClient` is connected, it broadcast "clientid1;clientId2;" to other two clients.
+  - This message will be the first message received by Tom and Jerry, the `senderClientId` reveals the client id of `ServerChannelClient`, and then by comparing their client id to `clientId1;clientId2`, Tom knows Jerry and Jerry knows Tom.
+  - Continue to do, until Tom and Client sends `Stop` to `ServerChannelClient`.
+  - After `ServerChannelClient` receives both stops, the stopping process begins.
+- The change means, `AdminClientId` will not be used in the implementation, although it is declared. So any usage of `AdminClientId` in `NetworkProtocolChannel(Server|Client)?` should be removed.
 
-Add `new int;` at the last line of `TEST_CASE(L"HttpServer (Channel)")` so that the test case will leak memory.
-I found when I was doing this, no memory leak are detected at the end of `Execute.log`. Figure this out. You are granted permission to change files in the `Import` and `.github` folder. Probably `Vlpp.cpp` and `copilotExecute.ps1` will be affected.
+The goal is to make the responsibility of interfaces clean. `IChannelServer` could only deliver messages, it doesn't send messages unless to broadcast errors or system messages, which are not implemented and not involved in the test.
 
-Any changes should be also port to `Vlpp` repo (if `Vlpp.h` and `Vlpp.cpp` in `Import` folder is changed) and `Tools` repo (if files in `.github` folder is changed, those files are from `Tools/Copilot`).
-
-After fixing the issue, remove `new int` and check again to see the leak in `Execute.log` is gone, and push all 3 repos if they have local changes.
+To act like a talking server, a local client registered in the server side is what the original design meant to do.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-The reproduction is to temporarily add `new int;` at the end of `TEST_CASE(L"HttpServer (Channel)")`, build Debug x64, and run UnitTest through `copilotExecute.ps1`. Success criteria:
+The configured Debug x64 UnitTest filter already runs `TestInterProcess.cpp`, and the channel tests exercise both named-pipe and HTTP transports through `RunNetworkProtocolChannel`. Success criteria:
 
-- With the intentional leak present, `Execute.log` contains the memory leak dump after the passed test summary.
-- After removing the intentional leak, the same UnitTest run passes and no memory leak dump remains at the end of `Execute.log`.
-- If leak-capture code or scripts need changes, matching changes are ported to `Vlpp` and `Tools/Copilot` as required.
+- `IChannelServer::GetChannel` is removed, and `NetworkProtocolChannelServer` no longer owns user channel objects for server-originated chat messages.
+- `NetworkProtocolChannelServer::ConnectLocalClient` assigns and returns a real client id for a local `ServerChannelClient`.
+- `RunNetworkProtocolChannel` completes with Tom, Jerry, and the server-side local client all using positive client ids, with no `AdminClientId` usage in `NetworkProtocolChannelClient`, `NetworkProtocolChannelServer`, or the channel test.
+- Debug x64 `UnitTest` builds successfully and the configured UnitTest run passes without a memory leak dump.
 
 # PROPOSALS
 
-- No.1 Verify and port debug-output memory leak capture [CONFIRMED]
+- No.1 Route server-side chat through a local channel client [CONFIRMED]
 
-## No.1 Verify and port debug-output memory leak capture
+## No.1 Route server-side chat through a local channel client
 
 ### CODE CHANGE
 
-- Updated `Vlpp/Source/UnitTest/UnitTest.cpp` and regenerated `Vlpp/Release/Vlpp.cpp`.
-- Ported the regenerated `Vlpp/Release/Vlpp.cpp` to `VlppOS/Import/Vlpp.cpp`.
-- Enabled debug CRT allocation tracking while unit tests run by setting `_CRTDBG_ALLOC_MEM_DF` when `VCZH_CHECK_MEMORY_LEAKS` is defined.
-- Redirected `_CRT_WARN`, `_CRT_ERROR`, and `_CRT_ASSERT` reports to the debug-output file using the OS handle from `_get_osfhandle(_fileno(file))`, instead of passing `FILE*` to `_CrtSetReportFile`.
-- No `Tools/Copilot` script change was needed; `copilotExecute.ps1` was already passing `/DebugOutput` and appending the non-empty memory-leak file to `Execute.log`.
+- Removed `IChannelServer::GetChannel` and the server-owned user-channel implementation from `NetworkProtocolChannelServer`.
+- Changed `IChannelServer::ConnectLocalClient` to return the assigned local client id, and implemented local-client registration, local id detection, local disconnection, and local batch delivery.
+- Removed `AdminClientId` usage from `NetworkProtocolChannelClient`, `NetworkProtocolChannelServer`, and `TestInterProcess.cpp`; channel messages now always use positive sender/receiver client ids.
+- Refactored `RunNetworkProtocolChannel` so `ChannelServer` only accepts clients, while a server-side `ServerChannelClient` connects locally and broadcasts `clientId1;clientId2;` as the first chat message.
+- Updated the test `WStringListSerializer` to length-prefix packages so a single `WString` package can contain semicolons.
+- Changed `HttpServerConnection` to queue pending outbound `/Request` responses instead of keeping one overwriteable pending response, preserving the connection response followed immediately by the first channel message.
 
 ### CONFIRMED
 
-- With temporary `new int;` at the end of `TEST_CASE(L"HttpServer (Channel)")`, Debug x64 UnitTest passed and `Execute.log` appended:
-  - `Detected memory leaks!`
-  - `TestInterProcess.cpp(613) ... normal block ... 4 bytes long.`
-- After removing the temporary `new int;`, Debug x64 build succeeded with `0 Warning(s)` and `0 Error(s)`.
-- Final `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64` passed with `Passed test files: 12/12` and `Passed test cases: 115/115`.
+- Initial Debug x64 build caught one compile error from using `.key/.value` on `indexed`, which was corrected by switching to an explicit index loop.
+- Debug x64 build then succeeded with `0 Warning(s)` and `0 Error(s)`.
+- The first UnitTest run without a local filter showed all `TestInterProcess.cpp` cases passing and then continued into unrelated test files. The local `UnitTest.vcxproj.user` file was empty despite the task note, so it was updated locally to pass `/F:TestInterProcess.cpp`.
+- Final `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64` used `/F:TestInterProcess.cpp` and passed with `Passed test files: 1/1` and `Passed test cases: 4/4`.
 - Final `Execute.log` contains no `Detected memory leaks!`, `Dumping objects ->`, or `Object dump complete`.
-- Upstream `Vlpp` Debug x64 build succeeded with `0 Warning(s)` and `0 Error(s)`.
-- Upstream `Vlpp` UnitTest run passed with `Passed test files: 31/31` and `Passed test cases: 462/462`, with no memory leak dump.

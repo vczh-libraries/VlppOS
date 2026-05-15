@@ -282,36 +282,23 @@ namespace mynamespace
 			dest = WString::Empty;
 			for (auto&& item : source)
 			{
-				if (dest.Length() > 0)
-				{
-					dest += L";";
-				}
-				dest += item;
+				dest += itow(item.Length()) + L":" + item;
 			}
 		}
 
 		static void Deserialize(const ContextType&, const DestType& dest, SourceType& source)
 		{
 			source.Clear();
-			if (dest.Length() == 0)
-			{
-				return;
-			}
-
 			const wchar_t* reading = dest.Buffer();
-			while (true)
+			const wchar_t* end = reading + dest.Length();
+			while (reading < end)
 			{
-				auto delimiter = wcschr(reading, L';');
-				source.Add(
-					delimiter
-					? WString::CopyFrom(reading, (vint)(delimiter - reading))
-					: WString::CopyFrom(reading, (vint)wcslen(reading))
-					);
-				if (!delimiter)
-				{
-					break;
-				}
-				reading = delimiter + 1;
+				auto delimiter = wcschr(reading, L':');
+				CHECK_ERROR(delimiter && delimiter < end, L"WStringListSerializer received an invalid package.");
+				auto length = wtoi(WString::CopyFrom(reading, (vint)(delimiter - reading)));
+				CHECK_ERROR(length >= 0 && delimiter + 1 + length <= end, L"WStringListSerializer received an invalid package length.");
+				source.Add(WString::CopyFrom(delimiter + 1, length));
+				reading = delimiter + 1 + length;
 			}
 		}
 	};
@@ -322,7 +309,7 @@ namespace mynamespace
 		SpinLock						lockServer;
 		vint							clientId1 = -1;
 		vint							clientId2 = -1;
-		bool							anotherClientIdSent = false;
+		vint							serverClientId = -1;
 		bool							client1Stopped = false;
 		bool							client2Stopped = false;
 
@@ -336,89 +323,19 @@ namespace mynamespace
 
 	class ChannelServer
 		: public NetworkProtocolChannelServer<WString, WStringListSerializer>
-		, public virtual IChannelReader<WString>
 	{
 		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer>;
 
-	private:
-		ChannelChatData*				chatData = nullptr;
-		IChannel<WString>*				channel = nullptr;
-
 	public:
-		ChannelServer(Ptr<INetworkProtocolServer> server, ChannelChatData& _chatData)
+		ChannelServer(Ptr<INetworkProtocolServer> server)
 			: Base(server)
-			, chatData(&_chatData)
 		{
-			channel = GetChannel(ChatChannelName);
-			channel->Initialize(this);
 		}
 
 		bool OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
 			return true;
-		}
-
-		void OnRead(vint senderClientId, const WString& package) override
-		{
-			bool sendAnotherClientId = false;
-			bool stopServer = false;
-			vint clientId1 = -1;
-			vint clientId2 = -1;
-
-			SPIN_LOCK(chatData->lockServer)
-			{
-				CHECK_ERROR(senderClientId != AdminClientId, L"Channel server should not receive a client message from AdminClientId.");
-				if (package == L"Hello Server")
-				{
-					if (chatData->clientId1 == -1)
-					{
-						chatData->clientId1 = senderClientId;
-					}
-					else if (chatData->clientId1 != senderClientId)
-					{
-						CHECK_ERROR(chatData->clientId2 == -1 || chatData->clientId2 == senderClientId, L"Channel server should receive Hello Server from at most two clients.");
-						chatData->clientId2 = senderClientId;
-					}
-				}
-				else if (package == L"Stop")
-				{
-					if (senderClientId == chatData->clientId1)
-					{
-						chatData->client1Stopped = true;
-					}
-					else if (senderClientId == chatData->clientId2)
-					{
-						chatData->client2Stopped = true;
-					}
-					else
-					{
-						CHECK_FAIL(L"Channel server should only receive Stop from known clients.");
-					}
-				}
-
-				if (chatData->clientId1 != -1 && chatData->clientId2 != -1 && !chatData->anotherClientIdSent)
-				{
-					chatData->anotherClientIdSent = true;
-					sendAnotherClientId = true;
-					clientId1 = chatData->clientId1;
-					clientId2 = chatData->clientId2;
-				}
-				stopServer = chatData->client1Stopped && chatData->client2Stopped;
-			}
-
-			if (sendAnotherClientId)
-			{
-				bool disconnected = false;
-				channel->SendToClient(AdminClientId, clientId1, itow(clientId2));
-				channel->SendToClient(AdminClientId, clientId2, itow(clientId1));
-				channel->BatchWrite(disconnected);
-				CHECK_ERROR(!disconnected, L"Channel server should send another client id to both clients.");
-			}
-			if (stopServer)
-			{
-				chatData->eventServer.Signal();
-			}
 		}
 	};
 
@@ -434,6 +351,7 @@ namespace mynamespace
 										channelNames;
 		IChannel<WString>*				channel = nullptr;
 		vint							clientId = -1;
+		vint							serverClientId = -1;
 		vint							anotherClientId = -1;
 
 	public:
@@ -441,12 +359,14 @@ namespace mynamespace
 			: Base(client)
 			, chatData(&_chatData)
 		{
-			channelNames.Add(ChatChannelName, nullptr);
-			auto&& channels = GetChannels();
-			auto index = channels.Keys().IndexOf(ChatChannelName);
-			CHECK_ERROR(index != -1, L"Channel client should provide the chat channel.");
-			channel = channels.Values()[index];
-			channel->Initialize(this);
+			InitializeChannel();
+		}
+
+		ChannelClientBase(ChannelChatData& _chatData)
+			: Base()
+			, chatData(&_chatData)
+		{
+			InitializeChannel();
 		}
 
 		const IChannelClient<WString>::ChannelNameList& OnGetChannelNames() override
@@ -457,15 +377,35 @@ namespace mynamespace
 		void OnConnected(vint clientId) override
 		{
 			this->clientId = clientId;
-			SendTo(AdminClientId, L"Hello Server");
 		}
 
 	protected:
-		void RememberAnotherClientId(vint senderClientId, const WString& package)
+		void InitializeChannel()
 		{
-			CHECK_ERROR(senderClientId == AdminClientId, L"Channel client should receive another client id from AdminClientId.");
-			anotherClientId = wtoi(package);
-			CHECK_ERROR(anotherClientId > 0 && anotherClientId != clientId, L"Channel client should receive a valid another client id.");
+			channelNames.Add(ChatChannelName, nullptr);
+			auto&& channels = GetChannels();
+			auto index = channels.Keys().IndexOf(ChatChannelName);
+			CHECK_ERROR(index != -1, L"Channel client should provide the chat channel.");
+			channel = channels.Values()[index];
+			channel->Initialize(this);
+		}
+
+		void RememberClientIds(vint senderClientId, const WString& package)
+		{
+			CHECK_ERROR(senderClientId > 0 && senderClientId != clientId, L"Channel client should receive client ids from the server channel client.");
+			auto firstDelimiter = wcschr(package.Buffer(), L';');
+			CHECK_ERROR(firstDelimiter, L"Channel client should receive two client ids.");
+			auto secondBegin = firstDelimiter + 1;
+			auto secondDelimiter = wcschr(secondBegin, L';');
+			CHECK_ERROR(secondDelimiter && secondDelimiter[1] == 0, L"Channel client should receive two client ids.");
+
+			auto clientId1 = wtoi(WString::CopyFrom(package.Buffer(), (vint)(firstDelimiter - package.Buffer())));
+			auto clientId2 = wtoi(WString::CopyFrom(secondBegin, (vint)(secondDelimiter - secondBegin)));
+			CHECK_ERROR(clientId1 > 0 && clientId2 > 0 && clientId1 != clientId2, L"Channel client should receive valid client ids.");
+			CHECK_ERROR(clientId == clientId1 || clientId == clientId2, L"Channel client should find itself in the received client ids.");
+
+			serverClientId = senderClientId;
+			anotherClientId = clientId == clientId1 ? clientId2 : clientId1;
 		}
 
 		void SendTo(vint receiverClientId, const WString& package)
@@ -474,6 +414,66 @@ namespace mynamespace
 			channel->SendToClient(clientId, receiverClientId, package);
 			channel->BatchWrite(disconnected);
 			CHECK_ERROR(!disconnected, L"Channel client should be connected when sending.");
+		}
+	};
+
+	class ServerChannelClient : public ChannelClientBase
+	{
+	private:
+		vint							clientId1 = -1;
+		vint							clientId2 = -1;
+
+	public:
+		ServerChannelClient(ChannelChatData& chatData, vint _clientId1, vint _clientId2)
+			: ChannelClientBase(chatData)
+			, clientId1(_clientId1)
+			, clientId2(_clientId2)
+		{
+		}
+
+		void OnConnected(vint clientId) override
+		{
+			ChannelClientBase::OnConnected(clientId);
+			{
+				SPIN_LOCK(chatData->lockServer)
+				{
+					chatData->clientId1 = clientId1;
+					chatData->clientId2 = clientId2;
+					chatData->serverClientId = clientId;
+				}
+			}
+
+			bool disconnected = false;
+			channel->BroadcastFromClient(clientId, itow(clientId1) + L";" + itow(clientId2) + L";");
+			channel->BatchWrite(disconnected);
+			CHECK_ERROR(!disconnected, L"Server channel client should broadcast client ids.");
+		}
+
+		void OnRead(vint senderClientId, const WString& package) override
+		{
+			CHECK_ERROR(package == L"Stop", L"Server channel client should only receive Stop.");
+			bool stopServer = false;
+			SPIN_LOCK(chatData->lockServer)
+			{
+				if (senderClientId == clientId1)
+				{
+					chatData->client1Stopped = true;
+				}
+				else if (senderClientId == clientId2)
+				{
+					chatData->client2Stopped = true;
+				}
+				else
+				{
+					CHECK_FAIL(L"Server channel client should only receive Stop from known clients.");
+				}
+				stopServer = chatData->client1Stopped && chatData->client2Stopped;
+			}
+
+			if (stopServer)
+			{
+				chatData->eventServer.Signal();
+			}
 		}
 	};
 
@@ -489,14 +489,18 @@ namespace mynamespace
 		{
 			if (anotherClientId == -1)
 			{
-				RememberAnotherClientId(senderClientId, package);
+				RememberClientIds(senderClientId, package);
 				SendTo(anotherClientId, L"Hello");
 			}
 			else if (package == L"Good")
 			{
 				CHECK_ERROR(senderClientId == anotherClientId, L"Tom should receive Good from another client.");
-				SendTo(AdminClientId, L"Stop");
+				SendTo(serverClientId, L"Stop");
 				chatData->eventTom.Signal();
+			}
+			else
+			{
+				CHECK_FAIL(L"Tom received an unexpected package.");
 			}
 		}
 	};
@@ -513,14 +517,18 @@ namespace mynamespace
 		{
 			if (anotherClientId == -1)
 			{
-				RememberAnotherClientId(senderClientId, package);
+				RememberClientIds(senderClientId, package);
 			}
 			else if (package == L"Hello")
 			{
 				CHECK_ERROR(senderClientId == anotherClientId, L"Jerry should receive Hello from another client.");
 				SendTo(anotherClientId, L"Good");
-				SendTo(AdminClientId, L"Stop");
+				SendTo(serverClientId, L"Stop");
 				chatData->eventJerry.Signal();
+			}
+			else
+			{
+				CHECK_FAIL(L"Jerry received an unexpected package.");
 			}
 		}
 	};
@@ -536,10 +544,15 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
-				auto server = Ptr(new ChannelServer(createServer(), chatData));
+				auto server = Ptr(new ChannelServer(createServer()));
 				auto clientId1 = server->WaitForClient();
 				auto clientId2 = server->WaitForClient();
 				CHECK_ERROR(clientId1 != clientId2, L"Channel server should assign different client ids.");
+				auto serverClient = Ptr(new ServerChannelClient(chatData, clientId1, clientId2));
+				auto serverClientId = server->ConnectLocalClient(serverClient);
+				CHECK_ERROR(serverClientId > 0 && serverClientId != clientId1 && serverClientId != clientId2, L"Channel server should assign a different id to the server channel client.");
+				CHECK_ERROR(server->IsLocalClient(serverClientId), L"Channel server should recognize the server channel client as local.");
+				CHECK_ERROR(server->GetClientIds().Count() == 3, L"Channel server should have three client ids.");
 				chatData.eventServer.Wait();
 				Thread::Sleep(1000);
 				server->Stop();
