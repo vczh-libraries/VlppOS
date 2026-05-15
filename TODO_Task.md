@@ -16,65 +16,35 @@ I think this is the only test file you need.
 
 **IMPORTANT** This work happens in `VlppOS` repo.
 
-Refactor `NetworkProtocolChannelClient` and `NetworkProtocolChannelServer`.
-- Check two latest commit titled `Update TextNetworkProtocol.h` you will find I performed some change to `NetworkProtocolChannelClient::Channel`. I would like you to:
-  - Pay attention to the change in `NetworkProtocolChannelClient::Channel`, I improved the code, similar issues will also be in the server version.
-  - Extract similar part from both channel to NetworkProtocolChannel as much as you can. If there is any differences, respect the client version.
-  - Both channel calls `client->BatchWrite` and `server->BatchWrite`, you can add a `BatchWrite` virtual function to the base class (`NetworkProtocolChannel`), and I think no other places call `client->` and `server->`. And two versions of channels inherit from that base class and implement `BatchWrite` for redirection.
-  - Check if any shared code that appear in both client and server, will it be extracted to static helper functions in `NetworkProtocolChannel`, or any better form, so that implementation would become simpler? Make your own judgement. But more importantly, I don't want you to just randomly find something to extract so that you can say you extracted more. All extraction must be reasonable.
-- Review data structures.
-  - I have changed `NetworkProtocolChannelClient::Channel::queuedPackages` from a list to group, so that the list for each group is naturally maintained and can be feed to `BatchWrite` directly, avoiding unnecessary copying. You can check existing code and see if anything could be improved.
+Refactor `TestInterProcess.cpp` to change `RunNetworkProtocolChannel` works like:
+- Split `ChannelClient` to `TomChannelClient` and `JerryChannelClient`, no mixing of handling together.
+- Instead of server returning `OK` to both client, it returns the "client id of another client" to each client.
+  - On connected, no name is sent, instead sends `Hello Server`. Name will be no longer useful in thie test case.
+  - This would be the first message receiving from the server and each client can remember the other client id.
+- Message deliverying do not based one name anymore.
+  - No `Jerry:Hello` anymore, just send `Hello` using the client id, so the message got delivered to another client. Server will never convert this message to `Tom>Hello`. The same to other messages.
+  - `vint senderClientId` will be added as the first argument to `IChannelReader::OnRead` so that the callback knows who is sending this message. `CHECK_ERROR` should be used to ensure `senderClientId` is exactly the "client id of another client" sending from the server. And when the message is sending from the server, the server should use `AdminClientId` so that the client knows it is comming from the server.
 
-## Task 2
+Refactor of `NetworkProtocolChannel(Server|Client)`
+  - `vint senderClientId` is added to `IChannel::(SendTo|BroadcastFrom)Client` but it is not implemented.
+    - `clientId` renamed to `receiverClientId` in `SendToClient`. Use this name in implementations too.
+    - If a message is generated from a server, it should use `AdminClientId`. Check if `-1` is used anywhere, they will be not allowed.
+     - Ensure `senderClientId` exists, and `receiverClientId` exists to unless it is `AdminClientId`.
+  - `NetworkProtocolChannelServer::Channel::WriteBatch` might need to fix.
+  - `IChannelServer::GetChannel` is added so that the user of `NetworkProtocolChannelServer` is able to do communication. Channel objects will be maintained in the server implementation, but only when a channel from a name is required, the object will be created. When the channel does not exist, `CHECK_ERROR`.
+    - Check all other functions, if any argument is wrong and the caller is able to know that by querying with other methods, `CHECK_ERROR`.
+  - For all members that are not in `IChannel(Server|Client)`, they should all be private. Therefore users of `NetworkProtocolChannel(Server|Client)` can only use members in the interface. This will affect sub classes in the test case. Here is also a chance to delete useless members.
 
-**IMPORTANT** This work happens in `VlppOS` repo.
-
-For debug execution, `_CrtDumpMemoryLeaks` dumps memory leaks:
-- It appears even when only `TestInterProcess.cpp` is executed so the previous work may introduce the memory leaks.
-- But I am not telling just to fix this, you should do:
-  - I specifically grand you permission to change `Vlpp.cpp`, and do this:
-    - Besides of `/C`, `/D`, `/R`, `/F:xxx`, recognize `/DebugOutput:file`.
-    - Only one `/DebugOutput:file` is allowed, and it does this:
-      - Create a `vint debugOutputArgIndex = -1` below `vl::unittest::execution_impl::failureMode`, if the option is specified, set it in `RunAndDisposeTests`.
-    - Write a new `UnitTest::DumpMemoryLeak(argc, argv)` function:
-      - `#ifdef` `VCZH_MSVC` and `VCZH_CHECK_MEMORY_LEAKS`, does this:
-        - Call `_CrtSetReportFile` and `_CrtSetReportMode` so that `_CRT_WARN` redirects to the file.
-        - `argv[debugOutputArgIndex+1]` will be the string `/DebugOutput:file`, now you can extract the file name.
-        - Calls `_CrtDumpMemoryLeaks` and closes the file.
-      - Otherwise, it is blank.
-  - In `Main.cpp`, the 3 lines of code will be replaced by `UnitTest::DumpMemoryLeak`.
-  - In `copilotExecute.ps1`, **ONLY WHEN** `UnitTest` mode is specified, specify `/C` and `/DebugOutput:xxx`, and use `Execution.log.memoryleaks`. This file should be removed before and after execution just like `Execution.log.unfinished`. After finishing execution, `Execution.log.memoryleaks` will be appended at the end of copied `Execution.log`. `/DebugOutput` should use absolute path.
-  - `REPO-ROOT/.github/Scripts/.gitignore` in the same folder should be fixed.
-  - `REPO-ROOT/.github/Guidelines/Running-UnitTest.md`'s `### The Correct Way to Read Test Result` should say, only when Windows + Debug, if memory leaks happen, it will appear at the end of the log. and memory leaks should always be fixed after test cases passed. Fixing memory leaks is important and it is a must have, organize your own workd and update this document.
-  - My proposal is based on an assumption, `_CrtDumpMemoryLeaks` calls `OutputDebugString` by default.
-- After you are able to dump it, try to fix the issue, and keep verifying until the memory leaks are gone.
-
-```
-Detected memory leaks!
-Dumping objects ->
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {156} normal block at 0x000001A208EF3E30, 16 bytes long.
- Data: <`f X            > 60 66 9D 58 F6 7F 00 00 00 00 00 00 00 00 00 00 
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {155} normal block at 0x000001A208EF3C00, 16 bytes long.
- Data: < f X    0>      > A0 66 9D 58 F6 7F 00 00 30 3E EF 08 A2 01 00 00 
-C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {154} normal block at 0x000001A208EF2FD0, 16 bytes long.
- Data: <8f X     <      > 38 66 9D 58 F6 7F 00 00 00 3C EF 08 A2 01 00 00 
-Object dump complete.
-```
+`RunTextNetworkProtocol` should not change.
 
 ## Task 3
 
 **IMPORTANT** This work changes many repos.
 **IMPORTANT** If my proposal is not working in Task 2 because the assumption is wrong, skip Task 3.
 
-In Task 2, you have updated:
-- `copilotExecution.ps1` and `.gitignore` and `Running-UnitTest.md`, they should be moved to `Tools` repo and override files in `Copilot` folder.
-- `Vlpp.cpp`, you should fix related code in `Vlpp` repo, run `Tools/Tools/CodePack.backup.exe` on `Vlpp/Relase/CodegenConfig.xml`, and the `Vlpp.cpp` will be updated. Copy `Vlpp/Release/Vlpp.cpp` to `VlppOS/Import/Vlpp.cpp` and find if there is any `git diff`, if there is any, your patch to `Vlpp` repo is not precise.
-- Any other shared files that I forget to mention here.
+Add `new int;` at the last line of `TEST_CASE(L"HttpServer (Channel)")` so that the test case will leak memory.
+I found when I was doing this, no memory leak are detected at the end of `Execute.log`. Figure this out. You are granted permission to change files in the `Import` and `.github` folder. Probably `Vlpp.cpp` and `copilotExecute.ps1` will be affected.
 
-After finishing, `VlppOS` repo should have no change, you should commit and push `Vlpp` and `Tools` repos.
+Any changes should be also port to `Vlpp` repo (if `Vlpp.h` and `Vlpp.cpp` in `Import` folder is changed) and `Tools` repo (if files in `.github` folder is changed, those files are from `Tools/Copilot`).
 
-Find all unit test projects in `VlppRegex`, `VlppReflection`, `VlppParser2`, `Workflow`, `GacUI`, any cpp files calls `UnitTest::RunAndDisposeTests` should have `_CrtDumpMemoryLeaks` calls, replace it to `UnitTest::DumpMemoryLeak`. In order to make it work, you should:
-  - Copy `copilotExecution.ps1`, `.gitignore`, `Running-UnitTest.md`, `Vlpp.cpp` to coressponding folders in each repo.
-  - Compile the solution, no test running needs to perform.
-  - After fixing any potential compile errors, commit and push all these repos.
-  - Reminder, there will be many `main.cpp` or whatever cpp files need to update. You can simply search for `_CrtDumpMemoryLeaks` and figure out if it runs test cases. A few might not because they are "CLI" or "GUI"  project instead of "UnitTest" project. Only fix "UnitTest" project.
+After fixing the issue, remove `new int` and check again to see the leak in `Execute.log` is gone, and push all 3 repos if they have local changes.

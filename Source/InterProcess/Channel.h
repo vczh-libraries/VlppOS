@@ -75,14 +75,14 @@ IGuiRemoteProtocolChannel<T>
 		/// </summary>
 		/// <param name="clientId">The client id.</param>
 		/// <param name="package">The message to send.</param>
-		virtual void							SendToClient(vint clientId, const TPackage& package) = 0;
+		virtual void							SendToClient(vint senderClientId, vint receiverClientId, const TPackage& package) = 0;
 
 		/// <summary>
 		/// Queue a message to broadcast to all other clients using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
 		/// <param name="package">The message to broadcast.</param>
-		virtual void							BroadcastFromClient(const TPackage& package) = 0;
+		virtual void							BroadcastFromClient(vint senderClientId, const TPackage& package) = 0;
 
 		/// <summary>
 		/// Send all queued messages.
@@ -248,6 +248,13 @@ IChannelServer
 		/// </summary>
 		/// <returns>Returns a map from client id to available channels.</returns>
 		virtual const ClientChannelMap&		GetClientChannels() = 0;
+
+		/// <summary>
+		/// Get the channel object to exchange message to clients.
+		/// </summary>
+		/// <param name="clientName">The client name.</param>
+		/// <returns>Returns the channel object to exchange message to the client.</returns>
+		virtual IChannel<TPackage>*			GetChannel(WString& clientName) = 0;
 
 		/// <summary>
 		/// Raise a fatal error.
