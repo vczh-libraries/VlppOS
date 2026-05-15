@@ -37,7 +37,7 @@ Refactor of `NetworkProtocolChannel(Server|Client)`
 
 `RunTextNetworkProtocol` should not change.
 
-## Task 3
+## Task 2
 
 **IMPORTANT** This work changes many repos.
 **IMPORTANT** If my proposal is not working in Task 2 because the assumption is wrong, skip Task 3.
