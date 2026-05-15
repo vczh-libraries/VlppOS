@@ -252,7 +252,7 @@ using namespace mynamespace;
 TEST_FILE
 {
 #ifdef VCZH_MSVC
-	TEST_CASE(L"NamedPipe")
+	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
 		RunTextNetworkProtocol(
 			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipe")); },
@@ -260,7 +260,7 @@ TEST_FILE
 		);
 	});
 
-	TEST_CASE(L"HttpServer")
+	TEST_CASE(L"HttpServer (NetworkProtocol)")
 	{
 		RunTextNetworkProtocol(
 			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServer", 8765)); },
