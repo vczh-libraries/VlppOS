@@ -223,6 +223,10 @@ Later
 ***********************************************************************/
 
 /***********************************************************************
+NetworkProtocolChannel
+***********************************************************************/
+
+/***********************************************************************
 NetworkProtocolChannelClient
 ***********************************************************************/
 
@@ -236,22 +240,16 @@ NetworkProtocolChannelClient
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 
-		struct QueuedPackage
-		{
-			Nullable<vint>									clientId;
-			TPackage										package;
-		};
-
 		class Channel : public Object, public virtual IChannel<TPackage>
 		{
 		protected:
 			NetworkProtocolChannelClient*					client = nullptr;
 			WString											channelName;
 			IChannelReader<TPackage>*						reader = nullptr;
-			SpinLock										lockReader;
+			SpinLock										lockUnreadPackages;
 			PackageList										unreadPackages;
 			SpinLock										lockQueuedPackages;
-			collections::List<QueuedPackage>					queuedPackages;
+			collections::Group<Nullable<vint>, TPackage>	queuedPackages;
 
 		public:
 			Channel(NetworkProtocolChannelClient* _client, const WString& _channelName)
@@ -267,25 +265,16 @@ NetworkProtocolChannelClient
 
 			IChannelReader<TPackage>* GetReader() override
 			{
-				IChannelReader<TPackage>* result = nullptr;
-				SPIN_LOCK(lockReader)
-				{
-					result = reader;
-				}
-				return result;
+				return reader;
 			}
 
 			void Initialize(IChannelReader<TPackage>* _reader) override
 			{
 				CHECK_ERROR(_reader, L"NetworkProtocolChannelClient::Channel::Initialize needs a valid reader.");
-				SPIN_LOCK(lockReader)
+				SPIN_LOCK(lockUnreadPackages)
 				{
-					CHECK_ERROR(!reader, L"NetworkProtocolChannelClient::Channel::Initialize can only be called once.");
 					reader = _reader;
-					for (auto&& package : unreadPackages)
-					{
-						reader->OnRead(package);
-					}
+					ReadBatch(unreadPackages);
 					unreadPackages.Clear();
 				}
 			}
@@ -302,45 +291,36 @@ NetworkProtocolChannelClient
 
 			void BatchWrite(bool& disconnected) override
 			{
-				collections::List<QueuedPackage> packages;
+				collections::Group<Nullable<vint>, TPackage> packages;
 				SPIN_LOCK(lockQueuedPackages)
 				{
-					for (auto&& package : queuedPackages)
-					{
-						packages.Add(package);
-					}
-					queuedPackages.Clear();
+					packages = std::move(queuedPackages);
 				}
 
-				while (packages.Count() > 0)
+				for (vint i = 0; i < packages.Count(); i++)
 				{
-					auto clientId = packages[0].clientId;
-					PackageList batch;
-					for (vint i = packages.Count() - 1; i >= 0; i--)
+					auto clientId = packages.Keys()[i];
+					auto&& batch = packages.GetByIndex(i);
+					if (client->SendBatch(clientId, channelName, batch))
 					{
-						if (NetworkProtocolChannelClient::IsSameClientId(packages[i].clientId, clientId))
-						{
-							batch.Insert(0, packages[i].package);
-							packages.RemoveAt(i);
-						}
+						disconnected = true;
+						return;
 					}
-
-					disconnected = client->SendBatch(clientId, channelName, batch) || disconnected;
 				}
 			}
 
 			void ReadBatch(const PackageList& batch)
 			{
-				SPIN_LOCK(lockReader)
+				if (reader)
 				{
-					if (reader)
+					for (auto&& package : batch)
 					{
-						for (auto&& package : batch)
-						{
-							reader->OnRead(package);
-						}
+						reader->OnRead(package);
 					}
-					else
+				}
+				else
+				{
+					SPIN_LOCK(lockUnreadPackages)
 					{
 						for (auto&& package : batch)
 						{
@@ -353,12 +333,9 @@ NetworkProtocolChannelClient
 		protected:
 			void QueuePackage(Nullable<vint> clientId, const TPackage& package)
 			{
-				QueuedPackage queuedPackage;
-				queuedPackage.clientId = std::move(clientId);
-				queuedPackage.package = package;
 				SPIN_LOCK(lockQueuedPackages)
 				{
-					queuedPackages.Add(std::move(queuedPackage));
+					queuedPackages.Add(clientId, package);
 				}
 			}
 		};
@@ -409,12 +386,6 @@ NetworkProtocolChannelClient
 		vint													clientId = -1;
 		ChannelMap												channels;
 		collections::Dictionary<WString, Ptr<Channel>>			ownedChannels;
-
-		static bool IsSameClientId(Nullable<vint> a, Nullable<vint> b)
-		{
-			if (a && b) return a.Value() == b.Value();
-			return !a && !b;
-		}
 
 		static void ValidateChannelName(const WString& channelName)
 		{
@@ -679,7 +650,7 @@ NetworkProtocolChannelServer
 			SpinLock										lockReader;
 			PackageList										unreadPackages;
 			SpinLock										lockQueuedPackages;
-			collections::List<QueuedPackage>					queuedPackages;
+			collections::List<QueuedPackage>				queuedPackages;
 
 		public:
 			Channel(NetworkProtocolChannelServer* _server, const WString& _channelName)
