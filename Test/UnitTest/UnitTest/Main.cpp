@@ -1,4 +1,5 @@
 #include "../../../Source/FileSystem.h"
+#include "../../../Source/Threading.h"
 #include <windows.h>
 
 using namespace vl;
@@ -45,9 +46,8 @@ int wmain(int argc , wchar_t* argv[])
 		}
 	}
 	int result = unittest::UnitTest::RunAndDisposeTests(argc, argv);
+	ThreadLocalStorage::DisposeStorages();
 	FinalizeGlobalStorage();
-#ifdef VCZH_CHECK_MEMORY_LEAKS
-	_CrtDumpMemoryLeaks();
-#endif
+	unittest::UnitTest::DumpMemoryLeak(argc, argv);
 	return result;
 }

@@ -14,52 +14,74 @@ All tasks below are for completing `vl::inter_process`.
 `UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
 I think this is the only test file you need.
 
-## Task 1
+## Task 2
 
 **IMPORTANT** This work happens in `VlppOS` repo.
 
-Refactor `NetworkProtocolChannelClient` and `NetworkProtocolChannelServer`.
-- Check two latest commit titled `Update TextNetworkProtocol.h` you will find I performed some change to `NetworkProtocolChannelClient::Channel`. I would like you to:
-  - Pay attention to the change in `NetworkProtocolChannelClient::Channel`, I improved the code, similar issues will also be in the server version.
-  - Extract similar part from both channel to NetworkProtocolChannel as much as you can. If there is any differences, respect the client version.
-  - Both channel calls `client->BatchWrite` and `server->BatchWrite`, you can add a `BatchWrite` virtual function to the base class (`NetworkProtocolChannel`), and I think no other places call `client->` and `server->`. And two versions of channels inherit from that base class and implement `BatchWrite` for redirection.
-  - Check if any shared code that appear in both client and server, will it be extracted to static helper functions in `NetworkProtocolChannel`, or any better form, so that implementation would become simpler? Make your own judgement. But more importantly, I don't want you to just randomly find something to extract so that you can say you extracted more. All extraction must be reasonable.
-- Review data structures.
-  - I have changed `NetworkProtocolChannelClient::Channel::queuedPackages` from a list to group, so that the list for each group is naturally maintained and can be feed to `BatchWrite` directly, avoiding unnecessary copying. You can check existing code and see if anything could be improved.
+For debug execution, `_CrtDumpMemoryLeaks` dumps memory leaks:
+- It appears even when only `TestInterProcess.cpp` is executed so the previous work may introduce the memory leaks.
+- But I am not telling just to fix this, you should do:
+  - I specifically grand you permission to change `Vlpp.cpp`, and do this:
+    - Besides of `/C`, `/D`, `/R`, `/F:xxx`, recognize `/DebugOutput:file`.
+    - Only one `/DebugOutput:file` is allowed, and it does this:
+      - Create a `vint debugOutputArgIndex = -1` below `vl::unittest::execution_impl::failureMode`, if the option is specified, set it in `RunAndDisposeTests`.
+    - Write a new `UnitTest::DumpMemoryLeak(argc, argv)` function:
+      - `#ifdef` `VCZH_MSVC` and `VCZH_CHECK_MEMORY_LEAKS`, does this:
+        - Call `_CrtSetReportFile` and `_CrtSetReportMode` so that `_CRT_WARN` redirects to the file.
+        - `argv[debugOutputArgIndex+1]` will be the string `/DebugOutput:file`, now you can extract the file name.
+        - Calls `_CrtDumpMemoryLeaks` and closes the file.
+      - Otherwise, it is blank.
+  - In `Main.cpp`, the 3 lines of code will be replaced by `UnitTest::DumpMemoryLeak`.
+  - In `copilotExecute.ps1`, **ONLY WHEN** `UnitTest` mode is specified, specify `/C` and `/DebugOutput:xxx`, and use `Execution.log.memoryleaks`. This file should be removed before and after execution just like `Execution.log.unfinished`. After finishing execution, `Execution.log.memoryleaks` will be appended at the end of copied `Execution.log`. `/DebugOutput` should use absolute path.
+  - `REPO-ROOT/.github/Scripts/.gitignore` in the same folder should be fixed.
+  - `REPO-ROOT/.github/Guidelines/Running-UnitTest.md`'s `### The Correct Way to Read Test Result` should say, only when Windows + Debug, if memory leaks happen, it will appear at the end of the log. and memory leaks should always be fixed after test cases passed. Fixing memory leaks is important and it is a must have, organize your own workd and update this document.
+  - My proposal is based on an assumption, `_CrtDumpMemoryLeaks` calls `OutputDebugString` by default.
+- After you are able to dump it, try to fix the issue, and keep verifying until the memory leaks are gone.
+
+```
+Detected memory leaks!
+Dumping objects ->
+C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {156} normal block at 0x000001A208EF3E30, 16 bytes long.
+ Data: <`f X            > 60 66 9D 58 F6 7F 00 00 00 00 00 00 00 00 00 00
+C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {155} normal block at 0x000001A208EF3C00, 16 bytes long.
+ Data: < f X    0>      > A0 66 9D 58 F6 7F 00 00 30 3E EF 08 A2 01 00 00
+C:\Code\VczhLibraries\VlppOS\Source\Threading.cpp(95) : {154} normal block at 0x000001A208EF2FD0, 16 bytes long.
+ Data: <8f X     <      > 38 66 9D 58 F6 7F 00 00 00 3C EF 08 A2 01 00 00
+Object dump complete.
+```
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Task 1 uses the existing inter-process channel tests in `Test/Source/TestInterProcess.cpp`. The refactor should preserve behavior for both channel transports:
+Task 2 is verified by the Debug x64 UnitTest project through the repository scripts. Success criteria:
 
-- `NamedPipe (Channel)` must pass.
-- `HttpServer (Channel)` must pass.
-- The whole Debug x64 UnitTest project should still build with 0 warnings and 0 errors.
+- The unit-test framework accepts `/DebugOutput:file` in combination with `/C`.
+- `copilotExecute.ps1` writes the memory-leak report to `Execute.log.memoryleaks`, appends it to `Execute.log`, and removes the temporary file after execution.
+- `Execute.log` ends with the normal pass summary and has no appended memory leak dump.
+- The Debug x64 build has 0 warnings and 0 errors.
 
 Confirmed with:
 
 - `copilotBuild.ps1 -Configuration Debug -Platform x64`: `Build succeeded`, `0 Warning(s)`, `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: `Passed test files: 12/12`, `Passed test cases: 115/115`.
+- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest -Configuration Debug -Platform x64`: command line included `/C /DebugOutput:"C:\Code\VczhLibraries\VlppOS\.github\Scripts\Execute.log.memoryleaks"`, with `Passed test files: 12/12`, `Passed test cases: 115/115`.
+- `Execute.log` contains no `Detected memory leaks!`, `Dumping objects ->`, or `Threading.cpp` leak entries after the summary.
+- `Execute.log.memoryleaks` and `Execute.log.unfinished` do not remain after execution.
 
 # PROPOSALS
 
-- No.1 Refactor shared network protocol channel behavior [CONFIRMED]
+- No.1 Add debug-output leak capture and dispose TLS storages [CONFIRMED]
 
-## No.1 Refactor shared network protocol channel behavior
+## No.1 Add debug-output leak capture and dispose TLS storages
 
 ### CODE CHANGE
 
-- Moved common channel state and behavior into `NetworkProtocolChannel<TPackage, TSerialization>`:
-  - channel name and reader access
-  - unread package replay
-  - grouped queued packages
-  - public `BatchWrite(bool&)`
-  - `SendToClient` and `BroadcastFromClient`
-- Changed the server-side channel queue from `List<QueuedPackage>` to `Group<Nullable<vint>, TPackage>`, matching the improved client-side structure and avoiding the manual regrouping copy.
-- Kept client and server differences in small derived `WriteBatch` redirects to their owning protocol adapters.
-- Moved channel-name validation and the channel-name join/split wire-format helpers into the shared base.
+- Added `/DebugOutput:file` option parsing to `UnitTest::RunAndDisposeTests`, with duplicate detection and usage text.
+- Added `UnitTest::DumpMemoryLeak(argc, argv)` overloads. On MSVC debug leak builds they redirect `_CRT_WARN` to the requested file, call `_CrtDumpMemoryLeaks`, restore the previous report settings, and close the file. On unsupported builds the function is blank.
+- Replaced the direct `_CrtDumpMemoryLeaks` call in `Test/UnitTest/UnitTest/Main.cpp` with `UnitTest::DumpMemoryLeak`, and called `ThreadLocalStorage::DisposeStorages()` before leak detection.
+- Updated `copilotExecute.ps1` to pass `/C /DebugOutput:"absolute path"` in UnitTest mode, append the memory leak file to `Execute.log`, and remove `Execute.log.memoryleaks` before and after execution.
+- Updated `.github/Scripts/.gitignore` and `Running-UnitTest.md` for the new memory leak log behavior.
 
 ### CONFIRMED
 
-The refactor keeps the existing named-pipe and HTTP channel workflows passing. The grouped queue now feeds each target batch directly to the transport writer on both client and server paths, while the derived channel classes only encode the client/server-specific destination semantics.
+The reported leak blocks came from `ThreadLocalStorage::PushStorage` records for global `ThreadVariable` instances. Disposing thread-local storages in `Main.cpp` removes those records before memory leak detection runs. The updated UnitTest script passes the new `/DebugOutput` option, the test binary accepts it, all tests pass, and no leak dump is appended to the final log.
