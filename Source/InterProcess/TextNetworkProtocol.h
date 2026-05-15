@@ -414,16 +414,18 @@ NetworkProtocolChannelClient
 	class NetworkProtocolChannelServer;
 
 	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolLocalChannelClient;
+
+	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelClient : public Object, public virtual IChannelClient<TPackage>
 	{
-		friend class NetworkProtocolChannelServer<TPackage, TSerialization>;
-
-	private:
+	protected:
 		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 		using ChannelMap = typename IChannelClient<TPackage>::ChannelMap;
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 
+	private:
 		class Channel : public NetworkProtocolChannel<TPackage, TSerialization>
 		{
 			using Base = NetworkProtocolChannel<TPackage, TSerialization>;
@@ -491,17 +493,23 @@ NetworkProtocolChannelClient
 			}
 		};
 
-		typename TSerialization::ContextType					context;
-		Ptr<Callback>											callback;
-		Ptr<INetworkProtocolClient>								npClient;
-		NetworkProtocolChannelServer<TPackage, TSerialization>*	localServer = nullptr;
-		SpinLock												lockStatus;
-		EventObject												eventWaitForServer;
-		ClientStatus											status = ClientStatus::Ready;
-		bool													connectedNotified = false;
-		vint													clientId = -1;
-		ChannelMap												channels;
-		collections::Dictionary<WString, Ptr<Channel>>			ownedChannels;
+	private:
+		typename TSerialization::ContextType						context;
+
+	protected:
+		EventObject													eventWaitForServer;
+
+		// covers status, connectedNotified and clientId
+		SpinLock													lockStatus;
+		ClientStatus												status = ClientStatus::Ready;
+		bool														connectedNotified = false;
+		vint														clientId = -1;
+
+	private:
+		ChannelMap													channels;
+		collections::Dictionary<WString, Ptr<Channel>>				ownedChannels;
+		Ptr<Callback>												callback;
+		Ptr<INetworkProtocolClient>									npClient;
 
 		Channel* FindChannel(const WString& channelName)
 		{
@@ -509,6 +517,7 @@ NetworkProtocolChannelClient
 			return index == -1 ? nullptr : ownedChannels.Values()[index].Obj();
 		}
 
+	protected:
 		void SetStatus(ClientStatus newStatus)
 		{
 			SPIN_LOCK(lockStatus)
@@ -517,29 +526,21 @@ NetworkProtocolChannelClient
 			}
 		}
 
-		bool SendBatch(Nullable<vint> receiverClientId, const WString& channelName, const PackageList& batch)
+		virtual bool SendBatch(Nullable<vint> receiverClientId, const WString& channelName, const PackageList& batch)
 		{
 			if (GetStatus() != ClientStatus::Connected)
 			{
 				return true;
 			}
 
-			NetworkProtocolChannelServer<TPackage, TSerialization>* server = nullptr;
-			SPIN_LOCK(lockStatus)
-			{
-				server = localServer;
-			}
-			if (server)
-			{
-				return server->SendFromLocalClient(receiverClientId, GetClientId(), channelName, batch);
-			}
-
+			CHECK_ERROR(npClient, L"NetworkProtocolChannelClient::SendBatch needs an established network connection.");
 			WString messageBody;
 			TSerialization::Serialize(context, batch, messageBody);
 			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create(std::move(receiverClientId), channelName, messageBody)));
 			return false;
 		}
 
+	private:
 		void OnReadString(const WString& str)
 		{
 			NetworkPackage package;
@@ -577,12 +578,12 @@ NetworkProtocolChannelClient
 			}
 		}
 
-		void NotifyDisconnected()
+	protected:
+		virtual void NotifyDisconnected()
 		{
 			bool shouldNotify = false;
 			SPIN_LOCK(lockStatus)
 			{
-				localServer = nullptr;
 				if (status != ClientStatus::Disconnected)
 				{
 					status = ClientStatus::Disconnected;
@@ -631,12 +632,14 @@ NetworkProtocolChannelClient
 			// default implementation does nothing
 		}
 
+	protected:
 		NetworkProtocolChannelClient(const typename TSerialization::ContextType& _context = {})
 			: context(_context)
 		{
 			CHECK_ERROR(eventWaitForServer.CreateManualUnsignal(false), L"NetworkProtocolChannelClient initialization failed on eventWaitForServer.");
 		}
 
+	public:
 		NetworkProtocolChannelClient(
 			Ptr<INetworkProtocolClient> _npClient,
 			const typename TSerialization::ContextType& _context = {}
@@ -681,29 +684,6 @@ NetworkProtocolChannelClient
 			}
 		}
 
-		bool ConnectLocalServer(NetworkProtocolChannelServer<TPackage, TSerialization>* server, vint assignedClientId)
-		{
-			CHECK_ERROR(server, L"NetworkProtocolChannelClient::ConnectLocalServer needs a valid server.");
-			bool connected = false;
-			SPIN_LOCK(lockStatus)
-			{
-				if (status == ClientStatus::Ready || status == ClientStatus::WaitingForServer)
-				{
-					localServer = server;
-					clientId = assignedClientId;
-					status = ClientStatus::Connected;
-					connected = true;
-				}
-			}
-			return connected;
-		}
-
-		void NotifyLocalConnected()
-		{
-			eventWaitForServer.Signal();
-			NotifyConnected();
-		}
-
 	public:
 		const ChannelNameList& OnGetChannelNames() override
 		{
@@ -742,13 +722,6 @@ NetworkProtocolChannelClient
 			}
 
 			SetStatus(ClientStatus::WaitingForServer);
-			if (!npClient)
-			{
-				eventWaitForServer.Wait();
-				NotifyConnected();
-				return;
-			}
-
 			npClient->WaitForServer();
 			if (npClient->GetStatus() != ClientStatus::Connected)
 			{
@@ -776,17 +749,6 @@ NetworkProtocolChannelClient
 
 		void BroadcastError(const WString& errorMessage) override
 		{
-			NetworkProtocolChannelServer<TPackage, TSerialization>* server = nullptr;
-			SPIN_LOCK(lockStatus)
-			{
-				server = localServer;
-			}
-			if (server)
-			{
-				server->BroadcastError(errorMessage);
-				return;
-			}
-
 			CHECK_ERROR(npClient, L"NetworkProtocolChannelClient::BroadcastError needs an established connection.");
 			npClient->GetConnection()->SendString(NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), errorMessage)));
 			NotifyDisconnected();
@@ -797,6 +759,104 @@ NetworkProtocolChannelClient
 NetworkProtocolLocalChannelClient
 ***********************************************************************/
 
+	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolLocalChannelClient : public NetworkProtocolChannelClient<TPackage, TSerialization>
+	{
+		friend class NetworkProtocolChannelServer<TPackage, TSerialization>;
+
+	private:
+		using Base = NetworkProtocolChannelClient<TPackage, TSerialization>;
+		using PackageList = typename TSerialization::SourceType;
+
+		NetworkProtocolChannelServer<TPackage, TSerialization>*		localServer = nullptr;
+
+		bool ConnectLocalServer(NetworkProtocolChannelServer<TPackage, TSerialization>* server, vint assignedClientId)
+		{
+			CHECK_ERROR(server, L"NetworkProtocolLocalChannelClient::ConnectLocalServer needs a valid server.");
+			localServer = server;
+
+			bool connected = false;
+			SPIN_LOCK(this->lockStatus)
+			{
+				if (this->status == ClientStatus::Ready || this->status == ClientStatus::WaitingForServer)
+				{
+					this->clientId = assignedClientId;
+					this->status = ClientStatus::Connected;
+					connected = true;
+				}
+			}
+
+			if (!connected)
+			{
+				localServer = nullptr;
+			}
+			return connected;
+		}
+
+		void NotifyLocalConnected()
+		{
+			this->eventWaitForServer.Signal();
+			this->NotifyConnected();
+		}
+
+	protected:
+		bool SendBatch(Nullable<vint> receiverClientId, const WString& channelName, const PackageList& batch) override
+		{
+			if (this->GetStatus() != ClientStatus::Connected)
+			{
+				return true;
+			}
+
+			if (localServer)
+			{
+				return localServer->SendFromLocalClient(receiverClientId, this->GetClientId(), channelName, batch);
+			}
+			return Base::SendBatch(receiverClientId, channelName, batch);
+		}
+
+		void NotifyDisconnected() override
+		{
+			localServer = nullptr;
+			Base::NotifyDisconnected();
+		}
+
+	public:
+		NetworkProtocolLocalChannelClient(const typename TSerialization::ContextType& _context = {})
+			: Base(_context)
+		{
+		}
+
+		void WaitForServer() override
+		{
+			auto currentStatus = this->GetStatus();
+			if (currentStatus == ClientStatus::Connected || currentStatus == ClientStatus::Disconnected)
+			{
+				this->NotifyConnected();
+				return;
+			}
+			if (currentStatus == ClientStatus::WaitingForServer)
+			{
+				this->eventWaitForServer.Wait();
+				this->NotifyConnected();
+				return;
+			}
+
+			this->SetStatus(ClientStatus::WaitingForServer);
+			this->eventWaitForServer.Wait();
+			this->NotifyConnected();
+		}
+
+		void BroadcastError(const WString& errorMessage) override
+		{
+			if (localServer)
+			{
+				localServer->BroadcastError(errorMessage);
+				return;
+			}
+			Base::BroadcastError(errorMessage);
+		}
+	};
+
 /***********************************************************************
 NetworkProtocolChannelServer
 ***********************************************************************/
@@ -804,7 +864,7 @@ NetworkProtocolChannelServer
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>
 	{
-		friend class NetworkProtocolChannelClient<TPackage, TSerialization>;
+		friend class NetworkProtocolLocalChannelClient<TPackage, TSerialization>;
 
 	private:
 		using BaseChannel = NetworkProtocolChannel<TPackage, TSerialization>;
@@ -813,6 +873,7 @@ NetworkProtocolChannelServer
 		using ChannelNameList = typename IChannelClient<TPackage>::ChannelNameList;
 		using ClientChannelMap = typename IChannelServer<TPackage>::ClientChannelMap;
 		using ClientIdList = typename IChannelServer<TPackage>::ClientIdList;
+		using LocalChannelClient = NetworkProtocolLocalChannelClient<TPackage, TSerialization>;
 
 		class Connection : public Object, public virtual INetworkProtocolCallback
 		{
@@ -858,9 +919,11 @@ NetworkProtocolChannelServer
 
 		typename TSerialization::ContextType							context;
 		Ptr<INetworkProtocolServer>										npServer;
+
+		// covers connections, localClients, pendingConnections, clientChannels, nextClientId and stopped
 		SpinLock														lockConnections;
 		collections::Dictionary<vint, Ptr<Connection>>					connections;
-		collections::Dictionary<vint, Ptr<IChannelClient<TPackage>>>	localClients;
+		collections::Dictionary<vint, Ptr<LocalChannelClient>>			localClients;
 		collections::List<Ptr<Connection>>								pendingConnections;
 		ClientChannelMap												clientChannels;
 		vint															nextClientId = 1;
@@ -980,19 +1043,12 @@ NetworkProtocolChannelServer
 			}
 		}
 
-		void NotifyLocalClientDisconnected(Ptr<IChannelClient<TPackage>> localClient)
+		void NotifyLocalClientDisconnected(Ptr<LocalChannelClient> localClient)
 		{
-			if (auto networkProtocolClient = dynamic_cast<NetworkProtocolChannelClient<TPackage, TSerialization>*>(localClient.Obj()))
-			{
-				networkProtocolClient->NotifyDisconnected();
-			}
-			else
-			{
-				localClient->OnDisconnected();
-			}
+			localClient->NotifyDisconnected();
 		}
 
-		void DeliverBatchToLocalClient(Ptr<IChannelClient<TPackage>> localClient, vint senderClientId, const WString& channelName, const PackageList& batch)
+		void DeliverBatchToLocalClient(Ptr<LocalChannelClient> localClient, vint senderClientId, const WString& channelName, const PackageList& batch)
 		{
 			auto&& channels = localClient->GetChannels();
 			auto index = channels.Keys().IndexOf(channelName);
@@ -1026,7 +1082,7 @@ NetworkProtocolChannelServer
 			if (receiverClientId)
 			{
 				Ptr<Connection> connection;
-				Ptr<IChannelClient<TPackage>> localClient;
+				Ptr<LocalChannelClient> localClient;
 				{
 					SPIN_LOCK(lockConnections)
 					{
@@ -1052,7 +1108,7 @@ NetworkProtocolChannelServer
 			else
 			{
 				collections::List<Ptr<Connection>> targetConnections;
-				collections::List<Ptr<IChannelClient<TPackage>>> targetLocalClients;
+				collections::List<Ptr<LocalChannelClient>> targetLocalClients;
 				{
 					SPIN_LOCK(lockConnections)
 					{
@@ -1127,12 +1183,15 @@ NetworkProtocolChannelServer
 			CHECK_ERROR(localClient, L"NetworkProtocolChannelServer::ConnectLocalClient needs a valid localClient.");
 			CHECK_ERROR(!IsStopped(), L"NetworkProtocolChannelServer has stopped.");
 
-			if (localClient->GetStatus() == ClientStatus::Connected || localClient->GetStatus() == ClientStatus::Disconnected)
+			auto networkProtocolClient = localClient.Cast<LocalChannelClient>();
+			CHECK_ERROR(networkProtocolClient, L"NetworkProtocolChannelServer::ConnectLocalClient needs a NetworkProtocolLocalChannelClient.");
+
+			if (networkProtocolClient->GetStatus() == ClientStatus::Connected || networkProtocolClient->GetStatus() == ClientStatus::Disconnected)
 			{
 				return -1;
 			}
 
-			auto&& channels = localClient->GetChannels();
+			auto&& channels = networkProtocolClient->GetChannels();
 			for (auto&& channelName : channels.Keys())
 			{
 				BaseChannel::ValidateChannelName(channelName);
@@ -1153,8 +1212,7 @@ NetworkProtocolChannelServer
 				return -1;
 			}
 
-			auto networkProtocolClient = dynamic_cast<NetworkProtocolChannelClient<TPackage, TSerialization>*>(localClient.Obj());
-			if (networkProtocolClient && !networkProtocolClient->ConnectLocalServer(this, assignedClientId))
+			if (!networkProtocolClient->ConnectLocalServer(this, assignedClientId))
 			{
 				return -1;
 			}
@@ -1165,7 +1223,7 @@ NetworkProtocolChannelServer
 				{
 					if (!stopped)
 					{
-						localClients.Add(assignedClientId, localClient);
+						localClients.Add(assignedClientId, networkProtocolClient);
 						for (auto&& channelName : channels.Keys())
 						{
 							clientChannels.Add(assignedClientId, channelName);
@@ -1176,21 +1234,11 @@ NetworkProtocolChannelServer
 			}
 			if (!connected)
 			{
-				if (networkProtocolClient)
-				{
-					networkProtocolClient->NotifyDisconnected();
-				}
+				networkProtocolClient->NotifyDisconnected();
 				return -1;
 			}
 
-			if (networkProtocolClient)
-			{
-				networkProtocolClient->NotifyLocalConnected();
-			}
-			else
-			{
-				localClient->OnConnected(assignedClientId);
-			}
+			networkProtocolClient->NotifyLocalConnected();
 			return assignedClientId;
 		}
 
@@ -1225,7 +1273,7 @@ NetworkProtocolChannelServer
 		bool DisconnectClient(vint clientId) override
 		{
 			Ptr<Connection> connection;
-			Ptr<IChannelClient<TPackage>> localClient;
+			Ptr<LocalChannelClient> localClient;
 			{
 				SPIN_LOCK(lockConnections)
 				{
@@ -1271,7 +1319,7 @@ NetworkProtocolChannelServer
 		void BroadcastError(const WString& errorMessage) override
 		{
 			collections::List<Ptr<Connection>> targetConnections;
-			collections::List<Ptr<IChannelClient<TPackage>>> targetLocalClients;
+			collections::List<Ptr<LocalChannelClient>> targetLocalClients;
 			{
 				SPIN_LOCK(lockConnections)
 				{
@@ -1302,7 +1350,7 @@ NetworkProtocolChannelServer
 			collections::List<Ptr<Connection>> stoppingConnections;
 			collections::List<Ptr<Connection>> stoppingPendingConnections;
 			collections::List<vint> stoppingLocalClientIds;
-			collections::List<Ptr<IChannelClient<TPackage>>> stoppingLocalClients;
+			collections::List<Ptr<LocalChannelClient>> stoppingLocalClients;
 			bool shouldStop = false;
 			{
 				SPIN_LOCK(lockConnections)

@@ -33,6 +33,8 @@ namespace mynamespace
 	struct ChatData
 	{
 		EventObject						eventServer, eventTom, eventJerry;
+
+		// covers connectionTom, connectionJerry, tomStopped and jerryStopped
 		SpinLock						lockServer;
 		INetworkProtocolConnection*		connectionTom = nullptr;
 		INetworkProtocolConnection*		connectionJerry = nullptr;
@@ -306,6 +308,8 @@ namespace mynamespace
 	struct ChannelChatData
 	{
 		EventObject						eventServer, eventTom, eventJerry;
+
+		// covers clientId1, clientId2, serverClientId, client1Stopped and client2Stopped
 		SpinLock						lockServer;
 		vint							clientId1 = -1;
 		vint							clientId2 = -1;
@@ -339,11 +343,15 @@ namespace mynamespace
 		}
 	};
 
+	using NetworkChannelClient = NetworkProtocolChannelClient<WString, WStringListSerializer>;
+	using LocalNetworkChannelClient = NetworkProtocolLocalChannelClient<WString, WStringListSerializer>;
+
+	template<typename TBase>
 	class ChannelClientBase
-		: public NetworkProtocolChannelClient<WString, WStringListSerializer>
+		: public TBase
 		, public virtual IChannelReader<WString>
 	{
-		using Base = NetworkProtocolChannelClient<WString, WStringListSerializer>;
+		using Base = TBase;
 
 	protected:
 		ChannelChatData*				chatData = nullptr;
@@ -383,7 +391,7 @@ namespace mynamespace
 		void InitializeChannel()
 		{
 			channelNames.Add(ChatChannelName, nullptr);
-			auto&& channels = GetChannels();
+			auto&& channels = this->GetChannels();
 			auto index = channels.Keys().IndexOf(ChatChannelName);
 			CHECK_ERROR(index != -1, L"Channel client should provide the chat channel.");
 			channel = channels.Values()[index];
@@ -417,7 +425,7 @@ namespace mynamespace
 		}
 	};
 
-	class ServerChannelClient : public ChannelClientBase
+	class ServerChannelClient : public ChannelClientBase<LocalNetworkChannelClient>
 	{
 	private:
 		vint							clientId1 = -1;
@@ -425,7 +433,7 @@ namespace mynamespace
 
 	public:
 		ServerChannelClient(ChannelChatData& chatData, vint _clientId1, vint _clientId2)
-			: ChannelClientBase(chatData)
+			: ChannelClientBase<LocalNetworkChannelClient>(chatData)
 			, clientId1(_clientId1)
 			, clientId2(_clientId2)
 		{
@@ -433,7 +441,7 @@ namespace mynamespace
 
 		void OnConnected(vint clientId) override
 		{
-			ChannelClientBase::OnConnected(clientId);
+			ChannelClientBase<LocalNetworkChannelClient>::OnConnected(clientId);
 			{
 				SPIN_LOCK(chatData->lockServer)
 				{
@@ -477,11 +485,11 @@ namespace mynamespace
 		}
 	};
 
-	class TomChannelClient : public ChannelClientBase
+	class TomChannelClient : public ChannelClientBase<NetworkChannelClient>
 	{
 	public:
 		TomChannelClient(Ptr<INetworkProtocolClient> client, ChannelChatData& chatData)
-			: ChannelClientBase(client, chatData)
+			: ChannelClientBase<NetworkChannelClient>(client, chatData)
 		{
 		}
 
@@ -505,11 +513,11 @@ namespace mynamespace
 		}
 	};
 
-	class JerryChannelClient : public ChannelClientBase
+	class JerryChannelClient : public ChannelClientBase<NetworkChannelClient>
 	{
 	public:
 		JerryChannelClient(Ptr<INetworkProtocolClient> client, ChannelChatData& chatData)
-			: ChannelClientBase(client, chatData)
+			: ChannelClientBase<NetworkChannelClient>(client, chatData)
 		{
 		}
 
