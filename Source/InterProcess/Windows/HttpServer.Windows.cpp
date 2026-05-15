@@ -727,4 +727,9 @@ void HttpServer::Stop()
 	}
 }
 
+bool HttpServer::IsStopped()
+{
+	return state == State::Stopping;
+}
+
 }

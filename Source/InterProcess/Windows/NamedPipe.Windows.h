@@ -97,12 +97,14 @@ public:
 
 	INetworkProtocolConnection*						WaitForClient() override;
 	void											Stop() override;
+	bool											IsStopped() override;
 };
 
 class NamedPipeClient : public NamedPipeConnection, public virtual INetworkProtocolClient
 {
 protected:
 	static HANDLE									ClientCreatePipe(const WString& pipeName);
+	ClientStatus									status = ClientStatus::Ready;
 
 public:
 	NamedPipeClient(const WString& _pipeName);
@@ -110,6 +112,8 @@ public:
 
 	INetworkProtocolConnection*						GetConnection() override;
 	void											WaitForServer() override;
+	ClientStatus									GetStatus() override;
+	void											Stop() override;
 };
 
 }

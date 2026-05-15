@@ -75,6 +75,7 @@ public:
 	
 	INetworkProtocolConnection*						GetConnection() override;
 	void											WaitForServer() override;
+	ClientStatus									GetStatus() override;
 
 /***********************************************************************
 HttpClient (Writing)

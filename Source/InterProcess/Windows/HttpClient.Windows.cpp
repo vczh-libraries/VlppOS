@@ -432,6 +432,21 @@ void HttpClient::WaitForServer()
 	}
 }
 
+ClientStatus HttpClient::GetStatus()
+{
+	switch (state)
+	{
+	case State::Ready:
+		return ClientStatus::Ready;
+	case State::WaitForServerConnection:
+		return ClientStatus::WaitingForServer;
+	case State::Running:
+		return ClientStatus::Connected;
+	default:
+		return ClientStatus::Disconnected;
+	}
+}
+
 /***********************************************************************
 HttpClient (Writing)
 ***********************************************************************/

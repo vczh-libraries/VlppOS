@@ -123,6 +123,7 @@ public:
 	
 	INetworkProtocolConnection*						WaitForClient() override;
 	void											Stop() override;
+	bool											IsStopped() override;
 };
 
 }

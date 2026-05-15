@@ -342,6 +342,16 @@ void NamedPipeServer::Stop()
 	connections.Clear();
 }
 
+bool NamedPipeServer::IsStopped()
+{
+	bool result = false;
+	SPIN_LOCK(lockConnections)
+	{
+		result = stopped;
+	}
+	return result;
+}
+
 /***********************************************************************
 NamedPipeClient
 ***********************************************************************/
@@ -395,6 +405,7 @@ INetworkProtocolConnection* NamedPipeClient::GetConnection()
 
 void NamedPipeClient::WaitForServer()
 {
+	status = ClientStatus::WaitingForServer;
 	DWORD dwPipeMode = PIPE_READMODE_MESSAGE;
 	BOOL bSucceeded = SetNamedPipeHandleState(
 		hPipe,
@@ -402,10 +413,22 @@ void NamedPipeClient::WaitForServer()
 		NULL,
 		NULL);
 	CHECK_ERROR(bSucceeded, L"SetNamedPipeHandleState failed.");
+	status = ClientStatus::Connected;
 	if (callback)
 	{
 		callback->OnConnected();
 	}
+}
+
+ClientStatus NamedPipeClient::GetStatus()
+{
+	return status;
+}
+
+void NamedPipeClient::Stop()
+{
+	NamedPipeConnection::Stop();
+	status = ClientStatus::Disconnected;
 }
 
 }

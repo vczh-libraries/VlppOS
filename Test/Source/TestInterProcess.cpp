@@ -196,14 +196,21 @@ namespace mynamespace
 			{
 				ServerCallback callback1(chatData), callback2(chatData);
 				auto server = createServer();
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
 				auto connection1 = server->WaitForClient();
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after accepting the first client.");
 				auto connection2 = server->WaitForClient();
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after accepting the second client.");
 				connection1->InstallCallback(&callback1);
 				connection2->InstallCallback(&callback2);
 				connection1->BeginReadingLoopUnsafe();
 				connection2->BeginReadingLoopUnsafe();
 				chatData.eventServer.Wait();
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before sleeping.");
 				Thread::Sleep(1000);
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after sleeping.");
+				server->Stop();
+				CHECK_ERROR(server->IsStopped(), L"Server should be stopped after Stop.");
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -213,11 +220,17 @@ namespace mynamespace
 			{
 				TomCallback callback(chatData);
 				auto client = createClient();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Ready, L"Client should be ready before connecting.");
 				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should be connected after WaitForServer.");
 				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventTom.Wait();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before sleeping.");
 				Thread::Sleep(1000);
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected after sleeping.");
+				client->GetConnection()->Stop();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -227,11 +240,17 @@ namespace mynamespace
 			{
 				JerryCallback callback(chatData);
 				auto client = createClient();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Ready, L"Client should be ready before connecting.");
 				client->GetConnection()->InstallCallback(&callback);
 				client->WaitForServer();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should be connected after WaitForServer.");
 				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventJerry.Wait();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before sleeping.");
 				Thread::Sleep(1000);
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected after sleeping.");
+				client->GetConnection()->Stop();
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 			}
 			timeoutThread->threadCounter++;
 		});
