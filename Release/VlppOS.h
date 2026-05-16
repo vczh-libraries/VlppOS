@@ -2024,11 +2024,26 @@ NetworkProtocolChannel
 				packages = std::move(queuedPackages);
 			}
 
-			for (auto&& package : packages)
+			while (packages.Count() > 0)
 			{
 				PackageList batch;
-				batch.Add(package.package);
-				if (WriteBatch(package.senderClientId, package.receiverClientId, batch))
+				auto senderClientId = packages[0].senderClientId;
+				auto receiverClientId = packages[0].receiverClientId;
+				for (vint i = 0; i < packages.Count();)
+				{
+					auto&& package = packages[i];
+					if (package.senderClientId == senderClientId && package.receiverClientId == receiverClientId)
+					{
+						batch.Add(package.package);
+						packages.RemoveAt(i);
+					}
+					else
+					{
+						i++;
+					}
+				}
+
+				if (WriteBatch(senderClientId, receiverClientId, batch))
 				{
 					disconnected = true;
 					return;
