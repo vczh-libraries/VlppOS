@@ -1357,6 +1357,8 @@ NetworkProtocolChannelServer
 			{
 				localClient->OnError(errorMessage);
 			}
+			// Give transport clients a chance to consume the fatal package before closing.
+			Thread::Sleep(200);
 			Stop();
 		}
 

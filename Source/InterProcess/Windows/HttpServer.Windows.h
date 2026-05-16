@@ -31,12 +31,14 @@ protected:
 	SpinLock										pendingRequestLock;
 	HTTP_REQUEST_ID									httpPendingRequestId = HTTP_NULL_ID;
 	collections::List<WString>						pendingRequestsToSend;
+	bool											submittingResponse = false;
+	collections::List<WString>						responsesToSubmit;
 
 	// All following functions must be called inside SPIN_LOCK(pendingRequestLock)
 	void											OnCancelCurrentHttpRequestForPendingRequest();
 	void											OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID httpRequestId);
 
-	void											SubmitResponse(PHTTP_REQUEST pRequest);
+	WString											SubmitResponse(PHTTP_REQUEST pRequest);
 
 public:
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;

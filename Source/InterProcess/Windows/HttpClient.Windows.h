@@ -82,8 +82,19 @@ HttpClient (Writing)
 ***********************************************************************/
 
 protected:
+	class HttpResponseReading : public Object
+	{
+	public:
+		collections::Array<char8_t>					bodyBuffer;
+		DWORD										bodyBufferWriting = 0;
+		DWORD										bodyBufferWritingAvailable = 0;
+	};
+
 	SpinLock										httpRequestBodiesLock;
 	collections::Dictionary<HINTERNET, U8String>	httpRequestBodies;
+	SpinLock										httpResponseReadingsLock;
+	collections::Dictionary<HINTERNET, Ptr<HttpResponseReading>>
+													httpResponseReadings;
 	SpinLock										httpActiveRequestsLock;
 	collections::List<HINTERNET>					httpActiveRequests;
 

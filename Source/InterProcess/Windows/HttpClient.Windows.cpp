@@ -526,11 +526,125 @@ void HttpClient::SendString(const WString& str)
 						}
 						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
 
-						self->CloseRequest(httpRequest);
 						if (statusCode != 200)
 						{
+							self->CloseRequest(httpRequest);
 							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
+							return;
 						}
+
+						Ptr<HttpResponseReading> reading;
+						SPIN_LOCK(self->httpResponseReadingsLock)
+						{
+							auto index = self->httpResponseReadings.Keys().IndexOf(httpRequest);
+							if (index != -1)
+							{
+								reading = self->httpResponseReadings.Values()[index];
+							}
+						}
+						if (!reading) return;
+
+						reading->bodyBufferWriting = 0;
+						httpResult = WinHttpQueryDataAvailable(
+							httpRequest,
+							NULL);
+						lastError = GetLastError();
+						if (lastError == ERROR_INVALID_HANDLE)
+						{
+							CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
+							return;
+						}
+						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
+					});
+				}
+				break;
+			case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
+				{
+					DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
+					self->QueueCallback([=]()
+					{
+						if (self->state == State::Stopping) return;
+
+						Ptr<HttpResponseReading> reading;
+						SPIN_LOCK(self->httpResponseReadingsLock)
+						{
+							auto index = self->httpResponseReadings.Keys().IndexOf(httpRequest);
+							if (index != -1)
+							{
+								reading = self->httpResponseReadings.Values()[index];
+							}
+						}
+						if (!reading) return;
+
+						if (dataAvailable == 0)
+						{
+							if (reading->bodyBufferWriting > 0 && self->callback)
+							{
+								reading->bodyBuffer[reading->bodyBufferWriting] = 0;
+								U8String bodyUtf8 = U8String::Unmanaged(&reading->bodyBuffer[0]);
+								self->callback->OnReadString(u8tow(bodyUtf8));
+							}
+							self->CloseRequest(httpRequest);
+							return;
+						}
+
+						reading->bodyBufferWritingAvailable = dataAvailable;
+						DWORD bufferSize = reading->bodyBufferWriting + dataAvailable + 1;
+						if (reading->bodyBuffer.Count() < (vint)bufferSize)
+						{
+							reading->bodyBuffer.Resize((bufferSize + HttpRespondBodyStep - 1) / HttpRespondBodyStep * HttpRespondBodyStep);
+						}
+
+						DWORD lastError = 0;
+						BOOL httpResult = WinHttpReadData(
+							httpRequest,
+							&reading->bodyBuffer[reading->bodyBufferWriting],
+							dataAvailable,
+							NULL);
+						lastError = GetLastError();
+						if (lastError == ERROR_INVALID_HANDLE)
+						{
+							CHECK_ERROR(self->state == State::Stopping, L"WinHttpReadData failed with ERROR_INVALID_HANDLE but client is not stopping.");
+							return;
+						}
+						CHECK_ERROR(httpResult == TRUE, L"WinHttpReadData failed.");
+					});
+				}
+				break;
+			case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+				{
+					self->QueueCallback([=]()
+					{
+						if (self->state == State::Stopping) return;
+
+						Ptr<HttpResponseReading> reading;
+						SPIN_LOCK(self->httpResponseReadingsLock)
+						{
+							auto index = self->httpResponseReadings.Keys().IndexOf(httpRequest);
+							if (index != -1)
+							{
+								reading = self->httpResponseReadings.Values()[index];
+							}
+						}
+						if (!reading) return;
+
+						CHECK_ERROR(
+							reading->bodyBufferWritingAvailable == dwStatusInformationLength,
+							L"WinHttpReadData failed to read all available data."
+							);
+						reading->bodyBufferWriting += reading->bodyBufferWritingAvailable;
+
+						DWORD lastError = 0;
+						BOOL httpResult = WinHttpQueryDataAvailable(
+							httpRequest,
+							NULL);
+						lastError = GetLastError();
+						if (lastError == ERROR_INVALID_HANDLE)
+						{
+							CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
+							return;
+						}
+						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
 					});
 				}
 				break;
@@ -576,6 +690,10 @@ void HttpClient::SendString(const WString& str)
 	SPIN_LOCK(httpRequestBodiesLock)
 	{
 		httpRequestBodies.Add(httpRequest, bodyUtf8);
+	}
+	SPIN_LOCK(httpResponseReadingsLock)
+	{
+		httpResponseReadings.Add(httpRequest, Ptr(new HttpResponseReading));
 	}
 
 	{
@@ -686,6 +804,14 @@ void HttpClient::CloseRequest(HINTERNET httpRequest)
 
 void HttpClient::OnRequestHandleClosing(HINTERNET httpRequest)
 {
+	SPIN_LOCK(httpRequestBodiesLock)
+	{
+		httpRequestBodies.Remove(httpRequest);
+	}
+	SPIN_LOCK(httpResponseReadingsLock)
+	{
+		httpResponseReadings.Remove(httpRequest);
+	}
 	SPIN_LOCK(httpActiveRequestsLock)
 	{
 		vint index = httpActiveRequests.IndexOf(httpRequest);

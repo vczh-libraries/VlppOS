@@ -43,7 +43,7 @@ void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID htt
 	}
 }
 
-void HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
+WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 {
 	ULONG bodyLength = 0;
 	ULONG bodyReceived = 0;
@@ -76,18 +76,57 @@ void HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 		CHECK_ERROR(result == NO_ERROR, L"HttpReceiveRequestEntityBody.");
 	}
 
-	SPIN_LOCK(lockQueuedStrings)
+	SPIN_LOCK(pendingRequestLock)
 	{
-		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		if (callback)
+		submittingResponse = true;
+	}
+
+	try
+	{
+		SPIN_LOCK(lockQueuedStrings)
 		{
-			callback->OnReadString(u8tow(bodyUtf8));
-		}
-		else
-		{
-			queuedStrings.Add(u8tow(bodyUtf8));
+			U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
+			if (callback)
+			{
+				callback->OnReadString(u8tow(bodyUtf8));
+			}
+			else
+			{
+				queuedStrings.Add(u8tow(bodyUtf8));
+			}
 		}
 	}
+	catch (...)
+	{
+		SPIN_LOCK(pendingRequestLock)
+		{
+			submittingResponse = false;
+			responsesToSubmit.Clear();
+		}
+		throw;
+	}
+
+	WString responseToClient;
+	SPIN_LOCK(pendingRequestLock)
+	{
+		submittingResponse = false;
+		if (responsesToSubmit.Count() > 0)
+		{
+			responseToClient = responsesToSubmit[0];
+			responsesToSubmit.RemoveAt(0);
+			while (responsesToSubmit.Count() > 0)
+			{
+				pendingRequestsToSend.Add(responsesToSubmit[0]);
+				responsesToSubmit.RemoveAt(0);
+			}
+		}
+		else if (pendingRequestsToSend.Count() > 0)
+		{
+			responseToClient = pendingRequestsToSend[0];
+			pendingRequestsToSend.RemoveAt(0);
+		}
+	}
+	return responseToClient;
 }
 
 void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
@@ -114,7 +153,11 @@ void HttpServerConnection::SendString(const WString& str)
 {
 	SPIN_LOCK(pendingRequestLock)
 	{
-		if (httpPendingRequestId != HTTP_NULL_ID)
+		if (submittingResponse)
+		{
+			responsesToSubmit.Add(str);
+		}
+		else if (httpPendingRequestId != HTTP_NULL_ID)
 		{
 			ULONG result = HttpServer::SendResponse(server->httpRequestQueue, httpPendingRequestId, str);
 			if (result == NO_ERROR)
@@ -263,8 +306,8 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 		auto guid = WString::Unmanaged(pRequest->CookedUrl.pAbsPath + urlResponsePrefix.Length());
 		if (auto connection = FindExistingConnection(guid))
 		{
-			connection->SubmitResponse(pRequest);
-			auto result = SendResponse(httpRequestQueue, pRequest->RequestId, WString::Empty);
+			auto responseToClient = connection->SubmitResponse(pRequest);
+			auto result = SendResponse(httpRequestQueue, pRequest->RequestId, responseToClient);
 			CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Response.");
 		}
 	}

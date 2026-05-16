@@ -45,6 +45,7 @@ public:
 // Writing
 // -----------------------------------------------------------------------
 private:
+	SpinLock										lockWrite;
 	stream::MemoryStream							streamWriteFile;
 	OVERLAPPED										overlappedWriteFile;
 	HANDLE											hEventWriteFile = INVALID_HANDLE_VALUE;

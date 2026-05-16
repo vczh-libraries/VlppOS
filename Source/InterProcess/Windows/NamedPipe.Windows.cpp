@@ -176,20 +176,51 @@ void NamedPipeConnection::EndSendStream(vint32_t bytes)
 		vint bytesToSend = length >= (i + 1) * MaxMessageSize ? MaxMessageSize : length % MaxMessageSize;
 		auto buffer = (LPCVOID)((char*)streamWriteFile.GetInternalBuffer() + offset);
 
-		WaitForSingleObject(hEventWriteFile, INFINITE);
 		ResetEvent(hEventWriteFile);
 		ZeroMemory(&overlappedWriteFile, sizeof(overlappedWriteFile));
 		overlappedWriteFile.hEvent = hEventWriteFile;
-		WriteFile(hPipe, buffer, (DWORD)bytesToSend, NULL, &overlappedWriteFile);
+		DWORD written = 0;
+		BOOL result = WriteFile(hPipe, buffer, (DWORD)bytesToSend, NULL, &overlappedWriteFile);
+		if (result == FALSE)
+		{
+			auto error = GetLastError();
+			if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
+			{
+				OnDisconnected();
+				return;
+			}
+			CHECK_ERROR(error == ERROR_IO_PENDING, L"WriteFile failed on unexpected GetLastError.");
+			WaitForSingleObject(hEventWriteFile, INFINITE);
+			result = GetOverlappedResult(hPipe, &overlappedWriteFile, &written, FALSE);
+			if (result == FALSE)
+			{
+				error = GetLastError();
+				if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE || error == ERROR_OPERATION_ABORTED)
+				{
+					OnDisconnected();
+					return;
+				}
+				CHECK_FAIL(L"GetOverlappedResult(WriteFile) failed on unexpected GetLastError.");
+			}
+		}
+		else
+		{
+			written = (DWORD)bytesToSend;
+		}
+		CHECK_ERROR(written == (DWORD)bytesToSend, L"WriteFile failed to write all data.");
 	}
 }
 
 void NamedPipeConnection::SendString(const WString& str)
 {
-	vint32_t bytes = 0;
-	BeginSendStream();
-	bytes += WriteStringToStream(str);
-	EndSendStream(bytes);
+	if (stopped) return;
+	SPIN_LOCK(lockWrite)
+	{
+		vint32_t bytes = 0;
+		BeginSendStream();
+		bytes += WriteStringToStream(str);
+		EndSendStream(bytes);
+	}
 }
 
 /***********************************************************************
@@ -246,11 +277,14 @@ void NamedPipeConnection::Stop()
 		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
 	}
 
-	if (hPipe != INVALID_HANDLE_VALUE)
+	SPIN_LOCK(lockWrite)
 	{
-		CancelIoEx(hPipe, NULL);
-		CloseHandle(hPipe);
-		hPipe = INVALID_HANDLE_VALUE;
+		if (hPipe != INVALID_HANDLE_VALUE)
+		{
+			CancelIoEx(hPipe, NULL);
+			CloseHandle(hPipe);
+			hPipe = INVALID_HANDLE_VALUE;
+		}
 	}
 }
 
