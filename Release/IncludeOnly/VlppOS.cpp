@@ -15,6 +15,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Encoding\CharFormat\CharFormat.cpp"
 #include "..\..\Source\Encoding\CharFormat\MbcsEncoding.cpp"
 #include "..\..\Source\Encoding\CharFormat\UtfEncoding.cpp"
+#include "..\..\Source\InterProcess\TextNetworkProtocol.cpp"
 #include "..\..\Source\Stream\Accessor.cpp"
 #include "..\..\Source\Stream\BroadcastStream.cpp"
 #include "..\..\Source\Stream\CacheStream.cpp"
