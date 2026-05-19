@@ -11,7 +11,7 @@
   - First `/Request` sends channel names.
   - First `/Response` returns `clientId;;` in `NetworkProtocolChannelServer::OnReadString`.
   - How could we response to named pipe?
-  - Will async client connection solve the issue?
+  - Will async client connection solve the issue, that http server releases every new client per two request, if request is not sent after connect the server stuck?
 - Implement async client connection.
 - Windows socket
 - Linux socket
