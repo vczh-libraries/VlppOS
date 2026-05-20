@@ -4,7 +4,10 @@
 
 ### IChannelServer
 
-- Check the usage of system channels.
+- Review error handling and proper resource finalization.
+  - `HttpClient`.
+  - `HttpServer`.
+  - `NamedPipe`.
 - Check `NetworkProtocolLocalChannelClient`.
 - Windows socket
 - Linux socket

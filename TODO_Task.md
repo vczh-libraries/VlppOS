@@ -14,13 +14,25 @@ I think this is the only test file you need.
 
 ## Task 1
 
-Refactor `TestInterProcess.cpp` and `NetworkProtocolChannel(Server|Client)`.
-- `NetworkProtocolChannelClient` has a little extra code for handling local client, I would like you to make a sub class called `NetworkProtocolLocalChannelClient` and move things there.
-  - One important pattern is that some functions handle local client branch and then do common things. In the sub class you can override the function, do local client branch, and call the base method.
-  - Remember to move local client specific members to the sub class.
-  - In server's ConnectLocalClient it can just `dynamic_cast` to `NetworkProtocolLocalChannelClient` and make sure it succeeds, everything will be cleaner.
-  - In this way, no lock needs to protect the `localServer` field.
-  - If `NetworkProtocolLocalChannelClient` needs to use any `NetworkProtocolChannelClient` variables, make them protected only.
+Refactor `HttpClient`.
+- In `HttpClient::BeginReadingLoopUnsafe` and `HttpClient::SendString` there is two similar `WinHttpSetStatusCallback` calls.
+  - In `HttpClient::WaitForServer` there is one more `WinHttpSetStatusCallback` calls with a much simpler handling.
+  - I think there is no reason to have 3 different `WinHttpSetStatusCallback` calls as their handling should be almost the same.
+  - I would like you to make a protected `HttpClient::SendHttpRequest` function to send all different requests to the server. In this function you can pass an enum to distinguish Connect/Request/Response so that when a full body is received different actions could be taken. And `/Request` doesn't need to call `callback->OnReadString` because `HttpServer` always send messages through `/Response`.
+  - Currenty calling to `WinHttpSetStatusCallback` is incorrect. It uses `self->QueueCallback` to block `Stop` but it is not correct. The correct way to handle it is that:
+    - In `HttpClient::SendHttpRequest` checks state and ignore if already stopping.
+    - `BeginPendingCallback`.
+    - If anything error happens before `WinHttpSendRequest` in that function, `EndPendingCallback`.
+    - If no error happens before `WinHttpSendRequest`, `EndPendingCallback` will be called when `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING` happens, as in the document this status will always be invoked no matter what happens.
+    - No `self->QueueCallback` is needed as the piece of code should just be executed in the `WinHttpSetStatusCallback` directly. Calling `ThreadPoolLite::Queue` for any callback is just a waste of resource.
+- `hEventWaitForServer` should use `EventObject` instead of `HANDLE`.
 
-Verify `SPIN_LOCK`:
-- Just like `NetworkProtocolChannel`, you should reorder and group all protected fields under each `SpinLock`, and comment the coverage.
+Refactor `HttpServer`.
+- All interlocked operations should be replaced by `atomic<T>`.
+
+Refactor `NamedPipe.Windows.cpp`.
+- All interlocked operations should be replaced by `atomic<T>`.
+
+Remove all 6 `Thread::Sleep(1000);` in TestInterProcess.cpp.
+
+The goal is to make sure all `Stop` actually waits until no more callback could happen.
