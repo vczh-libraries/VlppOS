@@ -19,258 +19,7 @@ void HttpClient::RaiseErrorUnsafe(WString errorMessage)
 
 void HttpClient::BeginReadingLoopUnsafe()
 {
-	if (state == State::Stopping) return;
-	CHECK_ERROR(state == State::Running, L"BeginReadingLoopUnsafe can only be called when client is running.");
-	DWORD lastError = 0;
-	BOOL httpResult = FALSE;
-
-	LPCWSTR acceptTypes[] = { L"application/json; charset=utf8", NULL };
-	HINTERNET httpRequest = WinHttpOpenRequest(
-		httpConnection,
-		L"POST",
-		urlRequest.Buffer(),
-		NULL,
-		WINHTTP_NO_REFERER,
-		acceptTypes,
-		WINHTTP_FLAG_REFRESH);
-	lastError = GetLastError();
-	if (lastError == ERROR_INVALID_HANDLE)
-	{
-		CHECK_ERROR(state == State::Stopping, L"WinHttpOpenRequest failed with ERROR_INVALID_HANDLE but client is not stopping.");
-		return;
-	}
-	CHECK_ERROR(httpRequest != NULL, L"WinHttpOpenRequest failed.");
-	{
-		auto self = this;
-		WINHTTP_STATUS_CALLBACK previousCallback = WinHttpSetStatusCallback(
-			httpRequest,
-			(WINHTTP_STATUS_CALLBACK)[](HINTERNET httpRequest, DWORD_PTR dwContext, DWORD dwInternetStatus, LPVOID lpvStatusInformation, DWORD dwStatusInformationLength) -> void
-			{
-				if (!dwContext) return;
-				auto self = reinterpret_cast<HttpClient*>(dwContext);
-				switch (dwInternetStatus)
-				{
-				case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
-					{
-						self->QueueCallback([=]()
-						{
-							if (self->state == State::Stopping) return;
-							DWORD lastError = 0;
-							BOOL httpResult = WinHttpReceiveResponse(httpRequest, NULL);
-							lastError = GetLastError();
-							if (lastError == ERROR_INVALID_HANDLE)
-							{
-								CHECK_ERROR(self->state == State::Stopping, L"WinHttpReceiveResponse failed with ERROR_INVALID_HANDLE but client is not stopping.");
-								WinHttpCloseHandle(httpRequest);
-								return;
-							}
-							CHECK_ERROR(httpResult == TRUE, L"WinHttpReceiveResponse failed.");
-						});
-					}
-					break;
-				case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
-					{
-						self->QueueCallback([=]()
-						{
-							if (self->state == State::Stopping) return;
-							DWORD lastError = 0;
-							DWORD statusCode = 0;
-							DWORD dwordLength = sizeof(DWORD);
-							BOOL httpResult = FALSE;
-							{
-								httpResult = WinHttpQueryHeaders(
-									httpRequest,
-									WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-									WINHTTP_HEADER_NAME_BY_INDEX,
-									&statusCode,
-									&dwordLength,
-									WINHTTP_NO_HEADER_INDEX);
-								lastError = GetLastError();
-								if (lastError == ERROR_INVALID_HANDLE)
-								{
-									CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
-									return;
-								}
-								CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
-								if (statusCode != 200)
-								{
-									self->CloseRequest(httpRequest);
-									self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
-									return;
-								}
-							}
-							{
-								DWORD headerLength = 0;
-								httpResult = WinHttpQueryHeaders(
-									httpRequest,
-									WINHTTP_QUERY_CONTENT_TYPE,
-									WINHTTP_HEADER_NAME_BY_INDEX,
-									NULL,
-									&headerLength,
-									WINHTTP_NO_HEADER_INDEX);
-								lastError = GetLastError();
-								if (lastError == ERROR_INVALID_HANDLE)
-								{
-									CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
-									return;
-								}
-								CHECK_ERROR(httpResult == FALSE && lastError == ERROR_INSUFFICIENT_BUFFER, L"WinHttpQueryHeaders failed to retrieve content type.");
-
-								Array<wchar_t> headerBuffer(headerLength / 2 + 1);
-								ZeroMemory(&headerBuffer[0], headerBuffer.Count() * sizeof(wchar_t));
-
-								httpResult = WinHttpQueryHeaders(
-									httpRequest,
-									WINHTTP_QUERY_CONTENT_TYPE,
-									WINHTTP_HEADER_NAME_BY_INDEX,
-									&headerBuffer[0],
-									&headerLength,
-									WINHTTP_NO_HEADER_INDEX);
-								lastError = GetLastError();
-								if (lastError == ERROR_INVALID_HANDLE)
-								{
-									CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
-									return;
-								}
-								CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve content-type.");
-
-								const wchar_t* header = &headerBuffer[0];
-								CHECK_ERROR(wcscmp(header, L"application/json; charset=utf8") == 0, L"/Request did not return content type: application/json; charset=utf8.");
-							}
-							{
-								self->httpRespondBodyBufferWriting = 0;
-								httpResult = WinHttpQueryDataAvailable(
-									httpRequest,
-									NULL);
-								lastError = GetLastError();
-								if (lastError == ERROR_INVALID_HANDLE)
-								{
-									CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
-									return;
-								}
-								CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
-							}
-						});
-					}
-					break;
-				case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
-					{
-						DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
-						self->QueueCallback([=]()
-						{
-							if (self->state == State::Stopping) return;
-							if (dataAvailable == 0)
-							{
-								if (self->callback)
-								{
-									self->httpRespondBodyBuffer[self->httpRespondBodyBufferWriting] = 0;
-									U8String bodyUtf8 = U8String::Unmanaged(&self->httpRespondBodyBuffer[0]);
-									self->callback->OnReadString(u8tow(bodyUtf8));
-								}
-								self->CloseRequest(httpRequest);
-								self->BeginReadingLoopUnsafe();
-								return;
-							}
-
-							self->httpRespondBodyBufferWritingAvailable = dataAvailable;
-							DWORD bufferSize = self->httpRespondBodyBufferWriting + dataAvailable + 1;
-							if (self->httpRespondBodyBuffer.Count() < (vint)bufferSize)
-							{
-								self->httpRespondBodyBuffer.Resize((bufferSize + HttpRespondBodyStep - 1) / HttpRespondBodyStep * HttpRespondBodyStep);
-							}
-
-							DWORD lastError = 0;
-							BOOL httpResult = WinHttpReadData(
-								httpRequest,
-								&self->httpRespondBodyBuffer[self->httpRespondBodyBufferWriting],
-								dataAvailable,
-								NULL);
-							lastError = GetLastError();
-							if (lastError == ERROR_INVALID_HANDLE)
-							{
-								CHECK_ERROR(self->state == State::Stopping, L"WinHttpReadData failed with ERROR_INVALID_HANDLE but client is not stopping.");
-								return;
-							}
-							CHECK_ERROR(httpResult == TRUE, L"WinHttpReadData failed.");
-						});
-					}
-					break;
-				case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
-					{
-						self->QueueCallback([=]()
-						{
-							if (self->state == State::Stopping) return;
-							CHECK_ERROR(
-								self->httpRespondBodyBufferWritingAvailable == dwStatusInformationLength,
-								L"WinHttpReadData failed to read all available data."
-								);
-							self->httpRespondBodyBufferWriting += self->httpRespondBodyBufferWritingAvailable;
-
-							DWORD lastError = 0;
-							BOOL httpResult = WinHttpQueryDataAvailable(
-								httpRequest,
-								NULL);
-							lastError = GetLastError();
-							if (lastError == ERROR_INVALID_HANDLE)
-							{
-								CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
-								return;
-							}
-							CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
-						});
-					}
-					break;
-				case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
-					{
-						self->QueueCallback([=]()
-						{
-							if (self->state == State::Stopping) return;
-							self->CloseRequest(httpRequest);
-							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request canceled, another renderer may have connected to the core."));
-						});
-					}
-					break;
-				case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
-					self->OnRequestHandleClosing(httpRequest);
-					break;
-				}
-			},
-			WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS,
-			NULL);
-		lastError = GetLastError();
-		if (previousCallback == WINHTTP_INVALID_STATUS_CALLBACK && lastError == ERROR_INVALID_HANDLE)
-		{
-			CHECK_ERROR(state == State::Stopping, L"WinHttpSetStatusCallback failed with ERROR_INVALID_HANDLE but client is not stopping.");
-			WinHttpCloseHandle(httpRequest);
-			return;
-		}
-		CHECK_ERROR(previousCallback != WINHTTP_INVALID_STATUS_CALLBACK, L"WinHttpSetStatusCallback failed.");
-	}
-	{
-		AttachRequest(httpRequest);
-		httpResult = WinHttpSendRequest(
-			httpRequest,
-			WINHTTP_NO_ADDITIONAL_HEADERS,
-			0,
-			WINHTTP_NO_REQUEST_DATA,
-			0,
-			0,
-			reinterpret_cast<DWORD_PTR>(this));
-		lastError = GetLastError();
-		if (httpResult == FALSE && lastError == ERROR_INVALID_HANDLE)
-		{
-			OnRequestHandleClosing(httpRequest);
-			CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE but client is not stopping.");
-			WinHttpCloseHandle(httpRequest);
-			return;
-		}
-		if (httpResult == FALSE)
-		{
-			OnRequestHandleClosing(httpRequest);
-			WinHttpCloseHandle(httpRequest);
-			CHECK_FAIL(L"WinHttpSendRequest failed.");
-		}
-	}
+	SendHttpRequest(HttpRequestType::Request, L"POST", urlRequest, WString::Empty);
 }
 
 /***********************************************************************
@@ -286,144 +35,22 @@ void HttpClient::WaitForServer()
 {
 	if (state == State::Stopping) return;
 	CHECK_ERROR(state == State::Ready, L"WaitForServer can only be called once.");
-	DWORD lastError = 0;
 	state = State::WaitForServerConnection;
-	LPCWSTR acceptTypes[] = { L"application/json; charset=utf8", NULL };
-	BOOL httpResult = FALSE;
+	eventWaitForServer.Unsignal();
+	auto context = SendHttpRequest(HttpRequestType::Connect, L"GET", urlConnect, WString::Empty);
+	if (!context) return;
 
-	HINTERNET httpRequest = WinHttpOpenRequest(
-		httpConnection,
-		L"GET",
-		urlConnect.Buffer(),
-		NULL,
-		WINHTTP_NO_REFERER,
-		acceptTypes,
-		WINHTTP_FLAG_REFRESH);
-	lastError = GetLastError();
-	CHECK_ERROR(httpRequest != NULL, L"WinHttpOpenRequest failed.");
-	{
-		WINHTTP_STATUS_CALLBACK previousCallback = WinHttpSetStatusCallback(
-			httpRequest,
-			(WINHTTP_STATUS_CALLBACK)[](HINTERNET httpRequest, DWORD_PTR dwContext, DWORD dwInternetStatus, LPVOID lpvStatusInformation, DWORD dwStatusInformationLength) -> void
-			{
-				if (!dwContext) return;
-				auto self = reinterpret_cast<HttpClient*>(dwContext);
-				switch (dwInternetStatus)
-				{
-				case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
-				case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
-				case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
-				case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
-					{
-						self->dwInternetStatus_WaitForServer = dwInternetStatus;
-						self->dwStatusInformationLength_WaitForServer = dwStatusInformationLength;
-						SetEvent(self->hEventWaitForServer);
-					}
-					break;
-				}
-			},
-			WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS,
-			NULL);
-		lastError = GetLastError();
-		CHECK_ERROR(previousCallback != WINHTTP_INVALID_STATUS_CALLBACK, L"WinHttpSetStatusCallback failed.");
-	}
-	{
-		ResetEvent(hEventWaitForServer);
-		httpResult = WinHttpSendRequest(
-			httpRequest,
-			WINHTTP_NO_ADDITIONAL_HEADERS,
-			0,
-			WINHTTP_NO_REQUEST_DATA,
-			0,
-			0,
-			reinterpret_cast<DWORD_PTR>(this));
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpSendRequest failed.");
-		WaitForSingleObject(hEventWaitForServer, INFINITE);
-		CHECK_ERROR(dwInternetStatus_WaitForServer == WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE, L"WinHttpSendRequest failed to complete.");
-	}
-	{
-		ResetEvent(hEventWaitForServer);
-		httpResult = WinHttpReceiveResponse(httpRequest, NULL);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpReceiveResponse failed.");
-		WaitForSingleObject(hEventWaitForServer, INFINITE);
-		CHECK_ERROR(dwInternetStatus_WaitForServer == WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, L"WinHttpSendRequest failed to complete.");
-	}
+	eventWaitForServer.Wait();
+	if (state == State::Stopping) return;
 
-	DWORD statusCode = 0;
-	DWORD dataLength = 0;
-	DWORD dwordLength = sizeof(DWORD);
-	{
-		httpResult = WinHttpQueryHeaders(
-			httpRequest,
-			WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-			WINHTTP_HEADER_NAME_BY_INDEX,
-			&statusCode,
-			&dwordLength,
-			WINHTTP_NO_HEADER_INDEX);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
-		CHECK_ERROR(statusCode == 200, L"/Connect did not return status code: 200.");
-	}
-	{
-		DWORD headerLength = 0;
-		httpResult = WinHttpQueryHeaders(
-			httpRequest,
-			WINHTTP_QUERY_CONTENT_TYPE,
-			WINHTTP_HEADER_NAME_BY_INDEX,
-			NULL,
-			&headerLength,
-			WINHTTP_NO_HEADER_INDEX);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == FALSE && lastError == ERROR_INSUFFICIENT_BUFFER, L"WinHttpQueryHeaders failed to retrieve content type.");
+	CHECK_ERROR(context->connectCompleted, L"/Connect did not complete.");
+	CHECK_ERROR(context->connectError == WString::Empty, L"/Connect failed.");
 
-		Array<wchar_t> headerBuffer(headerLength + 1);
-		ZeroMemory(&headerBuffer[0], headerBuffer.Count() * sizeof(wchar_t));
-
-		httpResult = WinHttpQueryHeaders(
-			httpRequest,
-			WINHTTP_QUERY_CONTENT_TYPE,
-			WINHTTP_HEADER_NAME_BY_INDEX,
-			&headerBuffer[0],
-			&headerLength,
-			WINHTTP_NO_HEADER_INDEX);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve content-type.");
-
-		const wchar_t* header = &headerBuffer[0];
-		CHECK_ERROR(wcscmp(header, L"application/json; charset=utf8") == 0, L"/Content did not return content type: application/json; charset=utf8.");
-	}
-	{
-		httpResult = WinHttpQueryDataAvailable(
-			httpRequest,
-			&dataLength);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
-	}
-	{
-		Array<char8_t> bodyBuffer(dataLength + 1);
-		ZeroMemory(&bodyBuffer[0], bodyBuffer.Count() * sizeof(char8_t));
-
-		ResetEvent(hEventWaitForServer);
-		httpResult = WinHttpReadData(
-			httpRequest,
-			&bodyBuffer[0],
-			dataLength,
-			NULL);
-		lastError = GetLastError();
-		CHECK_ERROR(httpResult == TRUE, L"WinHttpReadData failed.");
-		WaitForSingleObject(hEventWaitForServer, INFINITE);
-		CHECK_ERROR(dwInternetStatus_WaitForServer == WINHTTP_CALLBACK_STATUS_READ_COMPLETE, L"WinHttpReadData failed to complete.");
-		CHECK_ERROR(dwStatusInformationLength_WaitForServer == dataLength, L"WinHttpReadData failed to read full data.");
-
-		U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
-		vint separatorIndex = bodyUtf8.IndexOf(L';');
-		CHECK_ERROR(separatorIndex != -1, L"/Connect response body is not in the correct format: requestUrl;responseUrl.");
-		urlRequest = baseUrl + u8tow(bodyUtf8.Left(separatorIndex));
-		urlResponse = baseUrl + u8tow(bodyUtf8.Right(bodyUtf8.Length() - separatorIndex - 1));
-	}
-	WinHttpCloseHandle(httpRequest);
+	auto body = context->connectResponse;
+	vint separatorIndex = body.IndexOf(L';');
+	CHECK_ERROR(separatorIndex != -1, L"/Connect response body is not in the correct format: requestUrl;responseUrl.");
+	urlRequest = baseUrl + body.Left(separatorIndex);
+	urlResponse = baseUrl + body.Right(body.Length() - separatorIndex - 1);
 	state = State::Running;
 
 	if (callback)
@@ -451,245 +78,435 @@ ClientStatus HttpClient::GetStatus()
 HttpClient (Writing)
 ***********************************************************************/
 
-void HttpClient::SendString(const WString& str)
+void HttpClient::OnHttpRequestBodyReceived(Ptr<HttpRequestContext> context)
 {
-	if (state == State::Stopping) return;
-	CHECK_ERROR(state == State::Running, L"SendString can only be called when client is running.");
+	auto reading = context->responseReading;
+	WString body;
+	if (reading->bodyBufferWriting > 0)
+	{
+		reading->bodyBuffer[reading->bodyBufferWriting] = 0;
+		U8String bodyUtf8 = U8String::Unmanaged(&reading->bodyBuffer[0]);
+		body = u8tow(bodyUtf8);
+	}
+
+	switch (context->requestType)
+	{
+	case HttpRequestType::Connect:
+		context->connectResponse = body;
+		context->connectCompleted = true;
+		CloseRequest(context->httpRequest, context->requestId);
+		eventWaitForServer.Signal();
+		break;
+	case HttpRequestType::Request:
+		CloseRequest(context->httpRequest, context->requestId);
+		BeginReadingLoopUnsafe();
+		if (body.Length() > 0 && callback)
+		{
+			callback->OnReadString(body);
+		}
+		break;
+	case HttpRequestType::Response:
+		CloseRequest(context->httpRequest, context->requestId);
+		if (state != State::Stopping && body.Length() > 0 && callback)
+		{
+			callback->OnReadString(body);
+		}
+		break;
+	}
+}
+
+Ptr<HttpClient::HttpRequestContext> HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body)
+{
+	SPIN_LOCK(httpActiveRequestsLock)
+	{
+		if (state == State::Stopping) return {};
+		switch (requestType)
+		{
+		case HttpRequestType::Connect:
+			CHECK_ERROR(state == State::WaitForServerConnection, L"/Connect can only be called when client is waiting for the server.");
+			break;
+		case HttpRequestType::Request:
+			CHECK_ERROR(state == State::Running, L"/Request can only be called when client is running.");
+			break;
+		case HttpRequestType::Response:
+			CHECK_ERROR(state == State::Running, L"/Response can only be called when client is running.");
+			break;
+		}
+		BeginPendingCallback();
+	}
+
 	DWORD lastError = 0;
 	BOOL httpResult = FALSE;
 
+	LPCWSTR acceptTypes[] = { L"application/json; charset=utf8", NULL };
 	HINTERNET httpRequest = WinHttpOpenRequest(
 		httpConnection,
-		L"POST",
-		urlResponse.Buffer(),
+		method,
+		url.Buffer(),
 		NULL,
 		WINHTTP_NO_REFERER,
-		NULL,
+		acceptTypes,
 		WINHTTP_FLAG_REFRESH);
 	lastError = GetLastError();
-	if (lastError == ERROR_INVALID_HANDLE)
+	if (httpRequest == NULL)
 	{
-		CHECK_ERROR(state == State::Stopping, L"WinHttpOpenRequest failed with ERROR_INVALID_HANDLE.");
-		return;
-	}
-	CHECK_ERROR(httpRequest != NULL, L"WinHttpOpenRequest failed.");
-
-	WINHTTP_STATUS_CALLBACK previousCallback = WinHttpSetStatusCallback(
-		httpRequest,
-		(WINHTTP_STATUS_CALLBACK)[](HINTERNET httpRequest, DWORD_PTR dwContext, DWORD dwInternetStatus, LPVOID lpvStatusInformation, DWORD dwStatusInformationLength) -> void
+		EndPendingCallback();
+		if (lastError == ERROR_INVALID_HANDLE)
 		{
-			if (!dwContext) return;
-			auto contextPtr = reinterpret_cast<Ptr<HttpClient::HttpRequestContext>*>(dwContext);
-			auto context = *contextPtr;
-			auto self = context->client;
-			auto requestId = context->requestId;
-			switch (dwInternetStatus)
-			{
-			case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
-				{
-					self->QueueCallback([=, context = std::move(context)]()
-					{
-						if (self->state == State::Stopping) return;
-						DWORD lastError = 0;
-						BOOL httpResult = WinHttpReceiveResponse(httpRequest, NULL);
-						lastError = GetLastError();
-						if (lastError == ERROR_INVALID_HANDLE)
-						{
-							CHECK_ERROR(self->state == State::Stopping, L"WinHttpReceiveResponse failed with ERROR_INVALID_HANDLE but client is not stopping.");
-							return;
-						}
-						CHECK_ERROR(httpResult == TRUE, L"WinHttpReceiveResponse failed.");
-					});
-				}
-				break;
-			case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
-				{
-					self->QueueCallback([=, context = std::move(context)]()
-					{
-						if (self->state == State::Stopping) return;
-						DWORD lastError = 0;
-						DWORD statusCode = 0;
-						DWORD dwordLength = sizeof(DWORD);
-						BOOL httpResult = WinHttpQueryHeaders(
-							httpRequest,
-							WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-							WINHTTP_HEADER_NAME_BY_INDEX,
-							&statusCode,
-							&dwordLength,
-							WINHTTP_NO_HEADER_INDEX);
-						lastError = GetLastError();
-						if (lastError == ERROR_INVALID_HANDLE)
-						{
-							CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
-							return;
-						}
-						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
-
-						if (statusCode != 200)
-						{
-							self->CloseRequest(httpRequest, requestId);
-							self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
-							return;
-						}
-
-						auto reading = context->responseReading;
-
-						reading->bodyBufferWriting = 0;
-						httpResult = WinHttpQueryDataAvailable(
-							httpRequest,
-							NULL);
-						lastError = GetLastError();
-						if (lastError == ERROR_INVALID_HANDLE)
-						{
-							CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
-							return;
-						}
-						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
-					});
-				}
-				break;
-			case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
-				{
-					DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
-					self->QueueCallback([=, context = std::move(context)]()
-					{
-						if (self->state == State::Stopping) return;
-
-						auto reading = context->responseReading;
-
-						if (dataAvailable == 0)
-						{
-							if (reading->bodyBufferWriting > 0 && self->callback)
-							{
-								reading->bodyBuffer[reading->bodyBufferWriting] = 0;
-								U8String bodyUtf8 = U8String::Unmanaged(&reading->bodyBuffer[0]);
-								self->callback->OnReadString(u8tow(bodyUtf8));
-							}
-							self->CloseRequest(httpRequest, requestId);
-							return;
-						}
-
-						reading->bodyBufferWritingAvailable = dataAvailable;
-						DWORD bufferSize = reading->bodyBufferWriting + dataAvailable + 1;
-						if (reading->bodyBuffer.Count() < (vint)bufferSize)
-						{
-							reading->bodyBuffer.Resize((bufferSize + HttpRespondBodyStep - 1) / HttpRespondBodyStep * HttpRespondBodyStep);
-						}
-
-						DWORD lastError = 0;
-						BOOL httpResult = WinHttpReadData(
-							httpRequest,
-							&reading->bodyBuffer[reading->bodyBufferWriting],
-							dataAvailable,
-							NULL);
-						lastError = GetLastError();
-						if (lastError == ERROR_INVALID_HANDLE)
-						{
-							CHECK_ERROR(self->state == State::Stopping, L"WinHttpReadData failed with ERROR_INVALID_HANDLE but client is not stopping.");
-							return;
-						}
-						CHECK_ERROR(httpResult == TRUE, L"WinHttpReadData failed.");
-					});
-				}
-				break;
-			case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
-				{
-					self->QueueCallback([=, context = std::move(context)]()
-					{
-						if (self->state == State::Stopping) return;
-
-						auto reading = context->responseReading;
-
-						CHECK_ERROR(
-							reading->bodyBufferWritingAvailable == dwStatusInformationLength,
-							L"WinHttpReadData failed to read all available data."
-							);
-						reading->bodyBufferWriting += reading->bodyBufferWritingAvailable;
-
-						DWORD lastError = 0;
-						BOOL httpResult = WinHttpQueryDataAvailable(
-							httpRequest,
-							NULL);
-						lastError = GetLastError();
-						if (lastError == ERROR_INVALID_HANDLE)
-						{
-							CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
-							return;
-						}
-						CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
-					});
-				}
-				break;
-			case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
-				{
-					self->QueueCallback([=, context = std::move(context)]()
-					{
-						if (self->state == State::Stopping) return;
-						self->CloseRequest(httpRequest, requestId);
-						self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response canceled, another renderer may have connected to the core."));
-					});
-				}
-				break;
-			case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
-				self->OnRequestHandleClosing(httpRequest, requestId);
-				delete contextPtr;
-				break;
-			}
-		},
-		WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS,
-		NULL);
-	lastError = GetLastError();
-	CHECK_ERROR(previousCallback != WINHTTP_INVALID_STATUS_CALLBACK, L"WinHttpSetStatusCallback failed.");
-
-	httpResult = WinHttpAddRequestHeaders(
-		httpRequest,
-		L"Content-Type: application/json; charset=utf8",
-		-1,
-		WINHTTP_ADDREQ_FLAG_ADD);
-	lastError = GetLastError();
-	if (lastError == ERROR_INVALID_HANDLE)
-	{
-		CHECK_ERROR(state == State::Stopping, L"WinHttpAddRequestHeaders failed with ERROR_INVALID_HANDLE.");
-		WinHttpCloseHandle(httpRequest);
-		return;
+			CHECK_ERROR(state == State::Stopping, L"WinHttpOpenRequest failed with ERROR_INVALID_HANDLE but client is not stopping.");
+			return {};
+		}
+		CHECK_FAIL(L"WinHttpOpenRequest failed.");
 	}
-	CHECK_ERROR(httpResult == TRUE, L"WinHttpAddRequestHeaders failed.");
 
 	auto contextPtr = new Ptr<HttpRequestContext>(new HttpRequestContext);
 	auto context = *contextPtr;
 	context->client = this;
+	context->requestType = requestType;
 	context->httpRequest = httpRequest;
-	context->requestId = ++createdRequestIds;
-	context->requestBody = wtou8(str);
+	context->requestId = requestType == HttpRequestType::Response ? ++createdRequestIds : 0;
+	context->requestBody = wtou8(body);
 	context->responseReading = Ptr(new HttpResponseReading);
 
+	auto failBeforeSend = [&]()
 	{
-		AttachRequest(httpRequest, context->requestId);
-		httpResult = WinHttpSendRequest(
-			httpRequest,
-			WINHTTP_NO_ADDITIONAL_HEADERS,
-			0,
-			(LPVOID)context->requestBody.Buffer(),
-			(DWORD)context->requestBody.Length(),
-			(DWORD)context->requestBody.Length(),
-			reinterpret_cast<DWORD_PTR>(contextPtr));
-		lastError = GetLastError();
+		WinHttpCloseHandle(httpRequest);
+		delete contextPtr;
+		EndPendingCallback();
+	};
+
+	DWORD_PTR contextValue = reinterpret_cast<DWORD_PTR>(contextPtr);
+	httpResult = WinHttpSetOption(
+		httpRequest,
+		WINHTTP_OPTION_CONTEXT_VALUE,
+		&contextValue,
+		sizeof(contextValue));
+	lastError = GetLastError();
+	if (httpResult == FALSE)
+	{
+		failBeforeSend();
 		if (lastError == ERROR_INVALID_HANDLE)
 		{
-			OnRequestHandleClosing(httpRequest, context->requestId);
-			delete contextPtr;
-			CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE.");
-			WinHttpCloseHandle(httpRequest);
-			return;
+			CHECK_ERROR(state == State::Stopping, L"WinHttpSetOption(WINHTTP_OPTION_CONTEXT_VALUE) failed with ERROR_INVALID_HANDLE but client is not stopping.");
+			return {};
 		}
+		CHECK_FAIL(L"WinHttpSetOption(WINHTTP_OPTION_CONTEXT_VALUE) failed.");
+	}
+
+	if (requestType == HttpRequestType::Response)
+	{
+		httpResult = WinHttpAddRequestHeaders(
+			httpRequest,
+			L"Content-Type: application/json; charset=utf8",
+			-1,
+			WINHTTP_ADDREQ_FLAG_ADD);
+		lastError = GetLastError();
 		if (httpResult == FALSE)
 		{
-			OnRequestHandleClosing(httpRequest, context->requestId);
-			delete contextPtr;
-			WinHttpCloseHandle(httpRequest);
-			CHECK_FAIL(L"WinHttpSendRequest failed.");
+			failBeforeSend();
+			if (lastError == ERROR_INVALID_HANDLE)
+			{
+				CHECK_ERROR(state == State::Stopping, L"WinHttpAddRequestHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
+				return {};
+			}
+			CHECK_FAIL(L"WinHttpAddRequestHeaders failed.");
 		}
 	}
+
+	auto httpCallback = (WINHTTP_STATUS_CALLBACK)[](HINTERNET httpRequest, DWORD_PTR dwContext, DWORD dwInternetStatus, LPVOID lpvStatusInformation, DWORD dwStatusInformationLength) -> void
+	{
+		if (!dwContext) return;
+		auto contextPtr = reinterpret_cast<Ptr<HttpClient::HttpRequestContext>*>(dwContext);
+		auto context = *contextPtr;
+		auto self = context->client;
+		auto requestId = context->requestId;
+
+		auto completeConnectWithError = [=](const WString& error)
+		{
+			context->connectError = error;
+			context->connectCompleted = true;
+			self->CloseRequest(httpRequest, requestId);
+			self->eventWaitForServer.Signal();
+		};
+
+		switch (dwInternetStatus)
+		{
+		case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+			{
+				if (self->state == State::Stopping && context->requestType != HttpRequestType::Response) return;
+				DWORD lastError = 0;
+				BOOL httpResult = WinHttpReceiveResponse(httpRequest, NULL);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpReceiveResponse failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpReceiveResponse failed.");
+			}
+			break;
+		case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
+			{
+				if (self->state == State::Stopping && context->requestType != HttpRequestType::Response) return;
+				DWORD lastError = 0;
+				DWORD statusCode = 0;
+				DWORD dwordLength = sizeof(DWORD);
+				BOOL httpResult = WinHttpQueryHeaders(
+					httpRequest,
+					WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+					WINHTTP_HEADER_NAME_BY_INDEX,
+					&statusCode,
+					&dwordLength,
+					WINHTTP_NO_HEADER_INDEX);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve status code.");
+
+				if (statusCode != 200)
+				{
+					switch (context->requestType)
+					{
+					case HttpRequestType::Connect:
+						completeConnectWithError(WString::Unmanaged(L"/Connect returned status code: ") + itow(statusCode) + L".");
+						break;
+					case HttpRequestType::Request:
+						self->CloseRequest(httpRequest, requestId);
+						self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
+						break;
+					case HttpRequestType::Response:
+						self->CloseRequest(httpRequest, requestId);
+						self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response returned status code: ") + itow(statusCode) + L", another renderer may have connected to the core.");
+						break;
+					}
+					return;
+				}
+
+				DWORD headerLength = 0;
+				httpResult = WinHttpQueryHeaders(
+					httpRequest,
+					WINHTTP_QUERY_CONTENT_TYPE,
+					WINHTTP_HEADER_NAME_BY_INDEX,
+					NULL,
+					&headerLength,
+					WINHTTP_NO_HEADER_INDEX);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				if (!(httpResult == FALSE && lastError == ERROR_INSUFFICIENT_BUFFER))
+				{
+					if (context->requestType == HttpRequestType::Connect)
+					{
+						completeConnectWithError(L"WinHttpQueryHeaders failed to retrieve content type.");
+						return;
+					}
+					CHECK_FAIL(L"WinHttpQueryHeaders failed to retrieve content type.");
+				}
+
+				Array<wchar_t> headerBuffer(headerLength / sizeof(wchar_t) + 1);
+				ZeroMemory(&headerBuffer[0], headerBuffer.Count() * sizeof(wchar_t));
+
+				httpResult = WinHttpQueryHeaders(
+					httpRequest,
+					WINHTTP_QUERY_CONTENT_TYPE,
+					WINHTTP_HEADER_NAME_BY_INDEX,
+					&headerBuffer[0],
+					&headerLength,
+					WINHTTP_NO_HEADER_INDEX);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryHeaders failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryHeaders failed to retrieve content-type.");
+
+				const wchar_t* header = &headerBuffer[0];
+				if (wcscmp(header, L"application/json; charset=utf8") != 0)
+				{
+					if (context->requestType == HttpRequestType::Connect)
+					{
+						completeConnectWithError(L"HTTP response did not return content type: application/json; charset=utf8.");
+						return;
+					}
+					CHECK_FAIL(L"HTTP response did not return content type: application/json; charset=utf8.");
+				}
+
+				auto reading = context->responseReading;
+				reading->bodyBufferWriting = 0;
+				httpResult = WinHttpQueryDataAvailable(
+					httpRequest,
+					NULL);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
+			}
+			break;
+		case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
+			{
+				DWORD dataAvailable = *(PDWORD)lpvStatusInformation;
+				if (self->state == State::Stopping && context->requestType != HttpRequestType::Response) return;
+
+				auto reading = context->responseReading;
+
+				if (dataAvailable == 0)
+				{
+					self->OnHttpRequestBodyReceived(context);
+					return;
+				}
+
+				reading->bodyBufferWritingAvailable = dataAvailable;
+				DWORD bufferSize = reading->bodyBufferWriting + dataAvailable + 1;
+				if (reading->bodyBuffer.Count() < (vint)bufferSize)
+				{
+					reading->bodyBuffer.Resize((bufferSize + HttpRespondBodyStep - 1) / HttpRespondBodyStep * HttpRespondBodyStep);
+				}
+
+				DWORD lastError = 0;
+				BOOL httpResult = WinHttpReadData(
+					httpRequest,
+					&reading->bodyBuffer[reading->bodyBufferWriting],
+					dataAvailable,
+					NULL);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpReadData failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpReadData failed.");
+			}
+			break;
+		case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+			{
+				if (self->state == State::Stopping && context->requestType != HttpRequestType::Response) return;
+
+				auto reading = context->responseReading;
+
+				CHECK_ERROR(
+					reading->bodyBufferWritingAvailable == dwStatusInformationLength,
+					L"WinHttpReadData failed to read all available data."
+					);
+				reading->bodyBufferWriting += reading->bodyBufferWritingAvailable;
+
+				DWORD lastError = 0;
+				BOOL httpResult = WinHttpQueryDataAvailable(
+					httpRequest,
+					NULL);
+				lastError = GetLastError();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(self->state == State::Stopping, L"WinHttpQueryDataAvailable failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return;
+				}
+				CHECK_ERROR(httpResult == TRUE, L"WinHttpQueryDataAvailable failed.");
+			}
+			break;
+		case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
+			{
+				if (self->state == State::Stopping && context->requestType != HttpRequestType::Response) return;
+				switch (context->requestType)
+				{
+				case HttpRequestType::Connect:
+					completeConnectWithError(L"/Connect canceled.");
+					break;
+				case HttpRequestType::Request:
+					self->CloseRequest(httpRequest, requestId);
+					self->RaiseErrorUnsafe(WString::Unmanaged(L"/Request canceled, another renderer may have connected to the core."));
+					break;
+				case HttpRequestType::Response:
+					self->CloseRequest(httpRequest, requestId);
+					if (self->state != State::Stopping)
+					{
+						self->RaiseErrorUnsafe(WString::Unmanaged(L"/Response canceled, another renderer may have connected to the core."));
+					}
+					break;
+				}
+			}
+			break;
+		case WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING:
+			if (context->requestType == HttpRequestType::Connect && !context->connectCompleted)
+			{
+				context->connectError = L"/Connect canceled.";
+				context->connectCompleted = true;
+				self->eventWaitForServer.Signal();
+			}
+			self->OnRequestHandleClosing(httpRequest, requestId);
+			delete contextPtr;
+			break;
+		}
+	};
+
+	DWORD requestBodyLength = (DWORD)context->requestBody.Length();
+	LPVOID requestBodyBuffer = requestBodyLength == 0 ? WINHTTP_NO_REQUEST_DATA : (LPVOID)context->requestBody.Buffer();
+	DWORD_PTR callbackContext = reinterpret_cast<DWORD_PTR>(contextPtr);
+	SPIN_LOCK(httpActiveRequestsLock)
+	{
+		if (state == State::Stopping)
+		{
+			failBeforeSend();
+			return {};
+		}
+		else
+		{
+			WINHTTP_STATUS_CALLBACK previousCallback = WinHttpSetStatusCallback(
+				httpRequest,
+				httpCallback,
+				WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS,
+				NULL);
+			lastError = GetLastError();
+			if (previousCallback == WINHTTP_INVALID_STATUS_CALLBACK)
+			{
+				failBeforeSend();
+				if (lastError == ERROR_INVALID_HANDLE)
+				{
+					CHECK_ERROR(state == State::Stopping, L"WinHttpSetStatusCallback failed with ERROR_INVALID_HANDLE but client is not stopping.");
+					return {};
+				}
+				CHECK_FAIL(L"WinHttpSetStatusCallback failed.");
+			}
+
+			AttachRequestUnsafe(httpRequest, context->requestId, context->requestType);
+		}
+	}
+
+	httpResult = WinHttpSendRequest(
+		httpRequest,
+		WINHTTP_NO_ADDITIONAL_HEADERS,
+		0,
+		requestBodyBuffer,
+		requestBodyLength,
+		requestBodyLength,
+		callbackContext);
+	lastError = GetLastError();
+
+	if (httpResult == FALSE)
+	{
+		CloseRequest(httpRequest, context->requestId);
+		if (lastError == ERROR_INVALID_HANDLE)
+		{
+			CHECK_ERROR(state == State::Stopping, L"WinHttpSendRequest failed with ERROR_INVALID_HANDLE but client is not stopping.");
+			return {};
+		}
+		CHECK_FAIL(L"WinHttpSendRequest failed.");
+	}
+
+	return context;
+}
+
+void HttpClient::SendString(const WString& str)
+{
+	SendHttpRequest(HttpRequestType::Response, L"POST", urlResponse, str);
 }
 
 /***********************************************************************
@@ -712,30 +529,6 @@ void HttpClient::EndPendingCallback()
 	}
 }
 
-void HttpClient::QueueCallback(const Func<void()>& proc)
-{
-	BeginPendingCallback();
-	auto queued = ThreadPoolLite::Queue([=]()
-	{
-		try
-		{
-			proc();
-		}
-		catch (...)
-		{
-			EndPendingCallback();
-			throw;
-		}
-
-		EndPendingCallback();
-	});
-	if (!queued)
-	{
-		EndPendingCallback();
-		CHECK_FAIL(L"HttpClient failed to queue asynchronous callback.");
-	}
-}
-
 vint HttpClient::FindActiveRequestUnsafe(HINTERNET httpRequest, vint requestId)
 {
 	for (vint index = 0; index < httpActiveRequests.Count(); index++)
@@ -749,27 +542,25 @@ vint HttpClient::FindActiveRequestUnsafe(HINTERNET httpRequest, vint requestId)
 	return -1;
 }
 
-void HttpClient::AttachRequest(HINTERNET httpRequest, vint requestId)
+void HttpClient::AttachRequestUnsafe(HINTERNET httpRequest, vint requestId, HttpRequestType requestType)
 {
-	BeginPendingCallback();
-	SPIN_LOCK(httpActiveRequestsLock)
+	for (vint index = 0; index < httpActiveRequests.Count(); index++)
 	{
-		for (vint index = 0; index < httpActiveRequests.Count(); index++)
+		auto&& activeRequest = httpActiveRequests[index];
+		if (activeRequest.requestId == -1)
 		{
-			auto&& activeRequest = httpActiveRequests[index];
-			if (activeRequest.requestId == -1)
-			{
-				activeRequest.httpRequest = httpRequest;
-				activeRequest.requestId = requestId;
-				return;
-			}
+			activeRequest.httpRequest = httpRequest;
+			activeRequest.requestId = requestId;
+			activeRequest.requestType = requestType;
+			return;
 		}
-
-		HttpActiveRequest activeRequest;
-		activeRequest.httpRequest = httpRequest;
-		activeRequest.requestId = requestId;
-		httpActiveRequests.Add(activeRequest);
 	}
+
+	HttpActiveRequest activeRequest;
+	activeRequest.httpRequest = httpRequest;
+	activeRequest.requestId = requestId;
+	activeRequest.requestType = requestType;
+	httpActiveRequests.Add(activeRequest);
 }
 
 void HttpClient::CloseRequest(HINTERNET httpRequest, vint requestId)
@@ -811,8 +602,7 @@ HttpClient::HttpClient(const WString _baseUrl, vint port)
 	: baseUrl(_baseUrl)
 {
 	DWORD lastError = 0;
-	hEventWaitForServer = CreateEvent(NULL, FALSE, TRUE, NULL);
-	CHECK_ERROR(hEventWaitForServer != NULL, L"HttpClient initialization failed on CreateEvent(hEventWaitForServer).");
+	CHECK_ERROR(eventWaitForServer.CreateAutoUnsignal(false), L"HttpClient initialization failed on eventWaitForServer.CreateAutoUnsignal.");
 	CHECK_ERROR(eventPendingCallbacks.CreateManualUnsignal(true), L"HttpClient initialization failed on eventPendingCallbacks.CreateManualUnsignal.");
 
 	httpSession = WinHttpOpen(
@@ -838,7 +628,6 @@ HttpClient::HttpClient(const WString _baseUrl, vint port)
 HttpClient::~HttpClient()
 {
 	Stop();
-	CloseHandle(hEventWaitForServer);
 }
 
 void HttpClient::InstallCallback(INetworkProtocolCallback* _callback)
@@ -852,24 +641,27 @@ void HttpClient::Stop()
 {
 	if (httpSession != NULL)
 	{
-		state = State::Stopping;
-
 		List<HINTERNET> stoppingRequests;
 		SPIN_LOCK(httpActiveRequestsLock)
 		{
-			for (auto activeRequest : httpActiveRequests)
+			state = State::Stopping;
+			for (vint i = 0; i < httpActiveRequests.Count(); i++)
 			{
-				if (activeRequest.requestId != -1)
+				auto&& activeRequest = httpActiveRequests[i];
+				if (activeRequest.requestId != -1 && activeRequest.requestType != HttpRequestType::Response)
 				{
 					stoppingRequests.Add(activeRequest.httpRequest);
+					activeRequest.httpRequest = NULL;
+					activeRequest.requestId = -1;
 				}
 			}
-			httpActiveRequests.Clear();
 		}
 		for (auto httpRequest : stoppingRequests)
 		{
 			WinHttpCloseHandle(httpRequest);
 		}
+
+		eventPendingCallbacks.Wait();
 
 		WinHttpCloseHandle(httpConnection);
 		WinHttpSetStatusCallback(
@@ -879,7 +671,10 @@ void HttpClient::Stop()
 			NULL);
 		WinHttpCloseHandle(httpSession);
 
-		eventPendingCallbacks.Wait();
+		SPIN_LOCK(httpActiveRequestsLock)
+		{
+			httpActiveRequests.Clear();
+		}
 
 		httpConnection = NULL;
 		httpSession = NULL;

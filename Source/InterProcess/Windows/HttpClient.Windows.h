@@ -42,11 +42,6 @@ protected:
 	EventObject										eventPendingCallbacks;
 	void											BeginPendingCallback();
 	void											EndPendingCallback();
-	void											QueueCallback(const Func<void()>& proc);
-	vint											FindActiveRequestUnsafe(HINTERNET httpRequest, vint requestId);
-	void											AttachRequest(HINTERNET httpRequest, vint requestId = 0);
-	void											CloseRequest(HINTERNET httpRequest, vint requestId = 0);
-	void											OnRequestHandleClosing(HINTERNET httpRequest, vint requestId = 0);
 
 /***********************************************************************
 HttpClient (Reading)
@@ -54,9 +49,6 @@ HttpClient (Reading)
 
 protected:
 	static constexpr vint32_t						HttpRespondBodyStep = 65536;
-	collections::Array<char8_t>						httpRespondBodyBuffer;
-	DWORD											httpRespondBodyBufferWriting = 0;
-	DWORD											httpRespondBodyBufferWritingAvailable = 0;
 
 	void											RaiseErrorUnsafe(WString errorMessage);
 public:
@@ -69,9 +61,7 @@ HttpClient (WaitForServer)
 
 protected:
 
-	HANDLE											hEventWaitForServer = INVALID_HANDLE_VALUE;
-	DWORD											dwInternetStatus_WaitForServer = 0;
-	DWORD											dwStatusInformationLength_WaitForServer = 0;
+	EventObject										eventWaitForServer;
 
 public:
 	
@@ -84,6 +74,13 @@ HttpClient (Writing)
 ***********************************************************************/
 
 protected:
+	enum class HttpRequestType
+	{
+		Connect,
+		Request,
+		Response,
+	};
+
 	class HttpResponseReading : public Object
 	{
 	public:
@@ -96,10 +93,14 @@ protected:
 	{
 	public:
 		HttpClient*									client = nullptr;
+		HttpRequestType								requestType = HttpRequestType::Connect;
 		HINTERNET									httpRequest = NULL;
 		vint										requestId = 0;
 		U8String									requestBody;
 		Ptr<HttpResponseReading>					responseReading;
+		WString										connectResponse;
+		WString										connectError;
+		bool										connectCompleted = false;
 	};
 
 	class HttpActiveRequest
@@ -107,11 +108,18 @@ protected:
 	public:
 		HINTERNET									httpRequest = NULL;
 		vint										requestId = -1;
+		HttpRequestType								requestType = HttpRequestType::Connect;
 	};
 
 	SpinLock										httpActiveRequestsLock;
 	collections::List<HttpActiveRequest>			httpActiveRequests;
 
+	vint											FindActiveRequestUnsafe(HINTERNET httpRequest, vint requestId);
+	void											AttachRequestUnsafe(HINTERNET httpRequest, vint requestId, HttpRequestType requestType);
+	void											CloseRequest(HINTERNET httpRequest, vint requestId = 0);
+	void											OnRequestHandleClosing(HINTERNET httpRequest, vint requestId = 0);
+	Ptr<HttpRequestContext>							SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body);
+	void											OnHttpRequestBodyReceived(Ptr<HttpRequestContext> context);
 
 public:
 

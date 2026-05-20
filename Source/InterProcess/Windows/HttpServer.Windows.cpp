@@ -316,7 +316,10 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 		{
 			auto responseToClient = connection->SubmitResponse(pRequest);
 			auto result = SendResponse(httpRequestQueue, pRequest->RequestId, responseToClient);
-			CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Response.");
+			CHECK_ERROR(
+				result == NO_ERROR || result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED,
+				L"HttpSendHttpResponse failed for responding /Response."
+				);
 		}
 	}
 	else if (pRequest->Verb == HttpVerbOPTIONS && (isValidRequest || isValidResponse))
@@ -432,13 +435,13 @@ void HttpServer::ListenToHttpRequest()
 
 	CHECK_ERROR(result == ERROR_IO_PENDING, L"HttpReceiveHttpRequest(#3) failed on unexpected result.");
 
-	RegisterWaitForSingleObject(
+	BOOL waitResult = RegisterWaitForSingleObject(
 		&hWaitHandleRequest,
 		hEventRequest,
 		[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 		{
 			auto self = (HttpServer*)lpParameter;
-			auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&self->hWaitHandleRequest, INVALID_HANDLE_VALUE);
+			auto waitHandle = std::atomic_ref<HANDLE>(self->hWaitHandleRequest).exchange(INVALID_HANDLE_VALUE);
 			if (waitHandle != INVALID_HANDLE_VALUE)
 			{
 				UnregisterWait(waitHandle);
@@ -477,6 +480,15 @@ void HttpServer::ListenToHttpRequest()
 		this,
 		INFINITE,
 		WT_EXECUTEONLYONCE);
+	CHECK_ERROR(waitResult, L"RegisterWaitForSingleObject failed for HttpReceiveHttpRequest.");
+	if (state == State::Stopping)
+	{
+		auto waitHandle = std::atomic_ref<HANDLE>(hWaitHandleRequest).exchange(INVALID_HANDLE_VALUE);
+		if (waitHandle != INVALID_HANDLE_VALUE)
+		{
+			UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+		}
+	}
 }
 
 /***********************************************************************
@@ -720,7 +732,7 @@ void HttpServer::Start()
 void HttpServer::Stop()
 {
 	state = State::Stopping;
-	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleRequest, INVALID_HANDLE_VALUE);
+	auto waitHandle = std::atomic_ref<HANDLE>(hWaitHandleRequest).exchange(INVALID_HANDLE_VALUE);
 	if (waitHandle != INVALID_HANDLE_VALUE)
 	{
 		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);

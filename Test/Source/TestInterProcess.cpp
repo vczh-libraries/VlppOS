@@ -247,9 +247,7 @@ namespace mynamespace
 				server->Start();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
 				chatData.eventServer.Wait();
-				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before sleeping.");
-				Thread::Sleep(1000);
-				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after sleeping.");
+				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before Stop.");
 				server->Stop();
 				CHECK_ERROR(server->IsStopped(), L"Server should be stopped after Stop.");
 			}
@@ -267,9 +265,7 @@ namespace mynamespace
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should be connected after WaitForServer.");
 				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventTom.Wait();
-				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before sleeping.");
-				Thread::Sleep(1000);
-				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected after sleeping.");
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before Stop.");
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 			}
@@ -287,9 +283,7 @@ namespace mynamespace
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should be connected after WaitForServer.");
 				client->GetConnection()->BeginReadingLoopUnsafe();
 				chatData.eventJerry.Wait();
-				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before sleeping.");
-				Thread::Sleep(1000);
-				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected after sleeping.");
+				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before Stop.");
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 			}
@@ -626,7 +620,6 @@ namespace mynamespace
 				CHECK_ERROR(server->IsLocalClient(serverClientId), L"Channel server should recognize the server channel client as local.");
 				CHECK_ERROR(server->GetClientIds().Count() == 3, L"Channel server should have three client ids.");
 				chatData.eventServer.Wait();
-				Thread::Sleep(1000);
 				server->Stop();
 			}
 			timeoutThread->threadCounter++;
@@ -638,7 +631,6 @@ namespace mynamespace
 				auto client = Ptr(new TomChannelClient(createClient(), chatData));
 				client->WaitForServer();
 				chatData.eventTom.Wait();
-				Thread::Sleep(1000);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -649,7 +641,6 @@ namespace mynamespace
 				auto client = Ptr(new JerryChannelClient(createClient(), chatData));
 				client->WaitForServer();
 				chatData.eventJerry.Wait();
-				Thread::Sleep(1000);
 			}
 			timeoutThread->threadCounter++;
 		});

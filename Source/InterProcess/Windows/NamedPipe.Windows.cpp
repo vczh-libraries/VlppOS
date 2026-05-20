@@ -95,13 +95,13 @@ RESTART_LOOP:
 		}
 		CHECK_ERROR(error == ERROR_MORE_DATA || error == ERROR_IO_PENDING, L"ReadFile failed on unexpected GetLastError.");
 
-		RegisterWaitForSingleObject(
+		BOOL waitResult = RegisterWaitForSingleObject(
 			&hWaitHandleReadFile,
 			hEventReadFile,
 			[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 			{
 				auto self = (NamedPipeConnection*)lpParameter;
-				auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&self->hWaitHandleReadFile, INVALID_HANDLE_VALUE);
+				auto waitHandle = std::atomic_ref<HANDLE>(self->hWaitHandleReadFile).exchange(INVALID_HANDLE_VALUE);
 				if (waitHandle != INVALID_HANDLE_VALUE)
 				{
 					UnregisterWait(waitHandle);
@@ -133,6 +133,15 @@ RESTART_LOOP:
 			this,
 			INFINITE,
 			WT_EXECUTEONLYONCE);
+		CHECK_ERROR(waitResult, L"RegisterWaitForSingleObject failed for ReadFile.");
+		if (stopped)
+		{
+			auto waitHandle = std::atomic_ref<HANDLE>(hWaitHandleReadFile).exchange(INVALID_HANDLE_VALUE);
+			if (waitHandle != INVALID_HANDLE_VALUE)
+			{
+				UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+			}
+		}
 	}
 }
 
@@ -271,7 +280,7 @@ void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 void NamedPipeConnection::Stop()
 {
 	stopped = 1;
-	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleReadFile, INVALID_HANDLE_VALUE);
+	auto waitHandle = std::atomic_ref<HANDLE>(hWaitHandleReadFile).exchange(INVALID_HANDLE_VALUE);
 	if (waitHandle != INVALID_HANDLE_VALUE)
 	{
 		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
@@ -311,7 +320,7 @@ NamedPipeServer::PendingConnection::~PendingConnection()
 void NamedPipeServer::PendingConnection::Stop()
 {
 	server = nullptr;
-	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleConnect, INVALID_HANDLE_VALUE);
+	auto waitHandle = std::atomic_ref<HANDLE>(hWaitHandleConnect).exchange(INVALID_HANDLE_VALUE);
 	if (waitHandle != INVALID_HANDLE_VALUE)
 	{
 		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
@@ -385,7 +394,7 @@ void NamedPipeServer::BeginListening()
 				[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 				{
 					auto pendingConnection = (PendingConnection*)lpParameter;
-					auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&pendingConnection->hWaitHandleConnect, INVALID_HANDLE_VALUE);
+					auto waitHandle = std::atomic_ref<HANDLE>(pendingConnection->hWaitHandleConnect).exchange(INVALID_HANDLE_VALUE);
 					if (waitHandle != INVALID_HANDLE_VALUE)
 					{
 						UnregisterWait(waitHandle);
@@ -418,6 +427,14 @@ void NamedPipeServer::BeginListening()
 				INFINITE,
 				WT_EXECUTEONLYONCE);
 			CHECK_ERROR(waitResult, L"RegisterWaitForSingleObject failed for ConnectNamedPipe.");
+			if (stopped)
+			{
+				auto waitHandle = std::atomic_ref<HANDLE>(pendingConnection->hWaitHandleConnect).exchange(INVALID_HANDLE_VALUE);
+				if (waitHandle != INVALID_HANDLE_VALUE)
+				{
+					UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+				}
+			}
 		}
 		break;
 	default:
