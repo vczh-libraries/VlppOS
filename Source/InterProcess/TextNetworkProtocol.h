@@ -166,6 +166,12 @@ INetworkProtocolServer
 		virtual ClientStatus					GetStatus() = 0;
 	};
 
+	enum class WaitForClientResult
+	{
+		Accept,
+		Reject,
+	};
+
 	/// <summary>
 	/// Represents a server.
 	/// </summary>
@@ -173,10 +179,13 @@ INetworkProtocolServer
 	{
 	public:
 		/// <summary>
-		/// Block until a client connects to the server, returning the connection between the server and this client.
+		/// Called when a client connects to the server.
+		/// The server begins listen to client connections immediately after it is created.
+		/// No callback happens after <see cref="Stop"/> is called.
 		/// </summary>
-		/// <returns>The connection to the client.</returns>
-		virtual INetworkProtocolConnection*		WaitForClient() = 0;
+		/// <param name="connection">A connection object representing the client.</param>
+		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
+		virtual WaitForClientResult				OnClientConnected(INetworkProtocolConnection* connection) = 0;
 
 		/// <summary>
 		/// Stop the server.
@@ -215,9 +224,6 @@ After the server receives the first message from a client, an client id will be 
   clientId is the assigned client id, starting from 1.
   channelName will be empty.
   messageBody will be empty.
-After the client receives the first message from the server, WaitForClient unblocks.
-  This can be implemented using EventObject.
-If the server stops in any reason before the client receiving the client id, WaitForClient should also unblock.
 
 Later 
 ***********************************************************************/

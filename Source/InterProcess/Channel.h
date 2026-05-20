@@ -196,12 +196,14 @@ IChannelServer
 
 		/// <summary>
 		/// Called when any client connects to the server.
+		/// The server begins listen to client connections immediately after it is created.
+		/// No callback happens after <see cref="Stop"/> is called.
 		/// This function will be implemented by the user, the default implementation will return true.
 		/// </summary>
 		/// <param name="clientId">The client id.</param>
 		/// <param name="availableChannels">The available channels.</param>
-		/// <returns>Returns true if the client is allowed to connect, false otherwise.</returns>
-		virtual bool						OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels) = 0;
+		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
+		virtual WaitForClientResult			OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels) = 0;
 
 		/// <summary>
 		/// Called when any client disconnects from the server.
@@ -224,12 +226,6 @@ IChannelServer
 		/// <param name="clientId">The client id.</param>
 		/// <returns>Returns true if the client id is local, false otherwise.</returns>
 		virtual bool						IsLocalClient(vint clientId) = 0;
-
-		/// <summary>
-		/// Block until the connection to the client is established.
-		/// </summary> 
-		/// <returns>The client id of the connected client.</returns>
-		virtual vint						WaitForClient() = 0;
 
 		/// <summary>
 		/// Disconnect a client.
