@@ -2,9 +2,9 @@
 
 # Orders
 
-- Debug UnitTest logs append memory leaks after the pass summary [2]
-- Split channel clients by role when validating sender ids [1]
-- Use focused `TestInterProcess.cpp` runs for inter-process work [1]
+- Debug UnitTest logs append memory leaks after the pass summary [4]
+- Split channel clients by role when validating sender ids [3]
+- Use focused `TestInterProcess.cpp` runs for inter-process work [3]
 
 # Refinements
 
@@ -14,8 +14,8 @@ For Windows Debug UnitTest runs, `copilotExecute.ps1` passes `/C` and `/DebugOut
 
 ## Split channel clients by role when validating sender ids
 
-When testing two-client channel delivery, use separate client classes for the two roles instead of mixing both behaviors in one handler. Let each client remember the peer id sent by the server and assert that every peer message arrives with that exact `senderClientId`.
+When testing channel delivery, use separate client classes for each role instead of mixing behaviors in one handler. Let Tom/Jerry-style peer clients remember the peer id announced by the server-side local client, and assert that every peer message arrives with that exact `senderClientId`. Model server speech with its own local client role so all asserted senders are real positive client ids.
 
 ## Use focused `TestInterProcess.cpp` runs for inter-process work
 
-When the UnitTest project is configured to focus on `TestInterProcess.cpp` under Debug x64, use that focused run to validate named-pipe, HTTP, and channel transport changes first. The expected matrix includes the basic network protocol cases and the channel cases for both transports.
+When the UnitTest project is configured to focus on `TestInterProcess.cpp` under Debug x64 (for example through a `/F:TestInterProcess.cpp` user filter), use that focused run to validate named-pipe, HTTP, and channel transport changes first. The expected matrix includes the basic network protocol cases and the channel cases for both transports.
