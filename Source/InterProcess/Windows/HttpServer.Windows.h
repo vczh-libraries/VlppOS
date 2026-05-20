@@ -122,6 +122,7 @@ public:
 	~HttpServer();
 	
 	WaitForClientResult								OnClientConnected(INetworkProtocolConnection* connection) override;
+	void											Start() override;
 	void											Stop() override;
 	bool											IsStopped() override;
 };

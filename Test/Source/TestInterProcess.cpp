@@ -22,7 +22,7 @@ namespace mynamespace
 		void Run() override
 		{
 			auto startTime = DateTime::LocalTime();
-			while (DateTime::LocalTime().osMilliseconds - startTime.osMilliseconds < 500000)
+			while (DateTime::LocalTime().osMilliseconds - startTime.osMilliseconds < 5000)
 			{
 				if (threadCounter == 3) return;
 			}
@@ -244,6 +244,7 @@ namespace mynamespace
 		{
 			{
 				auto server = createServer(chatData);
+				server->Start();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
 				chatData.eventServer.Wait();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before sleeping.");
@@ -609,6 +610,7 @@ namespace mynamespace
 		{
 			{
 				auto server = createServer(chatData);
+				server->Start();
 				chatData.eventClientsConnected.Wait();
 				vint clientId1 = -1;
 				vint clientId2 = -1;
@@ -708,6 +710,12 @@ namespace mynamespace
 			return ChannelServer::OnClientConnected(connection);
 		}
 
+		void Start() override
+		{
+			ChannelServer::Start();
+			NamedPipeServer::Start();
+		}
+
 		void Stop() override
 		{
 			ChannelServer::Stop();
@@ -734,10 +742,16 @@ namespace mynamespace
 			return ChannelServer::OnClientConnected(connection);
 		}
 
+		void Start() override
+		{
+			ChannelServer::Start();
+			HttpServer::Start();
+		}
+
 		void Stop() override
 		{
-			ChannelServer::Stop();
 			HttpServer::Stop();
+			ChannelServer::Stop();
 		}
 
 		bool IsStopped() override

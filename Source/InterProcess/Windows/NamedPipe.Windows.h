@@ -104,8 +104,9 @@ protected:
 
 	WString											pipeName;
 
-	// covers stopped, connections and pendingConnections
+	// covers started, stopped, connections and pendingConnections
 	SpinLock										lockConnections;
+	bool											started = false;
 	bool											stopped = false;
 	collections::List<Ptr< NamedPipeConnection>>	connections;
 	collections::List<Ptr<PendingConnection>>		pendingConnections;
@@ -119,6 +120,7 @@ public:
 	~NamedPipeServer();
 
 	WaitForClientResult								OnClientConnected(INetworkProtocolConnection* connection) override;
+	void											Start() override;
 	void											Stop() override;
 	bool											IsStopped() override;
 };

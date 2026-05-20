@@ -341,7 +341,6 @@ HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 NamedPipeServer::NamedPipeServer(const WString& _pipeName)
 	: pipeName(_pipeName)
 {
-	BeginListening();
 }
 
 NamedPipeServer::~NamedPipeServer()
@@ -354,7 +353,7 @@ void NamedPipeServer::BeginListening()
 	Ptr<PendingConnection> pendingConnection;
 	SPIN_LOCK(lockConnections)
 	{
-		if (stopped)
+		if (!started || stopped)
 		{
 			return;
 		}
@@ -369,7 +368,7 @@ void NamedPipeServer::BeginListening()
 	{
 	case ERROR_SUCCESS:
 	case ERROR_PIPE_CONNECTED:
-		CompletePendingConnection(pendingConnection.Obj(), true);
+		CompletePendingConnection(pendingConnection, true);
 		break;
 	case ERROR_IO_PENDING:
 		SPIN_LOCK(lockConnections)
@@ -436,7 +435,7 @@ void NamedPipeServer::CompletePendingConnection(Ptr<PendingConnection> pendingCo
 		SPIN_LOCK(lockConnections)
 		{
 			pendingConnections.Remove(pendingConnection.Obj());
-			if (!stopped)
+			if (started && !stopped)
 			{
 				shouldListen = true;
 				if (connected)
@@ -502,6 +501,19 @@ WaitForClientResult NamedPipeServer::OnClientConnected(INetworkProtocolConnectio
 	return WaitForClientResult::Accept;
 }
 
+void NamedPipeServer::Start()
+{
+	{
+		SPIN_LOCK(lockConnections)
+		{
+			CHECK_ERROR(!started, L"NamedPipeServer has already started.");
+			CHECK_ERROR(!stopped, L"NamedPipeServer has stopped.");
+			started = true;
+		}
+	}
+	BeginListening();
+}
+
 void NamedPipeServer::Stop()
 {
 	List<Ptr<NamedPipeConnection>> stoppingConnections;
@@ -510,6 +522,7 @@ void NamedPipeServer::Stop()
 	{
 		if (!stopped)
 		{
+			started = false;
 			stopped = true;
 			for (auto connection : connections)
 			{

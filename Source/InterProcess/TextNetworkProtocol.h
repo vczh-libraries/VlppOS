@@ -174,12 +174,17 @@ INetworkProtocolServer
 	public:
 		/// <summary>
 		/// Called when a client connects to the server.
-		/// The server begins listen to client connections immediately after it is created.
-		/// No callback happens after <see cref="Stop"/> is called.
+		/// The server begins listening to client connections after <see cref="Start"/> is called.
+		/// No callback happens before <see cref="Start"/> or after <see cref="Stop"/> is called.
 		/// </summary>
 		/// <param name="connection">A connection object representing the client.</param>
 		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
 		virtual WaitForClientResult				OnClientConnected(INetworkProtocolConnection* connection) = 0;
+
+		/// <summary>
+		/// Start the server.
+		/// </summary>
+		virtual void							Start() = 0;
 
 		/// <summary>
 		/// Stop the server.
@@ -931,13 +936,14 @@ NetworkProtocolChannelServer
 		};
 
 		typename TSerialization::ContextType							context;
-		// covers connections, localClients, pendingConnections, clientChannels, nextClientId and stopped
+		// covers connections, localClients, pendingConnections, clientChannels, nextClientId, started and stopped
 		SpinLock														lockConnections;
 		collections::Dictionary<vint, Ptr<Connection>>					connections;
 		collections::Dictionary<vint, Ptr<LocalChannelClient>>			localClients;
 		collections::List<Ptr<Connection>>								pendingConnections;
 		ClientChannelMap												clientChannels;
 		vint															nextClientId = 1;
+		bool															started = false;
 		bool															stopped = false;
 
 		bool ClientHasChannel(vint clientId, const WString& channelName)
@@ -1178,17 +1184,13 @@ NetworkProtocolChannelServer
 		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
 		{
 			CHECK_ERROR(connection, L"NetworkProtocolChannelServer::OnClientConnected needs a valid connection.");
-			if (IsStopped())
-			{
-				return WaitForClientResult::Reject;
-			}
 
 			auto context = Ptr(new Connection(this));
 			context->connection = connection;
 			{
 				SPIN_LOCK(lockConnections)
 				{
-					if (stopped)
+					if (!started || stopped)
 					{
 						return WaitForClientResult::Reject;
 					}
@@ -1198,6 +1200,15 @@ NetworkProtocolChannelServer
 			connection->InstallCallback(context.Obj());
 			connection->BeginReadingLoopUnsafe();
 			return WaitForClientResult::Accept;
+		}
+
+		void Start() override
+		{
+			SPIN_LOCK(lockConnections)
+			{
+				CHECK_ERROR(!stopped, L"NetworkProtocolChannelServer has stopped.");
+				started = true;
+			}
 		}
 
 		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels) override
@@ -1226,7 +1237,13 @@ NetworkProtocolChannelServer
 		vint ConnectLocalClient(Ptr<IChannelClient<TPackage>> localClient) override
 		{
 			CHECK_ERROR(localClient, L"NetworkProtocolChannelServer::ConnectLocalClient needs a valid localClient.");
-			CHECK_ERROR(!IsStopped(), L"NetworkProtocolChannelServer has stopped.");
+			{
+				SPIN_LOCK(lockConnections)
+				{
+					CHECK_ERROR(started, L"NetworkProtocolChannelServer has not started.");
+					CHECK_ERROR(!stopped, L"NetworkProtocolChannelServer has stopped.");
+				}
+			}
 
 			auto networkProtocolClient = localClient.Cast<LocalChannelClient>();
 			CHECK_ERROR(networkProtocolClient, L"NetworkProtocolChannelServer::ConnectLocalClient needs a NetworkProtocolLocalChannelClient.");
@@ -1386,6 +1403,7 @@ NetworkProtocolChannelServer
 				{
 					if (!stopped)
 					{
+						started = false;
 						stopped = true;
 						shouldStop = true;
 						for (auto&& connection : connections.Values())

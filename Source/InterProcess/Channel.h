@@ -202,14 +202,19 @@ IChannelServer
 
 		/// <summary>
 		/// Called when any client connects to the server.
-		/// The server begins listen to client connections immediately after it is created.
-		/// No callback happens after <see cref="Stop"/> is called.
+		/// The server begins listening to client connections after <see cref="Start"/> is called.
+		/// No callback happens before <see cref="Start"/> or after <see cref="Stop"/> is called.
 		/// This function will be implemented by the user, the default implementation will return true.
 		/// </summary>
 		/// <param name="clientId">The client id.</param>
 		/// <param name="availableChannels">The available channels.</param>
 		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
 		virtual WaitForClientResult			OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels) = 0;
+
+		/// <summary>
+		/// Start the server.
+		/// </summary>
+		virtual void						Start() = 0;
 
 		/// <summary>
 		/// Called when any client disconnects from the server.

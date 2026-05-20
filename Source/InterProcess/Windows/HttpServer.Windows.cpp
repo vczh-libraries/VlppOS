@@ -697,9 +697,6 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 			sizeof(bindingInfo));
 		CHECK_ERROR(result == NO_ERROR, L"HttpSetUrlGroupProperty failed (HttpServerBindingProperty).");
 	}
-
-	state = State::Running;
-	ListenToHttpRequest();
 }
 
 HttpServer::~HttpServer()
@@ -711,6 +708,13 @@ HttpServer::~HttpServer()
 WaitForClientResult HttpServer::OnClientConnected(INetworkProtocolConnection* connection)
 {
 	return WaitForClientResult::Accept;
+}
+
+void HttpServer::Start()
+{
+	CHECK_ERROR(state == State::Ready, L"HttpServer can only be started once.");
+	state = State::Running;
+	ListenToHttpRequest();
 }
 
 void HttpServer::Stop()
