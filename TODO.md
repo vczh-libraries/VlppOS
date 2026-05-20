@@ -8,6 +8,7 @@
   - `HttpClient`.
   - `HttpServer`.
   - `NamedPipe`.
+- Review lock usage.
 - New tests.
   - Concurrent `SendString` handling.
   - `WaitForServer` without server started.
