@@ -41,6 +41,10 @@ The goal is to make sure all `Stop` actually waits until no more callback could 
 
 # UPDATES
 
+## UPDATE
+
+The previous work is good, I just want to add a little change. No the test is fast, I would like to say in all 4 TEST_CASE we should loop the test for 20 times
+
 # TEST [CONFIRMED]
 
 Use the existing `Test\Source\TestInterProcess.cpp` unit tests because the `UnitTest` project is configured to run this file under debug x64 for the inter-process work.
@@ -55,6 +59,7 @@ The criteria for success are:
 # PROPOSALS
 
 - No.1 CONSOLIDATE CALLBACK LIFETIME AND ATOMIC WAIT HANDLES [CONFIRMED]
+- No.2 REPEAT INTER-PROCESS TEST CASES [CONFIRMED]
 
 ## No.1 CONSOLIDATE CALLBACK LIFETIME AND ATOMIC WAIT HANDLES
 
@@ -83,6 +88,28 @@ Removed all six `Thread::Sleep(1000);` calls from `TestInterProcess.cpp`.
 ### CONFIRMED
 
 This proposal is confirmed. The consolidated `HttpClient::SendHttpRequest` removes the duplicated WinHTTP callback implementations and makes request lifetime tracking depend on `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING`. `Stop()` now cancels long-poll read requests while allowing already-started outgoing `/Response` sends to drain, so final messages are not lost when tests stop clients immediately after sending. `EventObject` replaces the raw wait event for `/Connect`, and registered wait callbacks in HTTP server and named pipe code now use standard atomic exchanges instead of interlocked pointer exchanges.
+
+Verification succeeded:
+- `copilotBuild.ps1` completed with `Build succeeded.`, `0 Warning(s)`, and `0 Error(s)`.
+- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest` completed with `Passed test files: 1/1` and `Passed test cases: 4/4`.
+
+## No.2 REPEAT INTER-PROCESS TEST CASES
+
+Repeat each existing inter-process `TEST_CASE` body twenty times. This keeps the same four test cases and same communication scenarios, but exercises the callback draining behavior repeatedly now that the explicit one-second sleeps have been removed.
+
+### CODE CHANGE
+
+Add a shared repeat-count constant to `TestInterProcess.cpp`, and wrap all four `TEST_CASE` bodies in a `for` loop that runs the existing scenario 20 times.
+
+The repeated run exposed that `NamedPipeConnection::Stop()` could still return while a read wait callback was executing if the callback had already exchanged the registered wait handle. Refactor named-pipe read waits and pending server connection waits to use dynamically allocated wait contexts, pending callback counters, and completion events. `Stop()` now unregisters contexts that have not started, waits for contexts that have started, and only closes pipe handles after pending callbacks drain.
+
+The first fix also exposed a named-pipe recursive-read disconnect case: when a read callback immediately observed a closed pipe while starting the next read, `OnDisconnected()` could remove the last server connection reference and make the destructor wait for the same callback. `BeginReadingLoopUnsafe()` now avoids synchronous `OnDisconnected()` teardown from inside an already pending callback, while still reporting disconnects for non-callback reads.
+
+Adjusted `NamedPipeConnection::OnDisconnected()` so callback-time disconnect notifications do not remove the connection from the server list while the callback is still active. Non-callback disconnects still remove the connection, and the removal now uses a captured server pointer guarded by the server lock to avoid racing with `NamedPipeServer::Stop()` nulling the connection's server pointer.
+
+### CONFIRMED
+
+This proposal is confirmed. Each of the four existing inter-process `TEST_CASE` bodies now runs its scenario 20 times, and the repeated run exposed and verified the named-pipe callback drain fixes. Named-pipe read callbacks now keep pending callback tracking active until callback work finishes, `Stop()` unregisters or waits for read and connect wait contexts before closing handles, and callback-time disconnect handling no longer destroys a connection from inside the active callback stack.
 
 Verification succeeded:
 - `copilotBuild.ps1` completed with `Build succeeded.`, `0 Warning(s)`, and `0 Error(s)`.

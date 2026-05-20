@@ -11,6 +11,8 @@ using namespace vl::inter_process;
 
 namespace mynamespace
 {
+	constexpr vint InterProcessTestRepeatCount = 20;
+
 	class TimeoutThread : public Thread
 	{
 	public:
@@ -759,34 +761,46 @@ TEST_FILE
 #ifdef VCZH_MSVC
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
-		RunTextNetworkProtocol(
-			[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeTextServer(chatData, L"VlppOSTestPipe")); },
-			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
-		);
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			RunTextNetworkProtocol(
+				[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeTextServer(chatData, L"VlppOSTestPipe")); },
+				[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
+			);
+		}
 	});
 
 	TEST_CASE(L"HttpServer (NetworkProtocol)")
 	{
-		RunTextNetworkProtocol(
-			[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, L"/VlppOSTestHttpServer", 8765)); },
-			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServer", 8765)); }
-		);
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			RunTextNetworkProtocol(
+				[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, L"/VlppOSTestHttpServer", 8765)); },
+				[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServer", 8765)); }
+			);
+		}
 	});
 
 	TEST_CASE(L"NamedPipe (Channel)")
 	{
-		RunNetworkProtocolChannel(
-			[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new NamedPipeChannelServer(chatData, L"VlppOSTestPipeChannel")); },
-			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipeChannel")); }
-		);
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			RunNetworkProtocolChannel(
+				[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new NamedPipeChannelServer(chatData, L"VlppOSTestPipeChannel")); },
+				[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipeChannel")); }
+			);
+		}
 	});
 
 	TEST_CASE(L"HttpServer (Channel)")
 	{
-		RunNetworkProtocolChannel(
-			[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, L"/VlppOSTestHttpServerChannel", 8766)); },
-			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServerChannel", 8766)); }
-		);
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			RunNetworkProtocolChannel(
+				[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, L"/VlppOSTestHttpServerChannel", 8766)); },
+				[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServerChannel", 8766)); }
+			);
+		}
 	});
 #endif
 }

@@ -26,17 +26,24 @@ class NamedPipeConnection : public Object, public virtual INetworkProtocolConnec
 // -----------------------------------------------------------------------
 
 private:
+	class ReadWaitContext;
+
 	bool											firstRead = true;
 	atomic_vint										stopped = 0;
 	collections::Array<BYTE>						bufferReadFile;
 	stream::MemoryStream							streamReadFile;
-	HANDLE											hWaitHandleReadFile = INVALID_HANDLE_VALUE;
+	SpinLock										lockReadWait;
+	std::atomic<ReadWaitContext*>					readWaitContext = nullptr;
 	OVERLAPPED										overlappedReadFile;
 	HANDLE											hEventReadFile = INVALID_HANDLE_VALUE;
+	atomic_vint										pendingCallbacks = 0;
+	EventObject										eventPendingCallbacks;
 
 	void											BeginReadingUnsafe();
 	void											SubmitReadBufferUnsafe(vint bytes);
 	void											EndReadingUnsafe();
+	void											BeginPendingCallback();
+	void											EndPendingCallback();
 
 public:
 	void											BeginReadingLoopUnsafe() override;
@@ -88,16 +95,23 @@ protected:
 	class PendingConnection : public Object
 	{
 	public:
+		class ConnectWaitContext;
+
 		NamedPipeServer*								server = nullptr;
 		Ptr<NamedPipeConnection>						connection;
-		HANDLE											hWaitHandleConnect = INVALID_HANDLE_VALUE;
+		SpinLock										lockConnectWait;
+		std::atomic<ConnectWaitContext*>					connectWaitContext = nullptr;
 		OVERLAPPED										overlappedConnect;
 		HANDLE											hEventConnect = INVALID_HANDLE_VALUE;
+		atomic_vint										pendingCallbacks = 0;
+		EventObject										eventPendingCallbacks;
 
 		PendingConnection(NamedPipeServer* _server, Ptr<NamedPipeConnection> _connection);
 		~PendingConnection();
 
 		void											Stop();
+		void											BeginPendingCallback();
+		void											EndPendingCallback();
 	};
 
 	static HANDLE									ServerCreatePipe(const WString& pipeName);
