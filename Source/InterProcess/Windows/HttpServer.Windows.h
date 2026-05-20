@@ -61,11 +61,9 @@ protected:
 	WString											urlRequestPrefix;
 	WString											urlResponsePrefix;
 
+	// covers connections
 	SpinLock										lockConnections;
 	ConnectionMap									connections;
-	Semaphore										semaphoreQueuedConnections;
-	SpinLock										lockQueuedConnections;
-	collections::List<HttpServerConnection*>		queuedConnections;
 
 	HANDLE											httpRequestQueue = INVALID_HANDLE_VALUE;
 	HTTP_SERVER_SESSION_ID							httpSessionId = HTTP_NULL_ID;
@@ -123,7 +121,7 @@ public:
 	HttpServer(const WString _baseUrl, vint port);
 	~HttpServer();
 	
-	INetworkProtocolConnection*						WaitForClient() override;
+	WaitForClientResult								OnClientConnected(INetworkProtocolConnection* connection) override;
 	void											Stop() override;
 	bool											IsStopped() override;
 };

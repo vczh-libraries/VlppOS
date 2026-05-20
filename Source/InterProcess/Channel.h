@@ -105,6 +105,12 @@ IChannelClient
 		Disconnected,		// Connection lost.
 	};
 
+	enum class WaitForClientResult
+	{
+		Accept,
+		Reject,
+	};
+
 	/// <summary>
 	/// Represents a client.
 	/// </summary>

@@ -22,7 +22,7 @@ namespace mynamespace
 		void Run() override
 		{
 			auto startTime = DateTime::LocalTime();
-			while (DateTime::LocalTime().osMilliseconds - startTime.osMilliseconds < 5000)
+			while (DateTime::LocalTime().osMilliseconds - startTime.osMilliseconds < 500000)
 			{
 				if (threadCounter == 3) return;
 			}
@@ -175,8 +175,55 @@ namespace mynamespace
 		}
 	};
 
+	class TextServerCallbackHost
+	{
+	protected:
+		ChatData*						chatData = nullptr;
+		ServerCallback					callback1;
+		ServerCallback					callback2;
+
+		// covers acceptedConnections
+		SpinLock						lockAcceptedConnections;
+		vint							acceptedConnections = 0;
+
+		WaitForClientResult AcceptTextConnection(INetworkProtocolConnection* connection)
+		{
+			ServerCallback* callback = nullptr;
+			{
+				SPIN_LOCK(lockAcceptedConnections)
+				{
+					if (acceptedConnections == 0)
+					{
+						callback = &callback1;
+					}
+					else if (acceptedConnections == 1)
+					{
+						callback = &callback2;
+					}
+					else
+					{
+						return WaitForClientResult::Reject;
+					}
+					acceptedConnections++;
+				}
+			}
+
+			connection->InstallCallback(callback);
+			connection->BeginReadingLoopUnsafe();
+			return WaitForClientResult::Accept;
+		}
+
+	public:
+		TextServerCallbackHost(ChatData& _chatData)
+			: chatData(&_chatData)
+			, callback1(_chatData)
+			, callback2(_chatData)
+		{
+		}
+	};
+
 	void RunTextNetworkProtocol(
-		Func<Ptr<INetworkProtocolServer>()> createServer,
+		Func<Ptr<INetworkProtocolServer>(ChatData&)> createServer,
 		Func<Ptr<INetworkProtocolClient>()> createClient
 		)
 	{
@@ -196,17 +243,8 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
-				ServerCallback callback1(chatData), callback2(chatData);
-				auto server = createServer();
+				auto server = createServer(chatData);
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
-				auto connection1 = server->WaitForClient();
-				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after accepting the first client.");
-				auto connection2 = server->WaitForClient();
-				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped after accepting the second client.");
-				connection1->InstallCallback(&callback1);
-				connection2->InstallCallback(&callback2);
-				connection1->BeginReadingLoopUnsafe();
-				connection2->BeginReadingLoopUnsafe();
 				chatData.eventServer.Wait();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before sleeping.");
 				Thread::Sleep(1000);
@@ -307,7 +345,7 @@ namespace mynamespace
 
 	struct ChannelChatData
 	{
-		EventObject						eventServer, eventTom, eventJerry;
+		EventObject						eventClientsConnected, eventServer, eventTom, eventJerry;
 
 		// covers clientId1, clientId2, serverClientId, client1Stopped and client2Stopped
 		SpinLock						lockServer;
@@ -319,6 +357,7 @@ namespace mynamespace
 
 		ChannelChatData()
 		{
+			eventClientsConnected.CreateManualUnsignal(false);
 			eventServer.CreateManualUnsignal(false);
 			eventTom.CreateManualUnsignal(false);
 			eventJerry.CreateManualUnsignal(false);
@@ -330,16 +369,33 @@ namespace mynamespace
 	{
 		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer>;
 
+	private:
+		ChannelChatData*				chatData = nullptr;
+
 	public:
-		ChannelServer(Ptr<INetworkProtocolServer> server)
-			: Base(server)
+		using Base::OnClientConnected;
+
+		ChannelServer(ChannelChatData& _chatData)
+			: chatData(&_chatData)
 		{
 		}
 
-		bool OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels) override
+		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
-			return true;
+			SPIN_LOCK(chatData->lockServer)
+			{
+				if (chatData->clientId1 == -1)
+				{
+					chatData->clientId1 = clientId;
+				}
+				else if (chatData->clientId2 == -1)
+				{
+					chatData->clientId2 = clientId;
+					chatData->eventClientsConnected.Signal();
+				}
+			}
+			return WaitForClientResult::Accept;
 		}
 	};
 
@@ -542,7 +598,7 @@ namespace mynamespace
 	};
 
 	void RunNetworkProtocolChannel(
-		Func<Ptr<INetworkProtocolServer>()> createServer,
+		Func<Ptr<IChannelServer<WString>>(ChannelChatData&)> createServer,
 		Func<Ptr<INetworkProtocolClient>()> createClient
 		)
 	{
@@ -552,9 +608,15 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
-				auto server = Ptr(new ChannelServer(createServer()));
-				auto clientId1 = server->WaitForClient();
-				auto clientId2 = server->WaitForClient();
+				auto server = createServer(chatData);
+				chatData.eventClientsConnected.Wait();
+				vint clientId1 = -1;
+				vint clientId2 = -1;
+				SPIN_LOCK(chatData.lockServer)
+				{
+					clientId1 = chatData.clientId1;
+					clientId2 = chatData.clientId2;
+				}
 				CHECK_ERROR(clientId1 != clientId2, L"Channel server should assign different client ids.");
 				auto serverClient = Ptr(new ServerChannelClient(chatData, clientId1, clientId2));
 				auto serverClientId = server->ConnectLocalClient(serverClient);
@@ -598,13 +660,102 @@ namespace mynamespace
 }
 using namespace mynamespace;
 
+#ifdef VCZH_MSVC
+
+namespace mynamespace
+{
+	class NamedPipeTextServer : protected TextServerCallbackHost, public NamedPipeServer
+	{
+	public:
+		NamedPipeTextServer(ChatData& chatData, const WString& pipeName)
+			: TextServerCallbackHost(chatData)
+			, NamedPipeServer(pipeName)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return AcceptTextConnection(connection);
+		}
+	};
+
+	class HttpTextServer : protected TextServerCallbackHost, public HttpServer
+	{
+	public:
+		HttpTextServer(ChatData& chatData, const WString& baseUrl, vint port)
+			: TextServerCallbackHost(chatData)
+			, HttpServer(baseUrl, port)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return AcceptTextConnection(connection);
+		}
+	};
+
+	class NamedPipeChannelServer : public ChannelServer, public NamedPipeServer
+	{
+	public:
+		NamedPipeChannelServer(ChannelChatData& chatData, const WString& pipeName)
+			: ChannelServer(chatData)
+			, NamedPipeServer(pipeName)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return ChannelServer::OnClientConnected(connection);
+		}
+
+		void Stop() override
+		{
+			ChannelServer::Stop();
+			NamedPipeServer::Stop();
+		}
+
+		bool IsStopped() override
+		{
+			return ChannelServer::IsStopped() || NamedPipeServer::IsStopped();
+		}
+	};
+
+	class HttpChannelServer : public ChannelServer, public HttpServer
+	{
+	public:
+		HttpChannelServer(ChannelChatData& chatData, const WString& baseUrl, vint port)
+			: ChannelServer(chatData)
+			, HttpServer(baseUrl, port)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return ChannelServer::OnClientConnected(connection);
+		}
+
+		void Stop() override
+		{
+			ChannelServer::Stop();
+			HttpServer::Stop();
+		}
+
+		bool IsStopped() override
+		{
+			return ChannelServer::IsStopped() || HttpServer::IsStopped();
+		}
+	};
+}
+
+#endif
+
 TEST_FILE
 {
 #ifdef VCZH_MSVC
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
 		RunTextNetworkProtocol(
-			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipe")); },
+			[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeTextServer(chatData, L"VlppOSTestPipe")); },
 			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
 		);
 	});
@@ -612,7 +763,7 @@ TEST_FILE
 	TEST_CASE(L"HttpServer (NetworkProtocol)")
 	{
 		RunTextNetworkProtocol(
-			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServer", 8765)); },
+			[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, L"/VlppOSTestHttpServer", 8765)); },
 			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServer", 8765)); }
 		);
 	});
@@ -620,7 +771,7 @@ TEST_FILE
 	TEST_CASE(L"NamedPipe (Channel)")
 	{
 		RunNetworkProtocolChannel(
-			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeServer(L"VlppOSTestPipeChannel")); },
+			[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new NamedPipeChannelServer(chatData, L"VlppOSTestPipeChannel")); },
 			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipeChannel")); }
 		);
 	});
@@ -628,7 +779,7 @@ TEST_FILE
 	TEST_CASE(L"HttpServer (Channel)")
 	{
 		RunNetworkProtocolChannel(
-			[]()->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpServer(L"/VlppOSTestHttpServerChannel", 8766)); },
+			[](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, L"/VlppOSTestHttpServerChannel", 8766)); },
 			[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(L"/VlppOSTestHttpServerChannel", 8766)); }
 		);
 	});

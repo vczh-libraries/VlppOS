@@ -281,14 +281,22 @@ void HttpServer::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 		{
 			connections.Add(newGuid, connection);
 		}
-		SPIN_LOCK(lockQueuedConnections)
+		auto result = OnClientConnected(connection.Obj());
+		if (result == WaitForClientResult::Reject)
 		{
-			queuedConnections.Add(connection.Obj());
+			SPIN_LOCK(lockConnections)
+			{
+				connections.Remove(newGuid);
+			}
+			connection->server = nullptr;
+			Send404Response(httpRequestQueue, pRequest->RequestId, "Connection rejected");
 		}
-		semaphoreQueuedConnections.Release();
-		auto completeUrlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + newGuid;
-		auto completeUrlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + newGuid;
-		SendResponse(httpRequestQueue, pRequest->RequestId, completeUrlRequest + L";" + completeUrlResponse);
+		else
+		{
+			auto completeUrlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + newGuid;
+			auto completeUrlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + newGuid;
+			SendResponse(httpRequestQueue, pRequest->RequestId, completeUrlRequest + L";" + completeUrlResponse);
+		}
 	}
 	else if (pRequest->Verb == HttpVerbPOST && isValidRequest)
 	{
@@ -690,7 +698,8 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 		CHECK_ERROR(result == NO_ERROR, L"HttpSetUrlGroupProperty failed (HttpServerBindingProperty).");
 	}
 
-	semaphoreQueuedConnections.Create(0, 9999);
+	state = State::Running;
+	ListenToHttpRequest();
 }
 
 HttpServer::~HttpServer()
@@ -699,27 +708,9 @@ HttpServer::~HttpServer()
 	CloseHandle(hEventRequest);
 }
 
-INetworkProtocolConnection* HttpServer::WaitForClient()
+WaitForClientResult HttpServer::OnClientConnected(INetworkProtocolConnection* connection)
 {
-	CHECK_ERROR(state != State::Stopping, L"WaitForClient() cannot be called after Stop().");
-	if (state == State::Ready)
-	{
-		state = State::Running;
-		ListenToHttpRequest();
-	}
-	while (state == State::Running && semaphoreQueuedConnections.Wait())
-	{
-		SPIN_LOCK(lockQueuedConnections)
-		{
-			if (queuedConnections.Count() > 0)
-			{
-				auto connection = queuedConnections[0];
-				queuedConnections.RemoveAt(0);
-				return connection;
-			}
-		}
-	}
-	CHECK_FAIL(L"HttpServer has stopped.");
+	return WaitForClientResult::Accept;
 }
 
 void HttpServer::Stop()
@@ -740,11 +731,6 @@ void HttpServer::Stop()
 		}
 		connections.Clear();
 	}
-	SPIN_LOCK(lockQueuedConnections)
-	{
-		queuedConnections.Clear();
-	}
-	semaphoreQueuedConnections.Release();
 	for (auto connection : stoppingConnections)
 	{
 		SPIN_LOCK(connection->pendingRequestLock)

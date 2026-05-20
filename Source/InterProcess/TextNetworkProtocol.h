@@ -166,12 +166,6 @@ INetworkProtocolServer
 		virtual ClientStatus					GetStatus() = 0;
 	};
 
-	enum class WaitForClientResult
-	{
-		Accept,
-		Reject,
-	};
-
 	/// <summary>
 	/// Represents a server.
 	/// </summary>
@@ -883,7 +877,7 @@ NetworkProtocolChannelServer
 ***********************************************************************/
 
 	template<typename TPackage, typename TSerialization>
-	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>
+	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>, public virtual INetworkProtocolServer
 	{
 		friend class NetworkProtocolLocalChannelClient<TPackage, TSerialization>;
 
@@ -903,14 +897,12 @@ NetworkProtocolChannelServer
 
 		public:
 			INetworkProtocolConnection*						connection = nullptr;
-			EventObject										eventConnected;
 			vint											clientId = -1;
 			bool											accepted = false;
 
 			Connection(NetworkProtocolChannelServer* _server)
 				: server(_server)
 			{
-				CHECK_ERROR(eventConnected.CreateManualUnsignal(false), L"NetworkProtocolChannelServer::Connection initialization failed on eventConnected.");
 			}
 
 			void OnReadString(const WString& str) override
@@ -939,8 +931,6 @@ NetworkProtocolChannelServer
 		};
 
 		typename TSerialization::ContextType							context;
-		Ptr<INetworkProtocolServer>										npServer;
-
 		// covers connections, localClients, pendingConnections, clientChannels, nextClientId and stopped
 		SpinLock														lockConnections;
 		collections::Dictionary<vint, Ptr<Connection>>					connections;
@@ -1002,27 +992,38 @@ NetworkProtocolChannelServer
 					}
 				}
 
-				if (OnClientConnected(assignedClientId, availableChannels.Keys()))
+				if (OnClientConnected(assignedClientId, availableChannels.Keys()) == WaitForClientResult::Accept)
 				{
+					bool accepted = false;
 					{
 						SPIN_LOCK(lockConnections)
 						{
-							connection->clientId = assignedClientId;
-							connection->accepted = true;
-							connections.Add(assignedClientId, pendingConnection);
-							for (auto&& channelName : availableChannels.Keys())
+							if (!stopped)
 							{
-								clientChannels.Add(assignedClientId, channelName);
+								connection->clientId = assignedClientId;
+								connection->accepted = true;
+								connections.Add(assignedClientId, pendingConnection);
+								for (auto&& channelName : availableChannels.Keys())
+								{
+									clientChannels.Add(assignedClientId, channelName);
+								}
+								accepted = true;
 							}
 						}
 					}
-					connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(assignedClientId, WString::Empty, WString::Empty)));
+					if (accepted)
+					{
+						connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(assignedClientId, WString::Empty, WString::Empty)));
+					}
+					else
+					{
+						connection->connection->Stop();
+					}
 				}
 				else
 				{
 					connection->connection->Stop();
 				}
-				connection->eventConnected.Signal();
 				return;
 			}
 
@@ -1059,10 +1060,6 @@ NetworkProtocolChannelServer
 				}
 			}
 
-			if (disconnectedConnection)
-			{
-				disconnectedConnection->eventConnected.Signal();
-			}
 			if (disconnectedClientId != -1)
 			{
 				OnClientDisconnected(disconnectedClientId);
@@ -1178,10 +1175,35 @@ NetworkProtocolChannelServer
 
 	public:
 
-		bool OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels) override
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			CHECK_ERROR(connection, L"NetworkProtocolChannelServer::OnClientConnected needs a valid connection.");
+			if (IsStopped())
+			{
+				return WaitForClientResult::Reject;
+			}
+
+			auto context = Ptr(new Connection(this));
+			context->connection = connection;
+			{
+				SPIN_LOCK(lockConnections)
+				{
+					if (stopped)
+					{
+						return WaitForClientResult::Reject;
+					}
+					pendingConnections.Add(context);
+				}
+			}
+			connection->InstallCallback(context.Obj());
+			connection->BeginReadingLoopUnsafe();
+			return WaitForClientResult::Accept;
+		}
+
+		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels) override
 		{
 			// default implementation allows all clients to connect
-			return true;
+			return WaitForClientResult::Accept;
 		}
 
 		void OnClientDisconnected(vint clientId) override
@@ -1190,13 +1212,10 @@ NetworkProtocolChannelServer
 		}
 
 		NetworkProtocolChannelServer(
-			Ptr<INetworkProtocolServer> _npServer,
 			const typename TSerialization::ContextType& _context = {}
 		)
 			: context(_context)
-			, npServer(_npServer)
 		{
-			CHECK_ERROR(npServer, L"NetworkProtocolChannelServer needs a valid INetworkProtocolServer.");
 		}
 
 		~NetworkProtocolChannelServer()
@@ -1233,7 +1252,7 @@ NetworkProtocolChannelServer
 				}
 			}
 
-			if (!OnClientConnected(assignedClientId, channels.Keys()))
+			if (OnClientConnected(assignedClientId, channels.Keys()) == WaitForClientResult::Reject)
 			{
 				return -1;
 			}
@@ -1276,24 +1295,6 @@ NetworkProtocolChannelServer
 				result = localClients.Keys().Contains(clientId);
 			}
 			return result;
-		}
-
-		vint WaitForClient() override
-		{
-			CHECK_ERROR(!IsStopped(), L"NetworkProtocolChannelServer has stopped.");
-			auto connection = npServer->WaitForClient();
-			auto context = Ptr(new Connection(this));
-			{
-				SPIN_LOCK(lockConnections)
-				{
-					pendingConnections.Add(context);
-				}
-			}
-			connection->InstallCallback(context.Obj());
-			connection->BeginReadingLoopUnsafe();
-			context->eventConnected.Wait();
-			CHECK_ERROR(context->accepted, L"NetworkProtocolChannelServer failed to accept the connection.");
-			return context->clientId;
 		}
 
 		bool DisconnectClient(vint clientId) override
@@ -1410,13 +1411,13 @@ NetworkProtocolChannelServer
 
 			if (shouldStop)
 			{
-				npServer->Stop();
 				for (auto&& connection : stoppingPendingConnections)
 				{
-					connection->eventConnected.Signal();
+					connection->connection->Stop();
 				}
 				for (auto&& connection : stoppingConnections)
 				{
+					connection->connection->Stop();
 					OnClientDisconnected(connection->clientId);
 				}
 				for (vint i = 0; i < stoppingLocalClients.Count(); i++)
@@ -1434,7 +1435,7 @@ NetworkProtocolChannelServer
 			{
 				result = stopped;
 			}
-			return result || npServer->IsStopped();
+			return result;
 		}
 	};
 }

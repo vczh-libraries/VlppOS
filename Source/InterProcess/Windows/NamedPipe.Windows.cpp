@@ -292,6 +292,37 @@ void NamedPipeConnection::Stop()
 NamedPipeServer
 ***********************************************************************/
 
+NamedPipeServer::PendingConnection::PendingConnection(NamedPipeServer* _server, Ptr<NamedPipeConnection> _connection)
+	: server(_server)
+	, connection(_connection)
+{
+	ZeroMemory(&overlappedConnect, sizeof(overlappedConnect));
+	hEventConnect = CreateEvent(NULL, TRUE, FALSE, NULL);
+	CHECK_ERROR(hEventConnect != NULL, L"ConnectNamedPipe failed on CreateEvent.");
+	overlappedConnect.hEvent = hEventConnect;
+}
+
+NamedPipeServer::PendingConnection::~PendingConnection()
+{
+	Stop();
+	CloseHandle(hEventConnect);
+}
+
+void NamedPipeServer::PendingConnection::Stop()
+{
+	server = nullptr;
+	auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&hWaitHandleConnect, INVALID_HANDLE_VALUE);
+	if (waitHandle != INVALID_HANDLE_VALUE)
+	{
+		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
+	}
+	if (connection)
+	{
+		connection->Stop();
+		connection = nullptr;
+	}
+}
+
 HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 {
 	HANDLE hPipe = CreateNamedPipe(
@@ -310,6 +341,7 @@ HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 NamedPipeServer::NamedPipeServer(const WString& _pipeName)
 	: pipeName(_pipeName)
 {
+	BeginListening();
 }
 
 NamedPipeServer::~NamedPipeServer()
@@ -317,63 +349,190 @@ NamedPipeServer::~NamedPipeServer()
 	Stop();
 }
 
-INetworkProtocolConnection* NamedPipeServer::WaitForClient()
+void NamedPipeServer::BeginListening()
 {
+	Ptr<PendingConnection> pendingConnection;
 	SPIN_LOCK(lockConnections)
 	{
-		CHECK_ERROR(!stopped, L"NamedPipeServer has stopped.");
+		if (stopped)
+		{
+			return;
+		}
 	}
 
 	auto connection = Ptr(new NamedPipeConnection(ServerCreatePipe(pipeName)));
+	pendingConnection = Ptr(new PendingConnection(this, connection));
+
+	BOOL result = ConnectNamedPipe(connection->hPipe, &pendingConnection->overlappedConnect);
+	DWORD error = result ? ERROR_SUCCESS : GetLastError();
+	switch (error)
 	{
-		OVERLAPPED overlapped;
-		ZeroMemory(&overlapped, sizeof(overlapped));
-		overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		CHECK_ERROR(overlapped.hEvent != NULL, L"ConnectNamedPipe failed on CreateEvent.");
-
-		BOOL result = ConnectNamedPipe(connection->hPipe, &overlapped);
-		CHECK_ERROR(result == FALSE, L"ConnectNamedPipe failed.");
-		DWORD error = GetLastError();
-		switch (error)
+	case ERROR_SUCCESS:
+	case ERROR_PIPE_CONNECTED:
+		CompletePendingConnection(pendingConnection.Obj(), true);
+		break;
+	case ERROR_IO_PENDING:
+		SPIN_LOCK(lockConnections)
 		{
-		case ERROR_IO_PENDING:
-			WaitForSingleObject(overlapped.hEvent, INFINITE);
-			break;
-		default:
-			CHECK_ERROR(error == ERROR_PIPE_CONNECTED, L"ConnectNamedPipe failed on unexpected GetLastError.");
-		}
+			if (stopped)
+			{
+				pendingConnection->Stop();
+				return;
+			}
+			pendingConnections.Add(pendingConnection);
+			BOOL waitResult = RegisterWaitForSingleObject(
+				&pendingConnection->hWaitHandleConnect,
+				pendingConnection->hEventConnect,
+				[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
+				{
+					auto pendingConnection = (PendingConnection*)lpParameter;
+					auto waitHandle = (HANDLE)InterlockedExchangePointer((PVOID volatile*)&pendingConnection->hWaitHandleConnect, INVALID_HANDLE_VALUE);
+					if (waitHandle != INVALID_HANDLE_VALUE)
+					{
+						UnregisterWait(waitHandle);
+					}
 
-		CloseHandle(overlapped.hEvent);
+					DWORD transferred = 0;
+					BOOL result = GetOverlappedResult(pendingConnection->connection->hPipe, &pendingConnection->overlappedConnect, &transferred, FALSE);
+					if (result == TRUE)
+					{
+						if (pendingConnection->server)
+						{
+							pendingConnection->server->CompletePendingConnection(pendingConnection, true);
+						}
+					}
+					else
+					{
+						auto error = GetLastError();
+						if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE || error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+						{
+							if (pendingConnection->server)
+							{
+								pendingConnection->server->CompletePendingConnection(pendingConnection, false);
+							}
+							return;
+						}
+						CHECK_FAIL(L"GetOverlappedResult(ConnectNamedPipe) failed on unexpected GetLastError.");
+					}
+				},
+				pendingConnection.Obj(),
+				INFINITE,
+				WT_EXECUTEONLYONCE);
+			CHECK_ERROR(waitResult, L"RegisterWaitForSingleObject failed for ConnectNamedPipe.");
+		}
+		break;
+	default:
+		CHECK_FAIL(L"ConnectNamedPipe failed on unexpected GetLastError.");
+	}
+}
+
+void NamedPipeServer::CompletePendingConnection(Ptr<PendingConnection> pendingConnection, bool connected)
+{
+	auto connection = pendingConnection->connection;
+	bool shouldListen = false;
+	bool shouldNotify = false;
+
+	{
+		SPIN_LOCK(lockConnections)
+		{
+			pendingConnections.Remove(pendingConnection.Obj());
+			if (!stopped)
+			{
+				shouldListen = true;
+				if (connected)
+				{
+					connection->server = this;
+					connections.Add(connection);
+					shouldNotify = true;
+					pendingConnection->connection = nullptr;
+					pendingConnection->server = nullptr;
+				}
+			}
+		}
 	}
 
-	SPIN_LOCK(lockConnections)
+	if (shouldListen)
 	{
-		if (!stopped)
+		BeginListening();
+	}
+
+	if (shouldNotify)
+	{
+		auto result = OnClientConnected(connection.Obj());
+		if (result == WaitForClientResult::Reject)
 		{
-			connection->server = this;
-			connections.Add(connection);
-			return connection.Obj();
+			SPIN_LOCK(lockConnections)
+			{
+				connections.Remove(connection.Obj());
+			}
+			connection->server = nullptr;
+			connection->Stop();
 		}
 	}
-	CHECK_FAIL(L"NamedPipeServer has stopped.");
+	else if (connection)
+	{
+		connection->Stop();
+	}
+}
+
+void NamedPipeServer::CompletePendingConnection(PendingConnection* pendingConnection, bool connected)
+{
+	Ptr<PendingConnection> holding;
+	{
+		SPIN_LOCK(lockConnections)
+		{
+			for (vint i = 0; i < pendingConnections.Count(); i++)
+			{
+				if (pendingConnections[i].Obj() == pendingConnection)
+				{
+					holding = pendingConnections[i];
+					break;
+				}
+			}
+		}
+	}
+	if (holding)
+	{
+		CompletePendingConnection(holding, connected);
+	}
+}
+
+WaitForClientResult NamedPipeServer::OnClientConnected(INetworkProtocolConnection* connection)
+{
+	return WaitForClientResult::Accept;
 }
 
 void NamedPipeServer::Stop()
 {
+	List<Ptr<NamedPipeConnection>> stoppingConnections;
+	List<Ptr<PendingConnection>> stoppingPendingConnections;
 	SPIN_LOCK(lockConnections)
 	{
-		stopped = true;
-		for (auto connection : connections)
+		if (!stopped)
 		{
-			connection->server = nullptr;
+			stopped = true;
+			for (auto connection : connections)
+			{
+				connection->server = nullptr;
+				stoppingConnections.Add(connection);
+			}
+			for (auto pendingConnection : pendingConnections)
+			{
+				stoppingPendingConnections.Add(pendingConnection);
+			}
+			connections.Clear();
+			pendingConnections.Clear();
 		}
 	}
 
-	for (auto connection : connections)
+	for (auto pendingConnection : stoppingPendingConnections)
+	{
+		pendingConnection->Stop();
+	}
+	for (auto connection : stoppingConnections)
 	{
 		connection->Stop();
 	}
-	connections.Clear();
 }
 
 bool NamedPipeServer::IsStopped()

@@ -85,18 +85,40 @@ class NamedPipeServer : public Object, public virtual INetworkProtocolServer
 {
 	friend class NamedPipeConnection;
 protected:
+	class PendingConnection : public Object
+	{
+	public:
+		NamedPipeServer*								server = nullptr;
+		Ptr<NamedPipeConnection>						connection;
+		HANDLE											hWaitHandleConnect = INVALID_HANDLE_VALUE;
+		OVERLAPPED										overlappedConnect;
+		HANDLE											hEventConnect = INVALID_HANDLE_VALUE;
+
+		PendingConnection(NamedPipeServer* _server, Ptr<NamedPipeConnection> _connection);
+		~PendingConnection();
+
+		void											Stop();
+	};
+
 	static HANDLE									ServerCreatePipe(const WString& pipeName);
 
 	WString											pipeName;
-	bool											stopped = false;
+
+	// covers stopped, connections and pendingConnections
 	SpinLock										lockConnections;
+	bool											stopped = false;
 	collections::List<Ptr< NamedPipeConnection>>	connections;
+	collections::List<Ptr<PendingConnection>>		pendingConnections;
+
+	void											BeginListening();
+	void											CompletePendingConnection(Ptr<PendingConnection> pendingConnection, bool connected);
+	void											CompletePendingConnection(PendingConnection* pendingConnection, bool connected);
 
 public:
 	NamedPipeServer(const WString& _pipeName);
 	~NamedPipeServer();
 
-	INetworkProtocolConnection*						WaitForClient() override;
+	WaitForClientResult								OnClientConnected(INetworkProtocolConnection* connection) override;
 	void											Stop() override;
 	bool											IsStopped() override;
 };
