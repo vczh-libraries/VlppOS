@@ -8,6 +8,10 @@
   - `HttpClient`.
   - `HttpServer`.
   - `NamedPipe`.
+- New tests.
+  - Concurrent `SendString` handling.
+  - `WaitForServer` without server started.
+  - Client or server stops any time.
 - Check `NetworkProtocolLocalChannelClient`.
 - Windows socket
 - Linux socket
