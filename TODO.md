@@ -14,6 +14,8 @@
   - `WaitForServer` without server started.
   - Client or server stops any time.
 - Check `NetworkProtocolLocalChannelClient`.
+- Windows only simple HTTP server APIs, and refactor `HttpServer` `INetworkProtocolServer` implementation.
+  - Optional `HttpVerbOPTIONS` switch.
 - Windows socket
 - Linux socket
 - stdio?
