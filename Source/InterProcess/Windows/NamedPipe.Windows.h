@@ -97,21 +97,21 @@ protected:
 	public:
 		class ConnectWaitContext;
 
-		NamedPipeServer*								server = nullptr;
-		Ptr<NamedPipeConnection>						connection;
-		SpinLock										lockConnectWait;
-		std::atomic<ConnectWaitContext*>					connectWaitContext = nullptr;
-		OVERLAPPED										overlappedConnect;
-		HANDLE											hEventConnect = INVALID_HANDLE_VALUE;
-		atomic_vint										pendingCallbacks = 0;
-		EventObject										eventPendingCallbacks;
+		NamedPipeServer*							server = nullptr;
+		Ptr<NamedPipeConnection>					connection;
+		SpinLock									lockConnectWait;
+		std::atomic<ConnectWaitContext*>			connectWaitContext = nullptr;
+		OVERLAPPED									overlappedConnect;
+		HANDLE										hEventConnect = INVALID_HANDLE_VALUE;
+		atomic_vint									pendingCallbacks = 0;
+		EventObject									eventPendingCallbacks;
 
 		PendingConnection(NamedPipeServer* _server, Ptr<NamedPipeConnection> _connection);
 		~PendingConnection();
 
-		void											Stop();
-		void											BeginPendingCallback();
-		void											EndPendingCallback();
+		void										Stop();
+		void										BeginPendingCallback();
+		void										EndPendingCallback();
 	};
 
 	static HANDLE									ServerCreatePipe(const WString& pipeName);

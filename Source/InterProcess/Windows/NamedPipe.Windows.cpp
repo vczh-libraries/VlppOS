@@ -399,7 +399,7 @@ void NamedPipeConnection::EndPendingCallback()
 }
 
 /***********************************************************************
-NamedPipeServer
+NamedPipeServer::PendingConnection
 ***********************************************************************/
 
 NamedPipeServer::PendingConnection::PendingConnection(NamedPipeServer* _server, Ptr<NamedPipeConnection> _connection)
@@ -461,6 +461,10 @@ void NamedPipeServer::PendingConnection::EndPendingCallback()
 		eventPendingCallbacks.Signal();
 	}
 }
+
+/***********************************************************************
+NamedPipeServer
+***********************************************************************/
 
 HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 {
