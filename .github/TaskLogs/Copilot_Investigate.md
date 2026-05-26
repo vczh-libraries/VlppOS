@@ -2,115 +2,53 @@
 
 # PROBLEM DESCRIPTION
 
-- you have to follow `REPO-ROOT/.github/Guidelines/Coding.md` when coding.
-- you have to run unit test to make sure your change works.
-- you have to commit and push all local changes after finishing any task, before doing the next task.
-  - It is important to do task one by one strictly, by me designing tasks in this way, we can achieve:
-  - Easy-to-understand commits for file changing that is easy to review.
-  - Limit side effects so that you don't have to deal with massive of issues at the same time.
-- each task will be treated as a new `# Repro`, that is, to wipe the document before execution.
-
-All tasks below are for completing `vl::inter_process`.
-`UnitTest` test project has been configured to only run `TestInterProcess.cpp` under debug x64.
-I think this is the only test file you need.
-
 ## Task 1
 
-Refactor `HttpClient`.
-- In `HttpClient::BeginReadingLoopUnsafe` and `HttpClient::SendString` there is two similar `WinHttpSetStatusCallback` calls.
-  - In `HttpClient::WaitForServer` there is one more `WinHttpSetStatusCallback` calls with a much simpler handling.
-  - I think there is no reason to have 3 different `WinHttpSetStatusCallback` calls as their handling should be almost the same.
-  - I would like you to make a protected `HttpClient::SendHttpRequest` function to send all different requests to the server. In this function you can pass an enum to distinguish Connect/Request/Response so that when a full body is received different actions could be taken. And `/Request` doesn't need to call `callback->OnReadString` because `HttpServer` always send messages through `/Response`.
-  - Currenty calling to `WinHttpSetStatusCallback` is incorrect. It uses `self->QueueCallback` to block `Stop` but it is not correct. The correct way to handle it is that:
-    - In `HttpClient::SendHttpRequest` checks state and ignore if already stopping.
-    - `BeginPendingCallback`.
-    - If anything error happens before `WinHttpSendRequest` in that function, `EndPendingCallback`.
-    - If no error happens before `WinHttpSendRequest`, `EndPendingCallback` will be called when `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING` happens, as in the document this status will always be invoked no matter what happens.
-    - No `self->QueueCallback` is needed as the piece of code should just be executed in the `WinHttpSetStatusCallback` directly. Calling `ThreadPoolLite::Queue` for any callback is just a waste of resource.
-- `hEventWaitForServer` should use `EventObject` instead of `HANDLE`.
+This task happens in `VlppOS` repo.
 
-Refactor `HttpServer`.
-- All interlocked operations should be replaced by `atomic<T>`.
-
-Refactor `NamedPipe.Windows.cpp`.
-- All interlocked operations should be replaced by `atomic<T>`.
-
-Remove all 6 `Thread::Sleep(1000);` in TestInterProcess.cpp.
-
-The goal is to make sure all `Stop` actually waits until no more callback could happen.
+General Refactoring:
+- `INetworkProtocolClient::WaitForServer` should only be called when status is `Ready`.
+  - `NetworkProtocolLocalChannelClient` will skip this check.
+- `NetworkProtocolLocalChannelClient`
+  - `WaitForServer` should just do nothing, everything should be done in `IChannelServer::ConnectLocalClient`.
+  - Common base class with `NetworkProtocolChannelClient` should be extracted as the current base class `NetworkProtocolChannelClient` has members that do not work with `NetworkProtocolLocalChannelClient`.
+- `NamedPipeConnection`
+  - Remove `lockReadWait` as `readWaitContext` is already atomic.
+- `NamedPipeServer::PendingConnection`
+  - Remove `lockConnectWait` as `connectWaitContext` is already atomic.
+- `HttpServerConnection::InstallCallback`
+  - Only move `queuedStrings` in `SPIN_LOCK`.
 
 # UPDATES
 
-## UPDATE
-
-The previous work is good, I just want to add a little change. No the test is fast, I would like to say in all 4 TEST_CASE we should loop the test for 20 times
-
 # TEST [CONFIRMED]
 
-Use the existing `Test\Source\TestInterProcess.cpp` unit tests because the `UnitTest` project is configured to run this file under debug x64 for the inter-process work.
+Use the existing `Test\Source\TestInterProcess.cpp` coverage because the `UnitTest` project is configured for the inter-process work.
 
 The criteria for success are:
-- `NamedPipe (NetworkProtocol)` and `NamedPipe (Channel)` still pass after replacing registered wait-handle interlocked swaps with atomics.
-- `HttpServer (NetworkProtocol)` and `HttpServer (Channel)` still pass after consolidating `HttpClient` WinHTTP request handling and replacing server registered wait-handle interlocked swaps with atomics.
-- `Stop()` waits until registered callbacks cannot execute again, including WinHTTP request callbacks that are pending after `WinHttpSendRequest`.
-- `TestInterProcess.cpp` no longer contains the six `Thread::Sleep(1000);` delays.
+- All four inter-process test cases still compile and pass: named pipe network protocol, named pipe channel, HTTP network protocol, and HTTP channel.
+- `NetworkProtocolChannelClient` only calls the underlying `INetworkProtocolClient::WaitForServer` from the `Ready` state.
+- `NetworkProtocolLocalChannelClient::WaitForServer` is a no-op; local connection completion is done by `IChannelServer::ConnectLocalClient`.
+- Shared channel-client state is held in a common base class that does not contain network-only members such as the network protocol client, callback, or wait event.
+- `NamedPipeConnection` no longer has `lockReadWait`, and `NamedPipeServer::PendingConnection` no longer has `lockConnectWait`; their wait contexts remain protected by atomics.
+- `HttpServerConnection::InstallCallback` only moves `queuedStrings` while holding `SPIN_LOCK`, then invokes callbacks after releasing the lock.
 - The unit test process exits without timeouts, crashes, or memory leak reports.
+
+The current unit test project builds successfully before the refactor:
+- `copilotBuild.ps1` completed with `Build succeeded.`, `0 Warning(s)`, and `0 Error(s)`.
 
 # PROPOSALS
 
-- No.1 CONSOLIDATE CALLBACK LIFETIME AND ATOMIC WAIT HANDLES [CONFIRMED]
-- No.2 REPEAT INTER-PROCESS TEST CASES [CONFIRMED]
+- No.1 EXTRACT CHANNEL CLIENT BASE AND SIMPLIFY WAIT CONTEXTS
 
-## No.1 CONSOLIDATE CALLBACK LIFETIME AND ATOMIC WAIT HANDLES
+## No.1 EXTRACT CHANNEL CLIENT BASE AND SIMPLIFY WAIT CONTEXTS
 
-Refactor `HttpClient` to send `/Connect`, `/Request`, and `/Response` through one protected `SendHttpRequest` helper. The helper will install one WinHTTP status callback, begin pending callback tracking before sending, and release it only from `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING` for successfully submitted requests. Error paths before `WinHttpSendRequest` will release the pending callback immediately.
+Extract a `NetworkProtocolChannelClientBase` that owns shared channel-client behavior: serialization context, channel creation, channel maps, status/client id state, connection notifications, and common batch receiving helpers. Keep network-only state and operations in `NetworkProtocolChannelClient`, including the network protocol client, network callback, wait event, string package parsing, and actual `INetworkProtocolClient::WaitForServer` call.
 
-Replace `hEventWaitForServer` with `EventObject` so synchronous `/Connect` waiting uses the library synchronization abstraction.
+Make `NetworkProtocolLocalChannelClient` inherit from the common base instead of the network client. Its `WaitForServer` will do nothing; `NetworkProtocolChannelServer::ConnectLocalClient` will continue assigning the id, registering channels, and notifying the local client as the connection boundary.
 
-Replace registered wait-handle interlocked pointer exchanges in `HttpServer.Windows.cpp` and `NamedPipe.Windows.cpp` with standard atomic exchanges. Registered callbacks and `Stop()` will exchange these handles atomically before unregistering them.
+Remove the `SpinLock` fields that only guarded `readWaitContext` and `connectWaitContext`, because those fields are already atomic. Use atomic exchange/compare-exchange directly around registration, stop, and callback ownership.
 
-Remove the six one-second sleeps from `TestInterProcess.cpp` so tests check that `Stop()` itself provides the required callback drain behavior.
-
-### CODE CHANGE
-
-Refactored `HttpClient` so `BeginReadingLoopUnsafe`, `WaitForServer`, and `SendString` all call `SendHttpRequest`. The helper creates one heap-allocated `HttpRequestContext` per WinHTTP request, installs one shared status callback, tracks callback lifetime with `BeginPendingCallback` before sending, and releases it from `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING`. It uses `WINHTTP_OPTION_CONTEXT_VALUE` so handle-closing callbacks can identify the context even around failed sends. Completed request handles are closed before invoking user read callbacks, allowing reentrant `SendString` calls from callbacks without keeping the completed request active.
-
-Changed `HttpClient::Stop()` to cancel long-poll `/Request` handles while allowing already-started `/Response` sends to finish and drain their handle-closing callbacks. This keeps final client messages from being aborted when callers stop immediately after `SendString`.
-
-Replaced `HttpClient::hEventWaitForServer` with `EventObject`.
-
-Replaced registered wait-handle `InterlockedExchangePointer` usage in `HttpServer.Windows.cpp` and `NamedPipe.Windows.cpp` with `std::atomic_ref<HANDLE>::exchange`, preserving the `HANDLE*` storage required by `RegisterWaitForSingleObject`.
-
-Changed `HttpServer` `/Response` reply handling to accept `ERROR_CONNECTION_INVALID` and `ERROR_OPERATION_ABORTED` after the request body has already been processed, because clients may now stop immediately after sending when the test no longer waits one second.
-
-Removed all six `Thread::Sleep(1000);` calls from `TestInterProcess.cpp`.
-
-### CONFIRMED
-
-This proposal is confirmed. The consolidated `HttpClient::SendHttpRequest` removes the duplicated WinHTTP callback implementations and makes request lifetime tracking depend on `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING`. `Stop()` now cancels long-poll read requests while allowing already-started outgoing `/Response` sends to drain, so final messages are not lost when tests stop clients immediately after sending. `EventObject` replaces the raw wait event for `/Connect`, and registered wait callbacks in HTTP server and named pipe code now use standard atomic exchanges instead of interlocked pointer exchanges.
-
-Verification succeeded:
-- `copilotBuild.ps1` completed with `Build succeeded.`, `0 Warning(s)`, and `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest` completed with `Passed test files: 1/1` and `Passed test cases: 4/4`.
-
-## No.2 REPEAT INTER-PROCESS TEST CASES
-
-Repeat each existing inter-process `TEST_CASE` body twenty times. This keeps the same four test cases and same communication scenarios, but exercises the callback draining behavior repeatedly now that the explicit one-second sleeps have been removed.
+Change `HttpServerConnection::InstallCallback` so it moves `queuedStrings` to a local list while holding `lockQueuedStrings`, then invokes `OnInstalled` and queued `OnReadString` callbacks after the lock is released.
 
 ### CODE CHANGE
-
-Add a shared repeat-count constant to `TestInterProcess.cpp`, and wrap all four `TEST_CASE` bodies in a `for` loop that runs the existing scenario 20 times.
-
-The repeated run exposed that `NamedPipeConnection::Stop()` could still return while a read wait callback was executing if the callback had already exchanged the registered wait handle. Refactor named-pipe read waits and pending server connection waits to use dynamically allocated wait contexts, pending callback counters, and completion events. `Stop()` now unregisters contexts that have not started, waits for contexts that have started, and only closes pipe handles after pending callbacks drain.
-
-The first fix also exposed a named-pipe recursive-read disconnect case: when a read callback immediately observed a closed pipe while starting the next read, `OnDisconnected()` could remove the last server connection reference and make the destructor wait for the same callback. `BeginReadingLoopUnsafe()` now avoids synchronous `OnDisconnected()` teardown from inside an already pending callback, while still reporting disconnects for non-callback reads.
-
-Adjusted `NamedPipeConnection::OnDisconnected()` so callback-time disconnect notifications do not remove the connection from the server list while the callback is still active. Non-callback disconnects still remove the connection, and the removal now uses a captured server pointer guarded by the server lock to avoid racing with `NamedPipeServer::Stop()` nulling the connection's server pointer.
-
-### CONFIRMED
-
-This proposal is confirmed. Each of the four existing inter-process `TEST_CASE` bodies now runs its scenario 20 times, and the repeated run exposed and verified the named-pipe callback drain fixes. Named-pipe read callbacks now keep pending callback tracking active until callback work finishes, `Stop()` unregisters or waits for read and connect wait contexts before closing handles, and callback-time disconnect handling no longer destroys a connection from inside the active callback stack.
-
-Verification succeeded:
-- `copilotBuild.ps1` completed with `Build succeeded.`, `0 Warning(s)`, and `0 Error(s)`.
-- `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest` completed with `Passed test files: 1/1` and `Passed test cases: 4/4`.
