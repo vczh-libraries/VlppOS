@@ -5,6 +5,7 @@ CPP_REMOVES=(
     "../../Import/Vlpp.Windows.cpp"
     "../../Source/FileSystem.Windows.cpp"
     "../../Source/InterProcess/Windows/HttpClientApi.Windows.cpp"
+    "../../Source/InterProcess/Windows/HttpServerApi.Windows.cpp"
     "../../Source/Locale.Windows.cpp"
     "../../Source/Threading.Windows.cpp"
     "../../Source/Encoding/CharFormat/CharFormat.Windows.cpp"

@@ -57,6 +57,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\Locale.cpp">
       <Filter>Common</Filter>
     </ClCompile>
@@ -186,6 +189,9 @@
       <Filter>Common</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Locale.h">

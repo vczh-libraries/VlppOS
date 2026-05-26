@@ -10,6 +10,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp"
+#include "..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.cpp"

@@ -10,7 +10,7 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_WINDOWS_HTTPSERVER
 #define VCZH_INTERPROCESS_WINDOWS_HTTPSERVER
 
-#include "NetworkProtocol.Windows.h"
+#include "HttpServerApi.Windows.h"
 
 namespace vl::inter_process
 {
@@ -49,10 +49,8 @@ public:
 	static WString									GenerateNewGuid();
 };
 
-class HttpServer : public Object, public virtual INetworkProtocolServer
+class HttpServer : public HttpServerApi, public virtual INetworkProtocolServer
 {
-	static constexpr vint32_t						HttpBodyInitSize = 1024;
-
 	friend class HttpServerConnection;
 	using ConnectionMap = collections::Dictionary<WString, Ptr<HttpServerConnection>>;
 protected:
@@ -65,41 +63,6 @@ protected:
 	SpinLock										lockConnections;
 	ConnectionMap									connections;
 
-	HANDLE											httpRequestQueue = INVALID_HANDLE_VALUE;
-	HTTP_SERVER_SESSION_ID							httpSessionId = HTTP_NULL_ID;
-	HTTP_URL_GROUP_ID								httpUrlGroupId = HTTP_NULL_ID;
-
-/***********************************************************************
-HttpServer (ListenToHttpRequest)
-***********************************************************************/
-
-protected:
-
-	enum class State
-	{
-		Ready,
-		Running,
-		Stopping,
-	};
-
-	State											state = State::Ready;
-
-	collections::Array<BYTE>						bufferRequest;
-	HANDLE											hWaitHandleRequest = INVALID_HANDLE_VALUE;
-	OVERLAPPED										overlappedRequest;
-	HANDLE											hEventRequest = INVALID_HANDLE_VALUE;
-	EventObject										eventPendingCallbacks;
-	atomic_vint										pendingCallbacks = 0;
-
-	void											OnHttpConnectionBrokenUnsafe();
-	void											OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest);
-	ULONG											ListenToHttpRequest_Init(OVERLAPPED* overlapped);
-	ULONG											ListenToHttpRequest_InitMoreData(ULONG* bytesReturned);
-	ULONG											ListenToHttpRequest_OverlappedMoreData(vint expectedBufferSize);
-	void											ListenToHttpRequest();
-	void											BeginPendingCallback();
-	void											EndPendingCallback();
-
 /***********************************************************************
 HttpServer (BeginReadingLoopUnsafe)
 ***********************************************************************/
@@ -108,14 +71,13 @@ protected:
 
 
 /***********************************************************************
-HttpServer (Writing)
+HttpServer (HttpServerApi)
 ***********************************************************************/
 
 protected:
 
-	static void										Send404Response(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, PCSTR reason);
-	static void										SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId);
-	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const WString& str);
+	void											OnHttpRequestReceived(PHTTP_REQUEST pRequest) override;
+	void											OnHttpServerStopping() override;
 
 /***********************************************************************
 HttpServer

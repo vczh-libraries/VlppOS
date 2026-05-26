@@ -1,56 +1,43 @@
 # !!!INVESTIGATE!!!
-
 # PROBLEM DESCRIPTION
 
-## Task 2
+## Task 3
 
 This task happens in `VlppOS` repo.
 
-- Windows only simple HTTP client APIs, and refactor `HttpClient` `INetworkProtocolClient` implementation.
-  - Delete `HttpUtility.h` and `HttpUtility.Windows.cpp`.
-  - The API design should be similar to above files but everything would be async.
-  - Keep `UrlEncodeQuery`.
-  - `HttpClientApi.Windows.(h|cpp)`.
-
-Details:
-
-I would like you to follow the design of `HttpUtility.h` but completely discard the implementation to complete the new API.
-By saying `HttpQuery` should be async, I mean the last argumne would be a callback in `Func<void(Variant<HttpResponse, HttpError>)>`, returning `void`.
-You are going to decide what could be in `HttpError`. Remember that getting a 404 doesn't count as an error, it counts as an success. Error means anything that is going wrong causing the underlying http client API not working.
-If anything is needed from `HttpClient.Windows.cpp` but it does not appear in the original `HttpUtility.h` design, just add anything that is missing.
-The underlying http client API needs initialization and finalization, you are just going to add a `HttpClientApi` struct with:
-  - All necessary Windows API objects in it.
+- Windows only simple HTTP server APIs, and refactor `HttpServer` `INetworkProtocolServer` implementation.
+  - One `HttpServerApi` struct works for one `http://host:port/prefix/.../` prefix.
   - The construction does the initialization and the destructor does the finalization.
   - Delete copy/move ctor, delete copy/move operator=.
-  - The class will be created for the same host:port only, sending http requests to different targets requires different instances of `HttpClientApi`.
-  - `HttpQuery` becomes its method. Since `HttpClient` only uses utf8, it is OK to make this API only working with `WString`.
-  - `HttpEncodeQuery` and `HttpDecodeQuery` becomes its static methods.
+  - There will be one callback (abstract function) exposing http server API raw objects to handle the request. One helper function to send status code, optional utf8 reason and utf8 body back, `WString` instead of `U8String`.
+  - Optional `HttpVerbOPTIONS` switch. It works for all url under this prefix, it will not passed to the callback.
+  - `HttpServerApi.Windows.(h|cpp)`.
 Everything should be in `vl::inter_process` namespace.
 
 # UPDATES
 
-- Added `Source\InterProcess\Windows\HttpClientApi.Windows.(h|cpp)` with async WinHTTP request handling, `HttpRequest`, `HttpResponse`, `HttpError`, static query encode/decode helpers, and `UrlEncodeQuery` compatibility in `vl::inter_process`.
-- Deleted the old synchronous `Source\HttpUtility.h` and `Source\HttpUtility.Windows.cpp` and moved project/include-only references to the new API files.
-- Refactored `HttpClient` to use `HttpClientApi` for `/Connect`, `/Request`, and `/Response`, while preserving the protocol behavior that non-200 statuses are handled as client connection/read failures.
-- Added a per-request `keepAliveOnStop` option so `HttpClient` can let final `/Response` writes complete during `Stop`, matching the previous implementation's shutdown behavior.
-- Hardened `HttpServerConnection::SubmitResponse` to accept request bodies that arrive either in initial HTTP request chunks or through `HttpReceiveRequestEntityBody`, which the new async client can expose.
+# TEST [CONFIRMED]
 
-# TEST
+Use the existing inter-process HTTP unit tests as coverage:
 
-[CONFIRMED]
-
-- `Source\HttpUtility.h` and `Source\HttpUtility.Windows.cpp` are deleted, and the unit-test project references the replacement API files.
-- The new `HttpClientApi` initializes/finalizes WinHTTP resources, owns per-request async state, returns non-transport HTTP statuses (including 404) as `HttpResponse`, and reports only WinHTTP/underlying failures as `HttpError`.
-- `HttpClient` uses `HttpClientApi` instead of directly owning WinHTTP request state.
-- `..\..\.github\Scripts\copilotBuild.ps1` passes from `Test\UnitTest` with 0 warnings and 0 errors.
-- `..\..\.github\Scripts\copilotExecute.ps1 -Mode UnitTest -Executable UnitTest` passes from `Test\UnitTest`: 12/12 test files and 115/115 test cases.
-- The tail of `.github\Scripts\Execute.log` has no memory leak dump after the final test run.
+- `HttpServer (NetworkProtocol)` proves the refactored server still accepts HTTP clients, receives `/Response` payloads, and dispatches `/Request` data.
+- `HttpServer (Channel)` proves the HTTP server still works through the channel abstraction.
+- The full `UnitTest` executable must pass, and `Execute.log` must not contain memory leak reports after the test summary.
 
 # PROPOSALS
 
-[PROPOSED]
+- No.1 Extract reusable `HttpServerApi` [CONFIRMED]
 
-- Add `InterProcess\Windows\HttpClientApi.Windows.(h|cpp)` with `HttpRequest`, `HttpResponse`, `HttpError`, and non-copyable/non-movable `HttpClientApi` in `vl::inter_process`.
-- Keep the old request/response body conveniences (`SetBodyUtf8`, `GetBodyUtf8`) and expose `UrlEncodeQuery` through static `HttpClientApi::HttpEncodeQuery` plus a compatibility free function in the new namespace.
-- Move the async WinHTTP callback/request lifetime management out of `HttpClient` and make each request complete exactly once through `Func<void(Variant<HttpResponse, HttpError>)>`.
-- Refactor `HttpClient` to issue `/Connect`, `/Request`, and `/Response` through `HttpClientApi`, preserving the inter-process protocol’s expectation that non-200 protocol statuses are connection/read errors even though the lower API returns them as successful HTTP responses.
+## No.1 Extract reusable `HttpServerApi`
+
+Move the Windows HTTP Server API setup, teardown, async request receive loop, OPTIONS handling, and generic response helper into `HttpServerApi.Windows.(h|cpp)`. The existing `HttpServer` will own an instance of a derived API callback object for the `http://localhost:port/baseUrl/` prefix and keep only the inter-process protocol routing and connection state.
+
+### CODE CHANGE
+
+- Added `Source/InterProcess/Windows/HttpServerApi.Windows.h` and `.cpp` to own the Windows HTTP Server API initialization, URL-prefix registration, async receive loop, OPTIONS responses, shutdown, and UTF-8 response helper.
+- Refactored `HttpServer` to derive from `HttpServerApi`, register one `http://localhost:port/baseUrl/` prefix, and keep only inter-process routing for `/Connect`, `/Request/{guid}`, and `/Response/{guid}`.
+- Updated the unit-test project, filters, Linux source exclusion list, and include-only release aggregators for the new Windows-only source file.
+
+### CONFIRMED
+
+Built `Test/UnitTest/UnitTest.sln` with `copilotBuild.ps1`: build succeeded with 0 warnings and 0 errors. Ran `UnitTest` with `copilotExecute.ps1 -Mode UnitTest -Executable UnitTest`: all 12/12 test files and 115/115 test cases passed. The tail of `Execute.log` ended at the passing summary and did not contain a memory leak report.
