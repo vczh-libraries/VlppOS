@@ -468,6 +468,24 @@ void HttpClientApi::HttpQuery(const HttpRequest& request, Func<void(Variant<Http
 		return;
 	}
 
+	httpResult = WinHttpSetTimeouts(
+		httpRequest,
+		(int)request.resolveTimeout,
+		(int)request.connectTimeout,
+		(int)request.sendTimeout,
+		(int)request.receiveTimeout);
+	lastError = GetLastError();
+	if (httpResult == FALSE)
+	{
+		EndPendingCallback();
+		WinHttpCloseHandle(httpRequest);
+		if (callback)
+		{
+			callback(Variant<HttpResponse, HttpError>(MakeError(L"WinHttpSetTimeouts", lastError)));
+		}
+		return;
+	}
+
 	auto contextPtr = new Ptr<HttpRequestContext>(new HttpRequestContext);
 	auto context = *contextPtr;
 	context->api = this;

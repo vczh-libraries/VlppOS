@@ -44,6 +44,14 @@ public:
 	HeaderMap											extraHeaders;
 	/// <summary>Set to true to let this request finish when <see cref="HttpClientApi.Stop"/> is called.</summary>
 	bool												keepAliveOnStop = false;
+	/// <summary>Timeout for resolving the host name. 0 or -1 means infinite.</summary>
+	vint												resolveTimeout = 0;
+	/// <summary>Timeout for connecting to the server. 0 or -1 means infinite.</summary>
+	vint												connectTimeout = 60000;
+	/// <summary>Timeout for sending the request. 0 or -1 means infinite.</summary>
+	vint												sendTimeout = 30000;
+	/// <summary>Timeout for receiving the response. 0 or -1 means infinite.</summary>
+	vint												receiveTimeout = 30000;
 
 	HttpRequest() = default;
 	void												SetBodyUtf8(const WString& bodyString);

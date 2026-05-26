@@ -174,6 +174,10 @@ bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* met
 		request.contentType = JsonContentType;
 		request.keepAliveOnStop = true;
 	}
+	else if (requestType == HttpRequestType::Request)
+	{
+		request.receiveTimeout = 0;
+	}
 	if (body.Length() > 0)
 	{
 		request.contentType = JsonContentType;
