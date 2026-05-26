@@ -59,22 +59,35 @@ WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 		CHECK_ERROR(headerContentLength.pRawValue != NULL, L"/Response missing Content-Type header.");
 		bodyLength = (ULONG)atoi(headerContentLength.pRawValue);
 	}
-	CHECK_ERROR(pRequest->Flags & HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS, L"/Response must contain body data.");
+	CHECK_ERROR(bodyLength > 0, L"/Response must contain body data.");
 
 	Array<char8_t> bodyBuffer(bodyLength + 1);
 	ZeroMemory(&bodyBuffer[0], bodyBuffer.Count() * sizeof(char8_t));
+	ULONG bodyWritten = 0;
+	for (USHORT i = 0; i < pRequest->EntityChunkCount; i++)
+	{
+		auto& chunk = pRequest->pEntityChunks[i];
+		CHECK_ERROR(chunk.DataChunkType == HttpDataChunkFromMemory, L"/Response contains an unsupported body chunk.");
+		auto chunkLength = chunk.FromMemory.BufferLength;
+		CHECK_ERROR(bodyWritten + chunkLength <= bodyLength, L"/Response body is longer than Content-Length.");
+		memcpy(&bodyBuffer[bodyWritten], chunk.FromMemory.pBuffer, chunkLength);
+		bodyWritten += chunkLength;
+	}
+	if (pRequest->Flags & HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS)
 	{
 		ULONG result = NO_ERROR;
 		result = HttpReceiveRequestEntityBody(
 			server->httpRequestQueue,
 			pRequest->RequestId,
 			HTTP_RECEIVE_REQUEST_ENTITY_BODY_FLAG_FILL_BUFFER,
-			&bodyBuffer[0],
-			bodyLength,
+			&bodyBuffer[bodyWritten],
+			bodyLength - bodyWritten,
 			&bodyReceived,
 			NULL);
-		CHECK_ERROR(result == NO_ERROR, L"HttpReceiveRequestEntityBody.");
+		CHECK_ERROR(result == NO_ERROR || result == ERROR_HANDLE_EOF, L"HttpReceiveRequestEntityBody.");
+		bodyWritten += bodyReceived;
 	}
+	CHECK_ERROR(bodyWritten == bodyLength, L"/Response body is shorter than Content-Length.");
 
 	SPIN_LOCK(pendingRequestLock)
 	{

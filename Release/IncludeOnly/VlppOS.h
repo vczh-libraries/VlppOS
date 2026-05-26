@@ -4,7 +4,6 @@ DEVELOPER: Zihan Chen(vczh)
 ***********************************************************************/
 #include "Vlpp.h"
 
-#include "..\..\Source\HttpUtility.h"
 #include "..\..\Source\Locale.h"
 #include "..\..\Source\Threading.h"
 #include "..\..\Source\InterProcess\Channel.h"

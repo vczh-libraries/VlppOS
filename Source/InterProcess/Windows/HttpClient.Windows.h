@@ -10,7 +10,7 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_WINDOWS_HTTPCLIENT
 #define VCZH_INTERPROCESS_WINDOWS_HTTPCLIENT
 
-#include "NetworkProtocol.Windows.h"
+#include "HttpClientApi.Windows.h"
 
 namespace vl::inter_process
 {
@@ -30,27 +30,21 @@ protected:
 	State											state = State::Ready;
 	INetworkProtocolCallback*						callback = nullptr;
 	WString											baseUrl;
-
-	HINTERNET										httpSession = NULL;
-	HINTERNET										httpConnection = NULL;
+	Ptr<HttpClientApi>								httpClientApi;
 	WString											urlConnect;
 	WString											urlRequest;
 	WString											urlResponse;
-
-	atomic_vint										pendingCallbacks = 0;
-	atomic_vint										createdRequestIds = 0;
-	EventObject										eventPendingCallbacks;
-	void											BeginPendingCallback();
-	void											EndPendingCallback();
+	SpinLock										lockState;
 
 /***********************************************************************
 HttpClient (Reading)
 ***********************************************************************/
 
 protected:
-	static constexpr vint32_t						HttpRespondBodyStep = 65536;
+	static constexpr const wchar_t*					JsonContentType = L"application/json; charset=utf8";
 
 	void											RaiseErrorUnsafe(WString errorMessage);
+	bool											IsStopping();
 public:
 
 	void											BeginReadingLoopUnsafe() override;
@@ -62,6 +56,11 @@ HttpClient (WaitForServer)
 protected:
 
 	EventObject										eventWaitForServer;
+	SpinLock										lockConnectResult;
+	bool											connectCompleted = false;
+	WString											connectResponse;
+	WString											connectError;
+	void											CompleteConnectRequest(const WString& response, const WString& error);
 
 public:
 	
@@ -81,45 +80,8 @@ protected:
 		Response,
 	};
 
-	class HttpResponseReading : public Object
-	{
-	public:
-		collections::Array<char8_t>					bodyBuffer;
-		DWORD										bodyBufferWriting = 0;
-		DWORD										bodyBufferWritingAvailable = 0;
-	};
-
-	class HttpRequestContext : public Object
-	{
-	public:
-		HttpClient*									client = nullptr;
-		HttpRequestType								requestType = HttpRequestType::Connect;
-		HINTERNET									httpRequest = NULL;
-		vint										requestId = 0;
-		U8String									requestBody;
-		Ptr<HttpResponseReading>					responseReading;
-		WString										connectResponse;
-		WString										connectError;
-		bool										connectCompleted = false;
-	};
-
-	class HttpActiveRequest
-	{
-	public:
-		HINTERNET									httpRequest = NULL;
-		vint										requestId = -1;
-		HttpRequestType								requestType = HttpRequestType::Connect;
-	};
-
-	SpinLock										httpActiveRequestsLock;
-	collections::List<HttpActiveRequest>			httpActiveRequests;
-
-	vint											FindActiveRequestUnsafe(HINTERNET httpRequest, vint requestId);
-	void											AttachRequestUnsafe(HINTERNET httpRequest, vint requestId, HttpRequestType requestType);
-	void											CloseRequest(HINTERNET httpRequest, vint requestId = 0);
-	void											OnRequestHandleClosing(HINTERNET httpRequest, vint requestId = 0);
-	Ptr<HttpRequestContext>							SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body);
-	void											OnHttpRequestBodyReceived(Ptr<HttpRequestContext> context);
+	bool											SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body);
+	void											OnHttpRequestCompleted(HttpRequestType requestType, Variant<HttpResponse, HttpError> result);
 
 public:
 

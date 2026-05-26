@@ -54,8 +54,8 @@
     <ClCompile Include="..\..\..\Source\FileSystem.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\HttpUtility.Windows.cpp">
-      <Filter>Common</Filter>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp">
+      <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Locale.cpp">
       <Filter>Common</Filter>
@@ -185,8 +185,8 @@
     <ClInclude Include="..\..\..\Source\FileSystem.h">
       <Filter>Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Source\HttpUtility.h">
-      <Filter>Common</Filter>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h">
+      <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Locale.h">
       <Filter>Common</Filter>

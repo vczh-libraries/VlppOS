@@ -6,6 +6,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "Vlpp.h"
 
 #include "..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h"
+#include "..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h"
 #include "..\..\Source\InterProcess\Windows\HttpClient.Windows.h"
 #include "..\..\Source\InterProcess\Windows\HttpServer.Windows.h"
 #include "..\..\Source\InterProcess\Windows\NamedPipe.Windows.h"

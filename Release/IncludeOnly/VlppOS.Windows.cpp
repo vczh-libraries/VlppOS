@@ -5,10 +5,10 @@ DEVELOPER: Zihan Chen(vczh)
 #include "VlppOS.Windows.h"
 
 #include "..\..\Source\FileSystem.Windows.cpp"
-#include "..\..\Source\HttpUtility.Windows.cpp"
 #include "..\..\Source\Locale.Windows.cpp"
 #include "..\..\Source\Threading.Windows.cpp"
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp"
+#include "..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp"
