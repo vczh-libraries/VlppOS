@@ -4,6 +4,7 @@
 
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [1]
 - `NetworkProtocolChannel` uses explicit positive sender and receiver ids [1]
+- Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
 - `vl::inter_process` shutdown must finish callbacks before returning [1]
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [1]
@@ -19,6 +20,10 @@ For channel delivery, keep queued packages grouped by target id so each group ca
 ## `NetworkProtocolChannel` uses explicit positive sender and receiver ids
 
 Channel messages carry both sender and receiver semantics. Ordinary channel chat should use real positive client ids for both sides; do not use `AdminClientId` as the sender for normal server-originated messages. If server-side behavior needs to speak on the channel, connect it as a local client and send from the assigned id. Validate both sender and receiver client ids, and keep public names such as `receiverClientId` aligned with the actual delivery direction.
+
+## Start `INetworkProtocolServer` / `IChannelServer` after construction
+
+For `vl::inter_process`, transport and channel servers should initialize handles and state in constructors, but begin named-pipe or HTTP accept callbacks only from `Start()`. Channel servers should reject remote and local clients before they are started, and callers should start the channel layer and transport layer only after concrete server construction is complete.
 
 ## `vl::inter_process` shutdown must finish callbacks before returning
 
