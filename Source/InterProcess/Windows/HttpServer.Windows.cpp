@@ -131,17 +131,19 @@ WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 
 void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
+	CHECK_ERROR(_callback, L"HttpServerConnection::InstallCallback needs a valid INetworkProtocolCallback.");
+	_callback->OnInstalled(this);
+
+	List<WString> strings;
 	SPIN_LOCK(lockQueuedStrings)
 	{
 		callback = _callback;
-		callback->OnInstalled(this);
-		for (const auto& str : queuedStrings)
-		{
-			callback->OnReadString(str);
-		}
-		queuedStrings.Clear();
+		strings = std::move(queuedStrings);
 	}
-
+	for (const auto& str : strings)
+	{
+		_callback->OnReadString(str);
+	}
 }
 
 void HttpServerConnection::BeginReadingLoopUnsafe()
@@ -441,6 +443,22 @@ void HttpServer::ListenToHttpRequest()
 		[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 		{
 			auto self = (HttpServer*)lpParameter;
+			struct PendingCallbackScope
+			{
+				HttpServer* server;
+
+				PendingCallbackScope(HttpServer* _server)
+					: server(_server)
+				{
+					server->BeginPendingCallback();
+				}
+
+				~PendingCallbackScope()
+				{
+					server->EndPendingCallback();
+				}
+			} pendingCallbackScope(self);
+
 			auto waitHandle = std::atomic_ref<HANDLE>(self->hWaitHandleRequest).exchange(INVALID_HANDLE_VALUE);
 			if (waitHandle != INVALID_HANDLE_VALUE)
 			{
@@ -488,6 +506,22 @@ void HttpServer::ListenToHttpRequest()
 		{
 			UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
 		}
+	}
+}
+
+void HttpServer::BeginPendingCallback()
+{
+	if (pendingCallbacks++ == 0)
+	{
+		eventPendingCallbacks.Unsignal();
+	}
+}
+
+void HttpServer::EndPendingCallback()
+{
+	if (--pendingCallbacks == 0)
+	{
+		eventPendingCallbacks.Signal();
 	}
 }
 
@@ -640,6 +674,7 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 
 	hEventRequest = CreateEvent(NULL, TRUE, TRUE, NULL);
 	CHECK_ERROR(hEventRequest != NULL, L"HttpServer initialization failed on CreateEvent(hEventRequest).");
+	CHECK_ERROR(eventPendingCallbacks.CreateManualUnsignal(true), L"HttpServer initialization failed on eventPendingCallbacks.CreateManualUnsignal.");
 
 	{
 		ULONG result = NO_ERROR;
@@ -737,6 +772,7 @@ void HttpServer::Stop()
 	{
 		UnregisterWaitEx(waitHandle, INVALID_HANDLE_VALUE);
 	}
+	eventPendingCallbacks.Wait();
 
 	List<Ptr<HttpServerConnection>> stoppingConnections;
 	SPIN_LOCK(lockConnections)

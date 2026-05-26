@@ -88,6 +88,8 @@ protected:
 	HANDLE											hWaitHandleRequest = INVALID_HANDLE_VALUE;
 	OVERLAPPED										overlappedRequest;
 	HANDLE											hEventRequest = INVALID_HANDLE_VALUE;
+	EventObject										eventPendingCallbacks;
+	atomic_vint										pendingCallbacks = 0;
 
 	void											OnHttpConnectionBrokenUnsafe();
 	void											OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest);
@@ -95,6 +97,8 @@ protected:
 	ULONG											ListenToHttpRequest_InitMoreData(ULONG* bytesReturned);
 	ULONG											ListenToHttpRequest_OverlappedMoreData(vint expectedBufferSize);
 	void											ListenToHttpRequest();
+	void											BeginPendingCallback();
+	void											EndPendingCallback();
 
 /***********************************************************************
 HttpServer (BeginReadingLoopUnsafe)

@@ -32,7 +32,6 @@ private:
 	atomic_vint										stopped = 0;
 	collections::Array<BYTE>						bufferReadFile;
 	stream::MemoryStream							streamReadFile;
-	SpinLock										lockReadWait;
 	std::atomic<ReadWaitContext*>					readWaitContext = nullptr;
 	OVERLAPPED										overlappedReadFile;
 	HANDLE											hEventReadFile = INVALID_HANDLE_VALUE;
@@ -99,7 +98,6 @@ protected:
 
 		NamedPipeServer*							server = nullptr;
 		Ptr<NamedPipeConnection>					connection;
-		SpinLock									lockConnectWait;
 		std::atomic<ConnectWaitContext*>			connectWaitContext = nullptr;
 		OVERLAPPED									overlappedConnect;
 		HANDLE										hEventConnect = INVALID_HANDLE_VALUE;

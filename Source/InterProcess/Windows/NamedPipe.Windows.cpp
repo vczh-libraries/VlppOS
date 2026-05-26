@@ -11,7 +11,13 @@ class NamedPipeConnection::ReadWaitContext
 public:
 	NamedPipeConnection*							connection = nullptr;
 	HANDLE											hWaitHandle = INVALID_HANDLE_VALUE;
+	EventObject										eventRegistrationFinished;
 	atomic_vint										callbackStarted = 0;
+
+	ReadWaitContext()
+	{
+		CHECK_ERROR(eventRegistrationFinished.CreateManualUnsignal(false), L"ReadFile failed on eventRegistrationFinished.CreateManualUnsignal.");
+	}
 };
 
 class NamedPipeServer::PendingConnection::ConnectWaitContext
@@ -19,11 +25,13 @@ class NamedPipeServer::PendingConnection::ConnectWaitContext
 public:
 	Ptr<PendingConnection>							pendingConnection;
 	HANDLE											hWaitHandle = INVALID_HANDLE_VALUE;
+	EventObject										eventRegistrationFinished;
 	atomic_vint										callbackStarted = 0;
 
 	ConnectWaitContext(Ptr<PendingConnection> _pendingConnection)
 		: pendingConnection(_pendingConnection)
 	{
+		CHECK_ERROR(eventRegistrationFinished.CreateManualUnsignal(false), L"ConnectNamedPipe failed on eventRegistrationFinished.CreateManualUnsignal.");
 	}
 };
 
@@ -123,90 +131,82 @@ RESTART_LOOP:
 		context->connection = this;
 		BeginPendingCallback();
 
-		BOOL waitResult = FALSE;
-		bool registered = false;
-		{
-			SPIN_LOCK(lockReadWait)
-			{
-				if (!stopped)
-				{
-					readWaitContext = context;
-					waitResult = RegisterWaitForSingleObject(
-						&context->hWaitHandle,
-						hEventReadFile,
-						[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
-						{
-							auto context = (ReadWaitContext*)lpParameter;
-							context->callbackStarted = 1;
-
-							auto self = context->connection;
-							ReadWaitContext* expectedContext = context;
-							bool ownsContext = self->readWaitContext.compare_exchange_strong(expectedContext, nullptr);
-
-							auto finalize = [=]()
-							{
-								if (ownsContext)
-								{
-									UnregisterWait(context->hWaitHandle);
-								}
-								self->EndPendingCallback();
-								if (ownsContext)
-								{
-									delete context;
-								}
-							};
-
-							DWORD read = 0;
-							BOOL result = GetOverlappedResult(self->hPipe, &self->overlappedReadFile, &read, FALSE);
-							if (result == TRUE)
-							{
-								self->SubmitReadBufferUnsafe((vint)read);
-								self->EndReadingUnsafe();
-							}
-							else
-							{
-								DWORD error = GetLastError();
-								if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
-								{
-									if (!self->stopped)
-									{
-										self->OnDisconnected();
-									}
-									finalize();
-									return;
-								}
-								CHECK_ERROR(error == ERROR_MORE_DATA, L"GetOverlappedResult(ReadFile) failed on unexpected GetLastError.");
-								self->SubmitReadBufferUnsafe((vint)read);
-							}
-							if (!self->stopped)
-							{
-								self->BeginReadingLoopUnsafe();
-							}
-							finalize();
-						},
-						context,
-						INFINITE,
-						WT_EXECUTEONLYONCE);
-					if (!waitResult)
-					{
-						readWaitContext = nullptr;
-					}
-					registered = true;
-				}
-			}
-		}
-
-		if (!registered)
+		ReadWaitContext* expectedContext = nullptr;
+		if (stopped || !readWaitContext.compare_exchange_strong(expectedContext, context))
 		{
 			EndPendingCallback();
 			delete context;
 			return;
 		}
+
+		BOOL waitResult = RegisterWaitForSingleObject(
+			&context->hWaitHandle,
+			hEventReadFile,
+			[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
+			{
+				auto context = (ReadWaitContext*)lpParameter;
+				context->callbackStarted = 1;
+
+				auto self = context->connection;
+				ReadWaitContext* expectedContext = context;
+				bool ownsContext = self->readWaitContext.compare_exchange_strong(expectedContext, nullptr);
+
+				auto finalize = [=]()
+				{
+					if (ownsContext)
+					{
+						context->eventRegistrationFinished.Wait();
+						UnregisterWait(context->hWaitHandle);
+					}
+					self->EndPendingCallback();
+					if (ownsContext)
+					{
+						delete context;
+					}
+				};
+
+				DWORD read = 0;
+				BOOL result = GetOverlappedResult(self->hPipe, &self->overlappedReadFile, &read, FALSE);
+				if (result == TRUE)
+				{
+					self->SubmitReadBufferUnsafe((vint)read);
+					self->EndReadingUnsafe();
+				}
+				else
+				{
+					DWORD error = GetLastError();
+					if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE || error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+					{
+						if (!self->stopped)
+						{
+							self->OnDisconnected();
+						}
+						finalize();
+						return;
+					}
+					CHECK_ERROR(error == ERROR_MORE_DATA, L"GetOverlappedResult(ReadFile) failed on unexpected GetLastError.");
+					self->SubmitReadBufferUnsafe((vint)read);
+				}
+				if (!self->stopped)
+				{
+					self->BeginReadingLoopUnsafe();
+				}
+				finalize();
+			},
+			context,
+			INFINITE,
+			WT_EXECUTEONLYONCE);
+
+		context->eventRegistrationFinished.Signal();
 		if (!waitResult)
 		{
-			EndPendingCallback();
-			delete context;
-			CHECK_FAIL(L"RegisterWaitForSingleObject failed for ReadFile.");
+			expectedContext = context;
+			if (readWaitContext.compare_exchange_strong(expectedContext, nullptr))
+			{
+				EndPendingCallback();
+				delete context;
+				CHECK_FAIL(L"RegisterWaitForSingleObject failed for ReadFile.");
+			}
 		}
 	}
 }
@@ -353,16 +353,14 @@ void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 void NamedPipeConnection::Stop()
 {
 	stopped = 1;
-	ReadWaitContext* context = nullptr;
-	{
-		SPIN_LOCK(lockReadWait)
-		{
-			context = readWaitContext.exchange(nullptr);
-		}
-	}
+	ReadWaitContext* context = readWaitContext.exchange(nullptr);
 	if (context)
 	{
-		UnregisterWaitEx(context->hWaitHandle, INVALID_HANDLE_VALUE);
+		context->eventRegistrationFinished.Wait();
+		if (context->hWaitHandle != INVALID_HANDLE_VALUE)
+		{
+			UnregisterWaitEx(context->hWaitHandle, INVALID_HANDLE_VALUE);
+		}
 		if (context->callbackStarted == 0)
 		{
 			EndPendingCallback();
@@ -422,16 +420,14 @@ NamedPipeServer::PendingConnection::~PendingConnection()
 void NamedPipeServer::PendingConnection::Stop()
 {
 	server = nullptr;
-	ConnectWaitContext* context = nullptr;
-	{
-		SPIN_LOCK(lockConnectWait)
-		{
-			context = connectWaitContext.exchange(nullptr);
-		}
-	}
+	ConnectWaitContext* context = connectWaitContext.exchange(nullptr);
 	if (context)
 	{
-		UnregisterWaitEx(context->hWaitHandle, INVALID_HANDLE_VALUE);
+		context->eventRegistrationFinished.Wait();
+		if (context->hWaitHandle != INVALID_HANDLE_VALUE)
+		{
+			UnregisterWaitEx(context->hWaitHandle, INVALID_HANDLE_VALUE);
+		}
 		if (context->callbackStarted == 0)
 		{
 			EndPendingCallback();
@@ -524,75 +520,73 @@ void NamedPipeServer::BeginListening()
 			pendingConnections.Add(pendingConnection);
 			auto context = new PendingConnection::ConnectWaitContext(pendingConnection);
 			pendingConnection->BeginPendingCallback();
-			BOOL waitResult = FALSE;
-			{
-				SPIN_LOCK(pendingConnection->lockConnectWait)
+			PendingConnection::ConnectWaitContext* expectedContext = nullptr;
+			CHECK_ERROR(pendingConnection->connectWaitContext.compare_exchange_strong(expectedContext, context), L"ConnectNamedPipe found an existing wait context.");
+			BOOL waitResult = RegisterWaitForSingleObject(
+				&context->hWaitHandle,
+				pendingConnection->hEventConnect,
+				[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 				{
-					pendingConnection->connectWaitContext = context;
-					waitResult = RegisterWaitForSingleObject(
-						&context->hWaitHandle,
-						pendingConnection->hEventConnect,
-						[](PVOID lpParameter, BOOLEAN TimerOrWaitFired)
+					auto context = (PendingConnection::ConnectWaitContext*)lpParameter;
+					context->callbackStarted = 1;
+
+					auto pendingConnection = context->pendingConnection;
+					PendingConnection::ConnectWaitContext* expectedContext = context;
+					bool ownsContext = pendingConnection->connectWaitContext.compare_exchange_strong(expectedContext, nullptr);
+
+					auto finalize = [=]()
+					{
+						if (ownsContext)
 						{
-							auto context = (PendingConnection::ConnectWaitContext*)lpParameter;
-							context->callbackStarted = 1;
+							context->eventRegistrationFinished.Wait();
+							UnregisterWait(context->hWaitHandle);
+						}
+						pendingConnection->EndPendingCallback();
+						if (ownsContext)
+						{
+							delete context;
+						}
+					};
 
-							auto pendingConnection = context->pendingConnection;
-							PendingConnection::ConnectWaitContext* expectedContext = context;
-							bool ownsContext = pendingConnection->connectWaitContext.compare_exchange_strong(expectedContext, nullptr);
-
-							auto finalize = [=]()
+					DWORD transferred = 0;
+					BOOL result = GetOverlappedResult(pendingConnection->connection->hPipe, &pendingConnection->overlappedConnect, &transferred, FALSE);
+					if (result == TRUE)
+					{
+						if (pendingConnection->server)
+						{
+							pendingConnection->server->CompletePendingConnection(pendingConnection.Obj(), true);
+						}
+					}
+					else
+					{
+						auto error = GetLastError();
+						if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE || error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+						{
+							if (pendingConnection->server)
 							{
-								if (ownsContext)
-								{
-									UnregisterWait(context->hWaitHandle);
-								}
-								pendingConnection->EndPendingCallback();
-								if (ownsContext)
-								{
-									delete context;
-								}
-							};
-
-							DWORD transferred = 0;
-							BOOL result = GetOverlappedResult(pendingConnection->connection->hPipe, &pendingConnection->overlappedConnect, &transferred, FALSE);
-							if (result == TRUE)
-							{
-								if (pendingConnection->server)
-								{
-									pendingConnection->server->CompletePendingConnection(pendingConnection.Obj(), true);
-								}
-							}
-							else
-							{
-								auto error = GetLastError();
-								if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE || error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
-								{
-									if (pendingConnection->server)
-									{
-										pendingConnection->server->CompletePendingConnection(pendingConnection.Obj(), false);
-									}
-									finalize();
-									return;
-								}
-								CHECK_FAIL(L"GetOverlappedResult(ConnectNamedPipe) failed on unexpected GetLastError.");
+								pendingConnection->server->CompletePendingConnection(pendingConnection.Obj(), false);
 							}
 							finalize();
-						},
-						context,
-						INFINITE,
-						WT_EXECUTEONLYONCE);
-					if (!waitResult)
-					{
-						pendingConnection->connectWaitContext = nullptr;
+							return;
+						}
+						CHECK_FAIL(L"GetOverlappedResult(ConnectNamedPipe) failed on unexpected GetLastError.");
 					}
-				}
-			}
+					finalize();
+				},
+				context,
+				INFINITE,
+				WT_EXECUTEONLYONCE);
+
+			context->eventRegistrationFinished.Signal();
 			if (!waitResult)
 			{
-				pendingConnection->EndPendingCallback();
-				delete context;
-				CHECK_FAIL(L"RegisterWaitForSingleObject failed for ConnectNamedPipe.");
+				expectedContext = context;
+				if (pendingConnection->connectWaitContext.compare_exchange_strong(expectedContext, nullptr))
+				{
+					pendingConnection->EndPendingCallback();
+					delete context;
+					CHECK_FAIL(L"RegisterWaitForSingleObject failed for ConnectNamedPipe.");
+				}
 			}
 		}
 		break;
