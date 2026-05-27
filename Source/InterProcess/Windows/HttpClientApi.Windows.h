@@ -143,11 +143,9 @@ public:
 	void												HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback);
 	void												Stop();
 
-	static WString										HttpEncodeQuery(const WString& query);
-	static WString										HttpDecodeQuery(const WString& query);
+	static WString										UrlEncodeQuery(const WString& query);
+	static WString										UrlDecodeQuery(const WString& query);
 };
-
-extern WString											UrlEncodeQuery(const WString& query);
 
 }
 

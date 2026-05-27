@@ -688,7 +688,7 @@ void HttpClientApi::Stop()
 	httpSession = NULL;
 }
 
-WString HttpClientApi::HttpEncodeQuery(const WString& query)
+WString HttpClientApi::UrlEncodeQuery(const WString& query)
 {
 	vint utf8Size = WideCharToMultiByte(CP_UTF8, 0, query.Buffer(), (int)query.Length(), NULL, 0, NULL, NULL);
 	Array<char> utf8(utf8Size);
@@ -720,7 +720,7 @@ WString HttpClientApi::HttpEncodeQuery(const WString& query)
 	return &encoded[0];
 }
 
-WString HttpClientApi::HttpDecodeQuery(const WString& query)
+WString HttpClientApi::UrlDecodeQuery(const WString& query)
 {
 	List<char> utf8;
 	for (vint i = 0; i < query.Length(); i++)
@@ -775,11 +775,6 @@ WString HttpClientApi::HttpDecodeQuery(const WString& query)
 		MultiByteToWideChar(CP_UTF8, 0, &utf8[0], (int)utf8.Count(), &utf16[0], (int)utf16Size);
 	}
 	return &utf16[0];
-}
-
-WString UrlEncodeQuery(const WString& query)
-{
-	return HttpClientApi::HttpEncodeQuery(query);
 }
 
 }

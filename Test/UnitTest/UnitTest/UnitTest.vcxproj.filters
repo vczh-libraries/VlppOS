@@ -34,6 +34,9 @@
     <Filter Include="Common\InterProcess\Windows">
       <UniqueIdentifier>{acd69f45-d653-4117-9ee5-abd6e07259d7}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\InterProcess\WindowsAPI">
+      <UniqueIdentifier>{c5f336aa-0742-4723-937a-eff88c63e9bc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
@@ -53,12 +56,6 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.cpp">
       <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp">
-      <Filter>Common\InterProcess\Windows</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp">
-      <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Locale.cpp">
       <Filter>Common</Filter>
@@ -183,16 +180,16 @@
     <ClCompile Include="..\..\..\Source\InterProcess\TextNetworkProtocol.cpp">
       <Filter>Common\InterProcess</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp">
+      <Filter>Common\InterProcess\WindowsAPI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp">
+      <Filter>Common\InterProcess\WindowsAPI</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Source\FileSystem.h">
       <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h">
-      <Filter>Common\InterProcess\Windows</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h">
-      <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Locale.h">
       <Filter>Common</Filter>
@@ -274,6 +271,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\ChannelSerializer.h">
       <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h">
+      <Filter>Common\InterProcess\WindowsAPI</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h">
+      <Filter>Common\InterProcess\WindowsAPI</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

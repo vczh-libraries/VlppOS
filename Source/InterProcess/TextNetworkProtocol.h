@@ -431,9 +431,6 @@ NetworkProtocolChannelClientBase
 ***********************************************************************/
 
 	template<typename TPackage, typename TSerialization>
-	class NetworkProtocolChannelServer;
-
-	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelClientBase : public Object, public virtual IChannelClient<TPackage>
 	{
 	protected:
@@ -660,9 +657,6 @@ NetworkProtocolChannelClient
 ***********************************************************************/
 
 	template<typename TPackage, typename TSerialization>
-	class NetworkProtocolLocalChannelClient;
-
-	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolChannelClient : public NetworkProtocolChannelClientBase<TPackage, TSerialization>
 	{
 	protected:
@@ -862,6 +856,9 @@ NetworkProtocolChannelClient
 /***********************************************************************
 NetworkProtocolLocalChannelClient
 ***********************************************************************/
+
+	template<typename TPackage, typename TSerialization>
+	class NetworkProtocolChannelServer;
 
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolLocalChannelClient : public NetworkProtocolChannelClientBase<TPackage, TSerialization>
