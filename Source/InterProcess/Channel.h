@@ -137,11 +137,19 @@ IChannelClient
 
 		/// <summary>
 		/// Called when a fetal error occurs.
-		/// When any fetal error occurs at client side or server side, all clients is supposed to receive such error if possible, and the server will shut down.
+		/// When any fetal error is broadcasted from server side, all clients is supposed to receive such error if possible, and the server will shut down.
 		/// This function will be implemented by the user, the default implementation will be empty.
 		/// </summary>
 		/// <param name="errorMessage">The error message.</param>
-		virtual void						OnError(const WString& errorMessage) = 0;
+		virtual void						OnReadError(const WString& errorMessage) = 0;
+
+		/// <summary>
+		/// Called when a local error occurs.
+		/// This function will be implemented by the user, the default implementation will be empty.
+		/// </summary>
+		/// <param name="errorMessage">The error message.</param>
+		/// <param name="fatal">Indicates whether the error is not recoverable. The client will automatically stop after a fatal error.</param>
+		virtual void						OnLocalError(const WString& errorMessage, bool fatal) = 0;
 
 		/// <summary>
 		/// Called when available connection names are required.
