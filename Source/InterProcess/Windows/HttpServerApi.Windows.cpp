@@ -28,7 +28,7 @@ void HttpServerApi::OnHttpRequestReceivedUnsafe(PHTTP_REQUEST pRequest)
 {
 	if (state == State::Stopping)
 	{
-		SendResponse(httpRequestQueue, pRequest->RequestId, 404, L"Server is stopping");
+		SendResponse(httpRequestQueue, pRequest->RequestId, { 404, L"Server is stopping" });
 		return;
 	}
 
@@ -293,7 +293,7 @@ void HttpServerApi::SendOptionsResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed (OPTIONS).");
 }
 
-ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, vint statusCode, const WString& reason, const WString& body, const WString& contentType)
+ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const HttpServerResponse& response)
 {
 	ULONG bytesSent = 0;
 	HTTP_RESPONSE httpResponse;
@@ -301,20 +301,20 @@ ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID reque
 	ZeroMemory(&httpResponse, sizeof(httpResponse));
 	ZeroMemory(&httpResponseBody, sizeof(httpResponseBody));
 
-	httpResponse.StatusCode = (USHORT)statusCode;
+	httpResponse.StatusCode = (USHORT)response.statusCode;
 
 	U8String reasonUtf8;
-	if (reason != WString::Empty)
+	if (response.reason != WString::Empty)
 	{
-		reasonUtf8 = wtou8(reason);
+		reasonUtf8 = wtou8(response.reason);
 		httpResponse.pReason = (PCSTR)reasonUtf8.Buffer();
 		httpResponse.ReasonLength = (USHORT)reasonUtf8.Length();
 	}
 
 	U8String bodyUtf8;
-	if (body != WString::Empty)
+	if (response.body != WString::Empty)
 	{
-		bodyUtf8 = wtou8(body);
+		bodyUtf8 = wtou8(response.body);
 		httpResponse.EntityChunkCount = 1;
 		httpResponse.pEntityChunks = &httpResponseBody;
 		httpResponseBody.DataChunkType = HttpDataChunkFromMemory;
@@ -323,9 +323,9 @@ ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID reque
 	}
 
 	U8String contentTypeUtf8;
-	if (contentType != WString::Empty)
+	if (response.contentType != WString::Empty)
 	{
-		contentTypeUtf8 = wtou8(contentType);
+		contentTypeUtf8 = wtou8(response.contentType);
 		httpResponse.Headers.KnownHeaders[HttpHeaderContentType].pRawValue = (PCSTR)contentTypeUtf8.Buffer();
 		httpResponse.Headers.KnownHeaders[HttpHeaderContentType].RawValueLength = (USHORT)contentTypeUtf8.Length();
 	}

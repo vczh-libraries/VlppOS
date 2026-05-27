@@ -15,6 +15,15 @@ Interfaces:
 namespace vl::inter_process
 {
 
+/// <summary>A response to be sent by <see cref="HttpServerApi"/>.</summary>
+struct HttpServerResponse
+{
+	vint											statusCode = 200;
+	WString											reason;
+	WString											body;
+	WString											contentType;
+};
+
 /// <summary>A Windows-only async HTTP server for a single URL prefix.</summary>
 class HttpServerApi : public Object
 {
@@ -72,7 +81,7 @@ public:
 	bool											IsStopped();
 	HANDLE											GetHttpRequestQueue() const;
 
-	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, vint statusCode, const WString& reason = WString::Empty, const WString& body = WString::Empty, const WString& contentType = WString::Empty);
+	static ULONG									SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, const HttpServerResponse& response);
 };
 
 }

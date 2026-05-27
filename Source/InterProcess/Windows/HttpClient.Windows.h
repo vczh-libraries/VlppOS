@@ -18,6 +18,7 @@ namespace vl::inter_process
 class HttpClient : public Object, public virtual INetworkProtocolConnection, public virtual INetworkProtocolClient
 {
 protected:
+	static constexpr vint							HttpRequestMaxAttempts = 3;
 
 	enum class State
 	{
@@ -43,7 +44,7 @@ HttpClient (Reading)
 protected:
 	static constexpr const wchar_t*					JsonContentType = L"application/json; charset=utf8";
 
-	void											RaiseErrorUnsafe(WString errorMessage);
+	void											RaiseLocalError(WString errorMessage, bool fatal);
 	bool											IsStopping();
 public:
 
@@ -80,8 +81,9 @@ protected:
 		Response,
 	};
 
-	bool											SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body);
-	void											OnHttpRequestCompleted(HttpRequestType requestType, Variant<HttpResponse, HttpError> result);
+	bool											SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body, vint attempt = 1);
+	void											OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Variant<HttpResponse, HttpError> result);
+	void											OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage);
 
 public:
 

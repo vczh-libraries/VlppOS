@@ -37,7 +37,7 @@ void HttpServerConnection::OnNewHttpRequestForPendingRequest(HTTP_REQUEST_ID htt
 	{
 		auto pendingRequest = pendingRequestsToSend[0];
 		pendingRequestsToSend.RemoveAt(0);
-		ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, 200, L"OK", pendingRequest, L"application/json; charset=utf8");
+		ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, { 200, L"OK", pendingRequest, L"application/json; charset=utf8" });
 		CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Request.");
 		httpPendingRequestId = HTTP_NULL_ID;
 	}
@@ -174,7 +174,7 @@ void HttpServerConnection::SendString(const WString& str)
 		}
 		else if (httpPendingRequestId != HTTP_NULL_ID)
 		{
-			ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, 200, L"OK", str, L"application/json; charset=utf8");
+			ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, { 200, L"OK", str, L"application/json; charset=utf8" });
 			if (result == NO_ERROR)
 			{
 				httpPendingRequestId = HTTP_NULL_ID;
@@ -249,7 +249,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 			vint index = connections.Keys().IndexOf(guid);
 			if (index == -1)
 			{
-				HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, 404, L"Unknown connection guid");
+				HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 404, L"Unknown connection guid" });
 			}
 			else
 			{
@@ -277,13 +277,13 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 				connections.Remove(newGuid);
 			}
 			connection->server = nullptr;
-			HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, 404, L"Connection rejected");
+			HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 404, L"Connection rejected" });
 		}
 		else
 		{
 			auto completeUrlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + newGuid;
 			auto completeUrlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + newGuid;
-			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, 200, L"OK", completeUrlRequest + L";" + completeUrlResponse, L"application/json; charset=utf8");
+			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 200, L"OK", completeUrlRequest + L";" + completeUrlResponse, L"application/json; charset=utf8" });
 			CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding /Connect.");
 		}
 	}
@@ -304,7 +304,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 		if (auto connection = FindExistingConnection(guid))
 		{
 			auto responseToClient = connection->SubmitResponse(pRequest);
-			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, 200, L"OK", responseToClient, L"application/json; charset=utf8");
+			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 200, L"OK", responseToClient, L"application/json; charset=utf8" });
 			CHECK_ERROR(
 				result == NO_ERROR || result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED,
 				L"HttpSendHttpResponse failed for responding /Response."
@@ -313,7 +313,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 	}
 	else
 	{
-		HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, 404, L"Unknown URL");
+		HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 404, L"Unknown URL" });
 	}
 }
 

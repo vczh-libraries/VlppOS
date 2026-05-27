@@ -7,11 +7,15 @@ namespace vl::inter_process
 HttpClient (Reading)
 ***********************************************************************/
 
-void HttpClient::RaiseErrorUnsafe(WString errorMessage)
+void HttpClient::RaiseLocalError(WString errorMessage, bool fatal)
 {
 	if (callback)
 	{
-		callback->OnReadError(errorMessage);
+		callback->OnLocalError(errorMessage, fatal);
+	}
+	if (fatal)
+	{
+		Stop();
 	}
 }
 
@@ -140,7 +144,7 @@ ClientStatus HttpClient::GetStatus()
 HttpClient (Writing)
 ***********************************************************************/
 
-bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body)
+bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body, vint attempt)
 {
 	Ptr<HttpClientApi> api;
 	{
@@ -184,33 +188,59 @@ bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* met
 		request.SetBodyUtf8(body);
 	}
 
-	api->HttpQuery(request, [this, requestType](Variant<HttpResponse, HttpError> result)
+	api->HttpQuery(request, [this, requestType, body, attempt](Variant<HttpResponse, HttpError> result)
 	{
-		OnHttpRequestCompleted(requestType, std::move(result));
+		OnHttpRequestCompleted(requestType, body, attempt, std::move(result));
 	});
 	return true;
 }
 
-void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, Variant<HttpResponse, HttpError> result)
+void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage)
+{
+	if (IsStopping()) return;
+
+	switch (requestType)
+	{
+	case HttpRequestType::Connect:
+		{
+			bool fatal = attempt >= HttpRequestMaxAttempts;
+			RaiseLocalError(errorMessage, fatal);
+			if (!fatal && !IsStopping())
+			{
+				SendHttpRequest(HttpRequestType::Connect, L"GET", urlConnect, WString::Empty, attempt + 1);
+			}
+		}
+		break;
+	case HttpRequestType::Request:
+		SendHttpRequest(HttpRequestType::Request, L"POST", urlRequest, WString::Empty, attempt + 1);
+		break;
+	case HttpRequestType::Response:
+		{
+			bool fatal = attempt >= HttpRequestMaxAttempts;
+			RaiseLocalError(errorMessage, fatal);
+			if (!fatal && !IsStopping())
+			{
+				SendHttpRequest(HttpRequestType::Response, L"POST", urlResponse, body, attempt + 1);
+			}
+		}
+		break;
+	}
+}
+
+void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Variant<HttpResponse, HttpError> result)
 {
 	if (auto error = result.TryGet<HttpError>())
 	{
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			CompleteConnectRequest(WString::Empty, error->message);
+			OnHttpRequestFailed(requestType, body, attempt, L"/Connect failed: " + error->message);
 			break;
 		case HttpRequestType::Request:
-			if (!IsStopping())
-			{
-				RaiseErrorUnsafe(L"/Request failed: " + error->message);
-			}
+			OnHttpRequestFailed(requestType, body, attempt, L"/Request failed: " + error->message);
 			break;
 		case HttpRequestType::Response:
-			if (!IsStopping())
-			{
-				RaiseErrorUnsafe(L"/Response failed: " + error->message);
-			}
+			OnHttpRequestFailed(requestType, body, attempt, L"/Response failed: " + error->message);
 			break;
 		}
 		return;
@@ -222,19 +252,13 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, Variant<Htt
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			CompleteConnectRequest(WString::Empty, WString::Unmanaged(L"/Connect returned status code: ") + itow(response.statusCode) + L".");
+			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Connect returned status code: ") + itow(response.statusCode) + L".");
 			break;
 		case HttpRequestType::Request:
-			if (!IsStopping())
-			{
-				RaiseErrorUnsafe(WString::Unmanaged(L"/Request returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
-			}
+			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Request returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
 			break;
 		case HttpRequestType::Response:
-			if (!IsStopping())
-			{
-				RaiseErrorUnsafe(WString::Unmanaged(L"/Response returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
-			}
+			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Response returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
 			break;
 		}
 		return;
@@ -245,44 +269,38 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, Variant<Htt
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			CompleteConnectRequest(WString::Empty, L"HTTP response did not return content type: application/json; charset=utf8.");
+			OnHttpRequestFailed(requestType, body, attempt, L"/Connect response did not return content type: application/json; charset=utf8.");
 			break;
 		case HttpRequestType::Request:
-			if (!IsStopping())
-			{
-				CHECK_FAIL(L"HTTP response did not return content type: application/json; charset=utf8.");
-			}
+			OnHttpRequestFailed(requestType, body, attempt, L"/Request response did not return content type: application/json; charset=utf8.");
 			break;
 		case HttpRequestType::Response:
-			if (!IsStopping())
-			{
-				CHECK_FAIL(L"HTTP response did not return content type: application/json; charset=utf8.");
-			}
+			OnHttpRequestFailed(requestType, body, attempt, L"/Response response did not return content type: application/json; charset=utf8.");
 			break;
 		}
 		return;
 	}
 
-	auto body = response.GetBodyUtf8();
+	auto responseBody = response.GetBodyUtf8();
 	switch (requestType)
 	{
 	case HttpRequestType::Connect:
-		CompleteConnectRequest(body, WString::Empty);
+		CompleteConnectRequest(responseBody, WString::Empty);
 		break;
 	case HttpRequestType::Request:
 		if (!IsStopping())
 		{
 			BeginReadingLoopUnsafe();
-			if (body.Length() > 0 && callback)
+			if (responseBody.Length() > 0 && callback)
 			{
-				callback->OnReadString(body);
+				callback->OnReadString(responseBody);
 			}
 		}
 		break;
 	case HttpRequestType::Response:
-		if (!IsStopping() && body.Length() > 0 && callback)
+		if (!IsStopping() && responseBody.Length() > 0 && callback)
 		{
-			callback->OnReadString(body);
+			callback->OnReadString(responseBody);
 		}
 		break;
 	}

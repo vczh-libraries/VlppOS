@@ -121,6 +121,7 @@ RESTART_LOOP:
 		{
 			if (!stopped)
 			{
+				OnLocalError(L"ReadFile failed because the named pipe was closed.");
 				OnDisconnected();
 			}
 			return;
@@ -179,6 +180,7 @@ RESTART_LOOP:
 					{
 						if (!self->stopped)
 						{
+							self->OnLocalError(L"GetOverlappedResult(ReadFile) failed because the named pipe was closed.");
 							self->OnDisconnected();
 						}
 						finalize();
@@ -261,6 +263,10 @@ void NamedPipeConnection::EndSendStream(vint32_t bytes)
 			auto error = GetLastError();
 			if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
 			{
+				if (!stopped)
+				{
+					OnLocalError(L"WriteFile failed because the named pipe was closed.");
+				}
 				OnDisconnected();
 				return;
 			}
@@ -272,6 +278,10 @@ void NamedPipeConnection::EndSendStream(vint32_t bytes)
 				error = GetLastError();
 				if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE || error == ERROR_OPERATION_ABORTED)
 				{
+					if (!stopped)
+					{
+						OnLocalError(L"GetOverlappedResult(WriteFile) failed because the named pipe was closed.");
+					}
 					OnDisconnected();
 					return;
 				}
@@ -301,6 +311,14 @@ void NamedPipeConnection::SendString(const WString& str)
 /***********************************************************************
 NamedPipeConnection
 ***********************************************************************/
+
+void NamedPipeConnection::OnLocalError(const WString& errorMessage)
+{
+	if (callback)
+	{
+		callback->OnLocalError(errorMessage, true);
+	}
+}
 
 void NamedPipeConnection::OnDisconnected()
 {

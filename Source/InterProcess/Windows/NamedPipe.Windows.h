@@ -76,6 +76,7 @@ protected:
 	INetworkProtocolCallback*						callback = nullptr;
 	HANDLE											hPipe = INVALID_HANDLE_VALUE;
 
+	void											OnLocalError(const WString& errorMessage);
 	void											OnDisconnected();
 
 	NamedPipeConnection(HANDLE _hPipe);

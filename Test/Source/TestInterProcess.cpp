@@ -64,6 +64,7 @@ namespace mynamespace
 		}
 
 		void OnReadError(const WString& error) override {}
+		void OnLocalError(const WString& error, bool fatal) override {}
 		void OnConnected() override {}
 		void OnDisconnected() override {}
 
