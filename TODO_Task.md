@@ -45,3 +45,8 @@ Release `GacUI`.
 ### GacJS
 
 Follows `Tools\DebugGacUIWithBrowser.md` to run `RemotingTest_Core` with `/Http /RPT` and make sure `GacJS` could launch and operate the UI.
+Make sure test cases work. Half of tests fail in `Gaclib\website\entry`, figure out why and fix all of them.
+- Hint: it works on an en-US machine which is faster.
+- You are now running on an zh-CN machine which is slower.
+- Some cases fail because of localization, make sure it works on both zh-CN and en-US.
+- Machine performance might not be a factor, make your own judgement.
