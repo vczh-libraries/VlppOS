@@ -2,14 +2,16 @@
 
 # Orders
 
+- `vl::inter_process` shutdown must finish callbacks before returning [4]
+- `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [1]
 - `NetworkProtocolChannel` uses explicit positive sender and receiver ids [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
-- `vl::inter_process` shutdown must finish callbacks before returning [1]
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
-- `NetworkProtocolLocalChannelClient` owns server-local behavior [1]
 - Group `SpinLock`-protected fields with coverage comments [1]
 - `HttpServerConnection` queues pending outbound `/Request` responses [1]
+- Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [1]
+- Do not invoke inter-process user callbacks while holding queue locks [1]
 
 # Refinements
 
@@ -29,6 +31,8 @@ For `vl::inter_process`, transport and channel servers should initialize handles
 
 Named-pipe and HTTP protocol stop paths must cancel pending work, unregister waits, close active handles, and wait for final callbacks before returning. Unit tests should call `Stop()` as the boundary instead of adding sleeps to hope that callbacks finish later.
 
+For WinHTTP requests, track request lifetime before `WinHttpSendRequest` and release it from `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING` for successfully submitted requests; handle-closing is the reliable final callback boundary. For registered waits, use owned wait contexts plus atomic exchange/compare-exchange so `Stop()` can either unregister a not-yet-started wait or wait for an already-started callback before handles and buffers are destroyed.
+
 ## Keep `IChannelServer` delivery-only; use local clients for server speech
 
 Keep `IChannelServer` focused on accepting clients and delivering protocol messages. Do not expose a `GetChannel` escape hatch or let `NetworkProtocolChannelServer` own user channel objects for ordinary chat. When the server needs to participate as a speaker, create a server-side local channel client, register it through `ConnectLocalClient`, and let it send/receive through the same channel contract as other clients.
@@ -37,6 +41,8 @@ Keep `IChannelServer` focused on accepting clients and delivering protocol messa
 
 Keep local-client state and local-server branches out of `NetworkProtocolChannelClient`. Put the server-side local connection pointer, local wait/disconnect handling, local send routing, and local error broadcasting in `NetworkProtocolLocalChannelClient`; override the local branch there and call the base method for common client work. `NetworkProtocolChannelServer::ConnectLocalClient` can require this subtype (for example with `dynamic_cast`) so no extra lock is needed just to protect a `localServer` field on ordinary network clients.
 
+When both network and local channel clients need shared maps, serialization context, ids, status, and batch receiving, extract a common base that owns only those shared concerns. Keep transport-only members such as `INetworkProtocolClient`, callbacks, and wait events in the network client, and let the local client's `WaitForServer` be a no-op because `IChannelServer::ConnectLocalClient` is the local connection boundary.
+
 ## Group `SpinLock`-protected fields with coverage comments
 
 For classes that use `SpinLock`, group every field protected by a given lock directly under that lock and add a short comment naming the coverage. This makes it clear which state must be accessed while holding each lock, especially in inter-process protocol and test helper code with multiple asynchronous paths.
@@ -44,3 +50,13 @@ For classes that use `SpinLock`, group every field protected by a given lock dir
 ## `HttpServerConnection` queues pending outbound `/Request` responses
 
 When HTTP inter-process channel delivery can produce multiple outbound responses back-to-back, queue pending `/Request` responses instead of storing one overwriteable pending response. This preserves sequences such as the connection response followed immediately by the first channel message.
+
+## Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code
+
+Keep Windows HTTP API ownership in non-copyable/non-movable RAII structs. `HttpClientApi` should own the WinHTTP session/connection for one host and port and complete async requests through a single `Func<void(Variant<HttpResponse, HttpError>)>` path. HTTP status codes such as 404 are successful `HttpResponse` values; only underlying client/API failures are `HttpError`.
+
+`HttpServerApi` should own one `http://host:port/prefix/.../` prefix, initialization/finalization, async request receive loop, optional OPTIONS handling, and a generic UTF-8 response helper. Higher-level inter-process protocol classes should keep only route handling and connection state.
+
+## Do not invoke inter-process user callbacks while holding queue locks
+
+When installing an HTTP connection callback, move queued strings to a local list while holding the `SpinLock`, then release the lock before calling `OnInstalled` or replaying queued `OnReadString` callbacks. This avoids reentrancy and ordering races where a `/Response` callback can observe user callbacks before installation has completed.
