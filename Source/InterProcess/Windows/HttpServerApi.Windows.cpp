@@ -242,6 +242,56 @@ HANDLE HttpServerApi::GetHttpRequestQueue() const
 	return httpRequestQueue;
 }
 
+Nullable<WString> HttpServerApi::GetUtf8Body(PHTTP_REQUEST pRequest)
+{
+	ULONG bodyLength = 0;
+	ULONG bodyReceived = 0;
+	{
+		auto& headerContentType = pRequest->Headers.KnownHeaders[HttpHeaderContentType];
+		CHECK_ERROR(headerContentType.pRawValue != NULL, L"/Response missing Content-Type header.");
+		CHECK_ERROR(
+			strncmp((const char*)headerContentType.pRawValue, "application/json; charset=utf8", headerContentType.RawValueLength) == 0,
+			L"/Response Content-Type header must be \"application/json; charset=utf8\".");
+	}
+	{
+		auto& headerContentLength = pRequest->Headers.KnownHeaders[HttpHeaderContentLength];
+		CHECK_ERROR(headerContentLength.pRawValue != NULL, L"/Response missing Content-Type header.");
+		bodyLength = (ULONG)atoi(headerContentLength.pRawValue);
+	}
+	CHECK_ERROR(bodyLength > 0, L"/Response must contain body data.");
+
+	Array<char8_t> bodyBuffer(bodyLength + 1);
+	ZeroMemory(&bodyBuffer[0], bodyBuffer.Count() * sizeof(char8_t));
+	ULONG bodyWritten = 0;
+	for (USHORT i = 0; i < pRequest->EntityChunkCount; i++)
+	{
+		auto& chunk = pRequest->pEntityChunks[i];
+		CHECK_ERROR(chunk.DataChunkType == HttpDataChunkFromMemory, L"/Response contains an unsupported body chunk.");
+		auto chunkLength = chunk.FromMemory.BufferLength;
+		CHECK_ERROR(bodyWritten + chunkLength <= bodyLength, L"/Response body is longer than Content-Length.");
+		memcpy(&bodyBuffer[bodyWritten], chunk.FromMemory.pBuffer, chunkLength);
+		bodyWritten += chunkLength;
+	}
+	if (pRequest->Flags & HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS)
+	{
+		ULONG result = NO_ERROR;
+		result = HttpReceiveRequestEntityBody(
+			httpRequestQueue,
+			pRequest->RequestId,
+			HTTP_RECEIVE_REQUEST_ENTITY_BODY_FLAG_FILL_BUFFER,
+			&bodyBuffer[bodyWritten],
+			bodyLength - bodyWritten,
+			&bodyReceived,
+			NULL);
+		CHECK_ERROR(result == NO_ERROR || result == ERROR_HANDLE_EOF, L"HttpReceiveRequestEntityBody.");
+		bodyWritten += bodyReceived;
+	}
+	CHECK_ERROR(bodyWritten == bodyLength, L"/Response body is shorter than Content-Length.");
+
+	U8String bodyUtf8 = U8String::Unmanaged(&bodyBuffer[0]);
+	return u8tow(bodyUtf8);
+}
+
 /***********************************************************************
 HttpServerApi (Writing)
 ***********************************************************************/
@@ -353,6 +403,12 @@ ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID reque
 		NULL,
 		NULL);
 	return result;
+}
+
+void HttpServerApi::SendResponseUtf8(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, WString body)
+{
+	auto result = SendResponse(httpRequestQueue, requestId, { 200, WString::Unmanaged(L"OK"), body, L"application/json; charset=utf8" });
+	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding UTF-8 body.");
 }
 
 /***********************************************************************
