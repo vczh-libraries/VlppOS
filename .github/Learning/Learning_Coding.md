@@ -3,6 +3,7 @@
 # Orders
 
 - `vl::inter_process` shutdown must finish callbacks before returning [4]
+- Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [3]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [1]
 - `NetworkProtocolChannel` uses explicit positive sender and receiver ids [1]
@@ -10,8 +11,8 @@
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
 - Group `SpinLock`-protected fields with coverage comments [1]
 - `HttpServerConnection` queues pending outbound `/Request` responses [1]
-- Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [1]
 - Do not invoke inter-process user callbacks while holding queue locks [1]
+- Split remote channel errors from local transport errors [1]
 
 # Refinements
 
@@ -55,8 +56,12 @@ When HTTP inter-process channel delivery can produce multiple outbound responses
 
 Keep Windows HTTP API ownership in non-copyable/non-movable RAII structs. `HttpClientApi` should own the WinHTTP session/connection for one host and port and complete async requests through a single `Func<void(Variant<HttpResponse, HttpError>)>` path. HTTP status codes such as 404 are successful `HttpResponse` values; only underlying client/API failures are `HttpError`.
 
-`HttpServerApi` should own one `http://host:port/prefix/.../` prefix, initialization/finalization, async request receive loop, optional OPTIONS handling, and a generic UTF-8 response helper. Higher-level inter-process protocol classes should keep only route handling and connection state.
+`HttpServerApi` should own one `http://host:port/prefix/.../` prefix, initialization/finalization, async request receive loop, optional OPTIONS handling, and generic UTF-8 request/response helpers. Use `GetUtf8Body(PHTTP_REQUEST)` for shared complete-body reading and validation, and use `SendResponseUtf8(...)` for the common JSON UTF-8 success response shape. Pass HTTP response status/message/body/content-type as `HttpServerResponse` instead of a loose tail of arguments. Higher-level inter-process protocol classes should keep only route handling and connection state.
 
 ## Do not invoke inter-process user callbacks while holding queue locks
 
 When installing an HTTP connection callback, move queued strings to a local list while holding the `SpinLock`, then release the lock before calling `OnInstalled` or replaying queued `OnReadString` callbacks. This avoids reentrancy and ordering races where a `/Response` callback can observe user callbacks before installation has completed.
+
+## Split remote channel errors from local transport errors
+
+Use `IChannelClient::OnReadError` only for errors broadcast by `IChannelServer::BroadcastError`. Route lower-level connection, request, response, named-pipe, and HTTP transport failures through `OnLocalError`; if the failure closes the client, report the fatal local error before disconnecting. HTTP `/Connect` and `/Response` failures should retry a bounded number of times and report each failed attempt locally, while long-poll `/Request` failures can retry silently as long as the client is still running.

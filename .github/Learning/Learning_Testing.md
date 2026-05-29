@@ -2,8 +2,8 @@
 
 # Orders
 
-- Debug UnitTest logs append memory leaks after the pass summary [7]
-- Use focused `TestInterProcess.cpp` runs for inter-process work [7]
+- Debug UnitTest logs append memory leaks after the pass summary [9]
+- Use focused `TestInterProcess.cpp` runs for inter-process work [9]
 - Split channel clients by role when validating sender ids [3]
 - Repeat inter-process transport scenarios instead of sleeping after `Stop()` [1]
 
