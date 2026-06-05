@@ -4,6 +4,7 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "CharFormat.h"
+#define _WINSOCKAPI_
 #include <windows.h>
 
 #ifndef VCZH_MSVC

@@ -1,5 +1,6 @@
 #include "../../../Source/FileSystem.h"
 #include "../../../Source/Threading.h"
+#define _WINSOCKAPI_
 #include <windows.h>
 
 using namespace vl;

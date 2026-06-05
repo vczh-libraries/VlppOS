@@ -4,6 +4,7 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "Threading.h"
+#define _WINSOCKAPI_
 #include <Windows.h>
 
 #ifndef VCZH_MSVC

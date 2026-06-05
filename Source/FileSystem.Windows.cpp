@@ -9,6 +9,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include "Stream/MemoryWrapperStream.h"
 #include "Stream/Accessor.h"
 #include "Stream/EncodingStream.h"
+#define _WINSOCKAPI_
 #include <Windows.h>
 #include <Shlwapi.h>
 
