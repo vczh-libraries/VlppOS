@@ -8,6 +8,7 @@
   - Concurrent `SendString` handling.
   - `WaitForServer` without server started.
   - Client or server stops any time.
+- Pay attention when `BroadcastFromClient` is happening when the server is accepting new clients.
 - Windows socket
 - Linux socket
 - stdio?
