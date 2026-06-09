@@ -73,18 +73,24 @@ IGuiRemoteProtocolChannel<T>
 		/// Queue a message to send to a client using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
-		/// <param name="senderClientId">The sender client id.</param>
 		/// <param name="receiverClientId">The receiver client id.</param>
 		/// <param name="package">The message to send.</param>
-		virtual void							SendToClient(vint senderClientId, vint receiverClientId, const TPackage& package) = 0;
+		virtual void							SendToClient(vint receiverClientId, const TPackage& package) = 0;
 
 		/// <summary>
 		/// Queue a message to broadcast to all other clients using the same channel.
 		/// If the remote client doesn't have this channel, the message will be discarded.
 		/// </summary>
-		/// <param name="senderClientId">The sender client id.</param>
 		/// <param name="package">The message to broadcast.</param>
-		virtual void							BroadcastFromClient(vint senderClientId, const TPackage& package) = 0;
+		virtual void							BroadcastFromClient(const TPackage& package) = 0;
+
+		/// <summary>
+		/// Queue a message to broadcast to all other clients using the same channel.
+		/// If the remote client doesn't have this channel, the message will be discarded.
+		/// </summary>
+		/// <param name="package">The message to broadcast.</param>
+		/// <param name="blockedReceivers">The receiver client ids blocked from this broadcast.</param>
+		virtual void							BroadcastFromClient(const TPackage& package, const collections::List<vint>& blockedReceivers) = 0;
 
 		/// <summary>
 		/// Send all queued messages.

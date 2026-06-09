@@ -94,18 +94,24 @@ struct
 		{
 		}
 
-		void SendToClient(vint senderClientId, vint receiverClientId, const typename TSerialization::SourceType& package) override
+		void SendToClient(vint receiverClientId, const typename TSerialization::SourceType& package) override
 		{
 			typename TSerialization::DestType serialized;
 			TSerialization::Serialize(context, package, serialized);
-			this->channel->SendToClient(senderClientId, receiverClientId, serialized);
+			this->channel->SendToClient(receiverClientId, serialized);
 		}
 
-		void BroadcastFromClient(vint senderClientId, const typename TSerialization::SourceType& package) override
+		void BroadcastFromClient(const typename TSerialization::SourceType& package) override
+		{
+			collections::List<vint> blockedReceivers;
+			BroadcastFromClient(package, blockedReceivers);
+		}
+
+		void BroadcastFromClient(const typename TSerialization::SourceType& package, const collections::List<vint>& blockedReceivers) override
 		{
 			typename TSerialization::DestType serialized;
 			TSerialization::Serialize(context, package, serialized);
-			this->channel->BroadcastFromClient(senderClientId, serialized);
+			this->channel->BroadcastFromClient(serialized, blockedReceivers);
 		}
 	};
 
