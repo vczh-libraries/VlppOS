@@ -184,7 +184,7 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp" />
-    <ClCompile Include="..\..\..\Source\InterProcess\TextNetworkProtocol.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp" />
@@ -263,7 +263,14 @@
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Channel.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\ChannelSerializer.h" />
-    <ClInclude Include="..\..\..\Source\InterProcess\TextNetworkProtocol.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelClientBaseImpl.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelClientImpl.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelImpl.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelServerImpl.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\LocalChannelClientImpl.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocol.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolChannel.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.h" />

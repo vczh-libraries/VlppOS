@@ -31,6 +31,9 @@
     <Filter Include="Common\InterProcess">
       <UniqueIdentifier>{25f0da09-91c8-4737-9a1d-0311cfbb97a9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\InterProcess\ChannelImpls">
+      <UniqueIdentifier>{0fb445ad-8934-4c8e-b6bd-ef844579bd04}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Common\InterProcess\Windows">
       <UniqueIdentifier>{acd69f45-d653-4117-9ee5-abd6e07259d7}</UniqueIdentifier>
     </Filter>
@@ -177,8 +180,8 @@
     <ClCompile Include="..\..\Source\TestInterProcess.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\InterProcess\TextNetworkProtocol.cpp">
-      <Filter>Common\InterProcess</Filter>
+    <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp">
       <Filter>Common\InterProcess\WindowsAPI</Filter>
@@ -263,7 +266,10 @@
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\NamedPipe.Windows.h">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Source\InterProcess\TextNetworkProtocol.h">
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocol.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolChannel.h">
       <Filter>Common\InterProcess</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h">
@@ -271,6 +277,24 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\ChannelSerializer.h">
       <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelClientBaseImpl.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelClientImpl.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelImpl.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelServerImpl.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\ChannelImpls\LocalChannelClientImpl.h">
+      <Filter>Common\InterProcess\ChannelImpls</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h">
       <Filter>Common\InterProcess\WindowsAPI</Filter>

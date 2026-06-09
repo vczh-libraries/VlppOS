@@ -18,7 +18,7 @@ Interfaces:
 #include <rpc.h>
 #include <winhttp.h>
 
-#include "../TextNetworkProtocol.h"
+#include "../NetworkProtocol.h"
 #include "../../Threading.h"
 #include "../../Stream/MemoryStream.h"
 

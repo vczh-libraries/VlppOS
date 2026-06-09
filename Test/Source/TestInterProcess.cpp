@@ -1,4 +1,4 @@
-#include "../../Source/InterProcess/TextNetworkProtocol.h"
+#include "../../Source/InterProcess/NetworkProtocolChannel.h"
 #ifdef VCZH_MSVC
 #include "../../Source/InterProcess/Windows/NamedPipe.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClient.Windows.h"
@@ -343,14 +343,12 @@ namespace mynamespace
 
 	struct ChannelChatData
 	{
-		EventObject						eventClientsConnected, eventClientRolesKnown, eventServer, eventTom, eventJerry;
+		EventObject						eventClientsConnected, eventServer, eventTom, eventJerry;
 
-		// covers clientId1, clientId2, tomClientId, jerryClientId, serverClientId, client1Stopped, client2Stopped, clientId1ReceivedHello and clientId2ReceivedHello
+		// covers clientId1, clientId2, serverClientId, client1Stopped, client2Stopped, clientId1ReceivedHello and clientId2ReceivedHello
 		SpinLock						lockServer;
 		vint							clientId1 = -1;
 		vint							clientId2 = -1;
-		vint							tomClientId = -1;
-		vint							jerryClientId = -1;
 		vint							serverClientId = -1;
 		bool							client1Stopped = false;
 		bool							client2Stopped = false;
@@ -360,7 +358,6 @@ namespace mynamespace
 		ChannelChatData()
 		{
 			eventClientsConnected.CreateManualUnsignal(false);
-			eventClientRolesKnown.CreateManualUnsignal(false);
 			eventServer.CreateManualUnsignal(false);
 			eventTom.CreateManualUnsignal(false);
 			eventJerry.CreateManualUnsignal(false);
@@ -386,18 +383,6 @@ namespace mynamespace
 		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
-			SPIN_LOCK(chatData->lockServer)
-			{
-				if (chatData->clientId1 == -1)
-				{
-					chatData->clientId1 = clientId;
-				}
-				else if (chatData->clientId2 == -1)
-				{
-					chatData->clientId2 = clientId;
-					chatData->eventClientsConnected.Signal();
-				}
-			}
 			return WaitForClientResult::Accept;
 		}
 	};
@@ -509,16 +494,12 @@ namespace mynamespace
 	private:
 		vint							clientId1 = -1;
 		vint							clientId2 = -1;
-		vint							tomClientId = -1;
-		vint							jerryClientId = -1;
 
 	public:
-		ServerChannelClient(ChannelChatData& chatData, vint _clientId1, vint _clientId2, vint _tomClientId, vint _jerryClientId)
+		ServerChannelClient(ChannelChatData& chatData, vint _clientId1, vint _clientId2)
 			: ChannelClientBase<LocalNetworkChannelClient>(chatData)
 			, clientId1(_clientId1)
 			, clientId2(_clientId2)
-			, tomClientId(_tomClientId)
-			, jerryClientId(_jerryClientId)
 		{
 		}
 
@@ -538,10 +519,10 @@ namespace mynamespace
 			channel->BroadcastFromClient(itow(clientId1) + L";" + itow(clientId2) + L";");
 
 			collections::List<vint> blockedReceivers;
-			blockedReceivers.Add(tomClientId);
+			blockedReceivers.Add(clientId1);
 			channel->BroadcastFromClient(L"Hello Jerry from Server", blockedReceivers);
 			blockedReceivers.Clear();
-			blockedReceivers.Add(jerryClientId);
+			blockedReceivers.Add(clientId2);
 			channel->BroadcastFromClient(L"Hello Tom from Server", blockedReceivers);
 
 			channel->BatchWrite(disconnected);
@@ -604,10 +585,10 @@ namespace mynamespace
 			ChannelClientBase<NetworkChannelClient>::OnConnected(clientId);
 			SPIN_LOCK(chatData->lockServer)
 			{
-				chatData->tomClientId = clientId;
-				if (chatData->jerryClientId != -1)
+				chatData->clientId1 = clientId;
+				if (chatData->clientId2 != -1)
 				{
-					chatData->eventClientRolesKnown.Signal();
+					chatData->eventClientsConnected.Signal();
 				}
 			}
 		}
@@ -666,10 +647,10 @@ namespace mynamespace
 			ChannelClientBase<NetworkChannelClient>::OnConnected(clientId);
 			SPIN_LOCK(chatData->lockServer)
 			{
-				chatData->jerryClientId = clientId;
-				if (chatData->tomClientId != -1)
+				chatData->clientId2 = clientId;
+				if (chatData->clientId1 != -1)
 				{
-					chatData->eventClientRolesKnown.Signal();
+					chatData->eventClientsConnected.Signal();
 				}
 			}
 		}
@@ -714,21 +695,15 @@ namespace mynamespace
 				auto server = createServer(chatData);
 				server->Start();
 				chatData.eventClientsConnected.Wait();
-				chatData.eventClientRolesKnown.Wait();
 				vint clientId1 = -1;
 				vint clientId2 = -1;
-				vint tomClientId = -1;
-				vint jerryClientId = -1;
 				SPIN_LOCK(chatData.lockServer)
 				{
 					clientId1 = chatData.clientId1;
 					clientId2 = chatData.clientId2;
-					tomClientId = chatData.tomClientId;
-					jerryClientId = chatData.jerryClientId;
 				}
-				CHECK_ERROR(clientId1 != clientId2, L"Channel server should assign different client ids.");
-				CHECK_ERROR(tomClientId > 0 && jerryClientId > 0 && tomClientId != jerryClientId, L"Channel clients should report different role ids.");
-				auto serverClient = Ptr(new ServerChannelClient(chatData, clientId1, clientId2, tomClientId, jerryClientId));
+				CHECK_ERROR(clientId1 > 0 && clientId2 > 0 && clientId1 != clientId2, L"Channel server should assign different client ids.");
+				auto serverClient = Ptr(new ServerChannelClient(chatData, clientId1, clientId2));
 				auto serverClientId = server->ConnectLocalClient(serverClient);
 				CHECK_ERROR(serverClientId > 0 && serverClientId != clientId1 && serverClientId != clientId2, L"Channel server should assign a different id to the server channel client.");
 				CHECK_ERROR(server->IsLocalClient(serverClientId), L"Channel server should recognize the server channel client as local.");
