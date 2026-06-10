@@ -5,14 +5,16 @@
 - `vl::inter_process` shutdown must finish callbacks before returning [4]
 - Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [3]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
-- `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [1]
-- `NetworkProtocolChannel` uses explicit positive sender and receiver ids [1]
+- `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [2]
+- `NetworkProtocolChannel` uses explicit positive sender and receiver ids [2]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
+- Keep channel protocol declarations separate from implementation headers [1]
 - Group `SpinLock`-protected fields with coverage comments [1]
 - `HttpServerConnection` queues pending outbound `/Request` responses [1]
 - Do not invoke inter-process user callbacks while holding queue locks [1]
 - Split remote channel errors from local transport errors [1]
+- `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 
 # Refinements
 
@@ -20,9 +22,13 @@
 
 For channel delivery, keep queued packages grouped by target id so each group can be passed directly into `BatchWrite`. Avoid collecting a flat list and regrouping it later when the `Group` structure naturally maintains the batches the transport writer needs.
 
+When broadcasts carry a blocked-receiver list, treat the receiver id and blocked id list as part of the grouping key so each batch preserves its delivery exclusions through serialization and local delivery.
+
 ## `NetworkProtocolChannel` uses explicit positive sender and receiver ids
 
 Channel messages carry both sender and receiver semantics. Ordinary channel chat should use real positive client ids for both sides; do not use `AdminClientId` as the sender for normal server-originated messages. If server-side behavior needs to speak on the channel, connect it as a local client and send from the assigned id. Validate both sender and receiver client ids, and keep public names such as `receiverClientId` aligned with the actual delivery direction.
+
+Channel APIs should derive the sender id from the owning channel client instead of accepting a caller-supplied sender id. This keeps `SendToClient` / `BroadcastFromClient` from trusting duplicate sender arguments and makes local and remote clients follow the same ownership rule.
 
 ## Start `INetworkProtocolServer` / `IChannelServer` after construction
 
@@ -37,6 +43,10 @@ For WinHTTP requests, track request lifetime before `WinHttpSendRequest` and rel
 ## Keep `IChannelServer` delivery-only; use local clients for server speech
 
 Keep `IChannelServer` focused on accepting clients and delivering protocol messages. Do not expose a `GetChannel` escape hatch or let `NetworkProtocolChannelServer` own user channel objects for ordinary chat. When the server needs to participate as a speaker, create a server-side local channel client, register it through `ConnectLocalClient`, and let it send/receive through the same channel contract as other clients.
+
+## Keep channel protocol declarations separate from implementation headers
+
+Keep non-template inter-process channel declarations such as `INetworkProtocol*` in `NetworkProtocol.h`, non-template package serialization in `ChannelPackage.(h|cpp)`, and template channel implementations in focused `Channel*Impl.h` headers. `NetworkProtocolChannel.h` should act as the channel-facing umbrella that keeps the protocol overview comment and includes the implementation headers. Each split header still needs its own required includes instead of relying on the umbrella include order.
 
 ## `NetworkProtocolLocalChannelClient` owns server-local behavior
 
@@ -65,3 +75,7 @@ When installing an HTTP connection callback, move queued strings to a local list
 ## Split remote channel errors from local transport errors
 
 Use `IChannelClient::OnReadError` only for errors broadcast by `IChannelServer::BroadcastError`. Route lower-level connection, request, response, named-pipe, and HTTP transport failures through `OnLocalError`; if the failure closes the client, report the fatal local error before disconnecting. HTTP `/Connect` and `/Response` failures should retry a bounded number of times and report each failed attempt locally, while long-poll `/Request` failures can retry silently as long as the client is still running.
+
+## `NetworkPackage` first section preserves null client ids and normalizes empty extras
+
+`NetworkPackage` serializes the first section as `clientId,extraClientId1,...`. A null `clientId` with extras starts with a comma, while a null `clientId` without extras stays empty, so deserialization can distinguish broadcast markers from extra id lists. Empty `extraClientIds` and null `extraClientIds` should normalize to null after deserialization.

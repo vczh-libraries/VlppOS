@@ -4,8 +4,9 @@
 
 - Debug UnitTest logs append memory leaks after the pass summary [9]
 - Use focused `TestInterProcess.cpp` runs for inter-process work [9]
-- Split channel clients by role when validating sender ids [3]
+- Split channel clients by role when validating sender ids [5]
 - Repeat inter-process transport scenarios instead of sleeping after `Stop()` [1]
+- Search project metadata after source file renames [1]
 
 # Refinements
 
@@ -23,6 +24,14 @@ For broad refactors to `vl::inter_process`, run the whole `UnitTest` executable 
 
 When testing channel delivery, use separate client classes for each role instead of mixing behaviors in one handler. Let Tom/Jerry-style peer clients remember the peer id announced by the server-side local client, and assert that every peer message arrives with that exact `senderClientId`. Model server speech with its own local client role so all asserted senders are real positive client ids.
 
+Do not assume connection order identifies role order. Have role clients publish their assigned ids before the server-side local client sends role-specific broadcasts or blocked broadcasts, then assert delivery using the actual Tom/Jerry role ids.
+
+Avoid carrying duplicate test fields for the same role identity. If `clientId1` and `clientId2` are already Tom and Jerry, use them directly in blocked-broadcast assertions instead of maintaining parallel `tomClientId` / `jerryClientId` fields.
+
 ## Repeat inter-process transport scenarios instead of sleeping after `Stop()`
 
 When validating named-pipe and HTTP callback draining, remove fixed `Thread::Sleep(1000)` delays and repeat each scenario many times. Repetition exposes races where `Stop()` returns before read/connect/request callbacks have drained, while sleeps only hide the broken shutdown boundary.
+
+## Search project metadata after source file renames
+
+After splitting, renaming, or deleting inter-process source files, search both source includes and MSBuild project/filter metadata for stale file names. A successful focused unit test is not enough if old headers or deleted `.cpp` files remain referenced by project files.
