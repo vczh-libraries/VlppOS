@@ -467,6 +467,38 @@ TEST_FILE
 	#endif
 	});
 
+	TEST_CASE(L"Test TaskQueue")
+	{
+		TaskQueue queue;
+		atomic_vint counter = 0;
+		WString text;
+
+		auto thread = Thread::CreateAndStart([&]()
+		{
+			queue.RunTaskQueue();
+		}, false);
+
+		queue.QueueTask([&]()
+		{
+			TEST_ASSERT(counter == 0);
+			counter = 1;
+			text = L"first";
+		});
+		queue.QueueTask([&]()
+		{
+			TEST_ASSERT(counter == 1);
+			counter = 2;
+			text += L",second";
+		});
+		queue.QueueExitTask();
+
+		thread->Wait();
+		delete thread;
+
+		TEST_ASSERT(counter == 2);
+		TEST_ASSERT(text == L"first,second");
+	});
+
 	TEST_CASE(L"Test ThreadLocalStorage")
 	{
 		ThreadLocalStorage::FixStorages();
