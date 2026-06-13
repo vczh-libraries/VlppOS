@@ -11,6 +11,7 @@ Interfaces:
 #include "LocalChannelClientImpl.h"
 #include "../NetworkProtocol.h"
 #include "ChannelPackage.h"
+#include <utility>
 
 namespace vl::inter_process
 {
@@ -18,8 +19,11 @@ namespace vl::inter_process
 NetworkProtocolChannelServer
 ***********************************************************************/
 
-	template<typename TPackage, typename TSerialization>
-	class NetworkProtocolChannelServer : public Object, public virtual IChannelServer<TPackage>, public virtual INetworkProtocolServer
+	template<typename TPackage, typename TSerialization, typename TServerBase>
+	class NetworkProtocolChannelServer
+		: public TServerBase
+		, public virtual IChannelServer<TPackage>
+		, public virtual INetworkProtocolLocalChannelServer<TPackage, TSerialization>
 	{
 		friend class NetworkProtocolLocalChannelClient<TPackage, TSerialization>;
 
@@ -140,7 +144,7 @@ NetworkProtocolChannelServer
 					}
 				}
 
-				if (OnClientConnected(assignedClientId, availableChannels.Keys()) == WaitForClientResult::Accept)
+				if (OnClientConnected(assignedClientId, availableChannels.Keys(), nullptr) == WaitForClientResult::Accept)
 				{
 					bool accepted = false;
 					{
@@ -320,7 +324,7 @@ NetworkProtocolChannelServer
 			return false;
 		}
 
-		bool SendFromLocalClient(Nullable<vint> receiverClientId, const NetworkPackage::ClientIdList& blockedReceivers, vint senderClientId, const WString& channelName, const PackageList& batch)
+		bool SendFromLocalClient(Nullable<vint> receiverClientId, const NetworkPackage::ClientIdList& blockedReceivers, vint senderClientId, const WString& channelName, const PackageList& batch) override
 		{
 			CHECK_ERROR(senderClientId > 0 && ClientHasChannel(senderClientId, channelName), L"NetworkProtocolChannelServer received a message from a local client without the specified channel.");
 			if (receiverClientId)
@@ -367,9 +371,10 @@ NetworkProtocolChannelServer
 				CHECK_ERROR(!stopped, L"NetworkProtocolChannelServer has stopped.");
 				started = true;
 			}
+			TServerBase::Start();
 		}
 
-		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels) override
+		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels, IChannelClient<TPackage>* localClient) override
 		{
 			// default implementation allows all clients to connect
 			return WaitForClientResult::Accept;
@@ -380,10 +385,24 @@ NetworkProtocolChannelServer
 			// default implementation does nothing
 		}
 
-		NetworkProtocolChannelServer(
-			const typename TSerialization::ContextType& _context = {}
-		)
-			: context(_context)
+		NetworkProtocolChannelServer()
+			: TServerBase()
+			, context()
+		{
+		}
+
+		template<typename TFirst, typename... TArgs>
+			requires (!std::is_constructible_v<typename TSerialization::ContextType, TFirst&&>)
+		NetworkProtocolChannelServer(TFirst&& first, TArgs&&... args)
+			: TServerBase(std::forward<TFirst>(first), std::forward<TArgs>(args)...)
+			, context()
+		{
+		}
+
+		template<typename... TArgs>
+		NetworkProtocolChannelServer(const typename TSerialization::ContextType& _context, TArgs&&... args)
+			: TServerBase(std::forward<TArgs>(args)...)
+			, context(_context)
 		{
 		}
 
@@ -427,7 +446,7 @@ NetworkProtocolChannelServer
 				}
 			}
 
-			if (OnClientConnected(assignedClientId, channels.Keys()) == WaitForClientResult::Reject)
+			if (OnClientConnected(assignedClientId, channels.Keys(), localClient.Obj()) == WaitForClientResult::Reject)
 			{
 				return -1;
 			}
@@ -587,19 +606,21 @@ NetworkProtocolChannelServer
 
 			if (shouldStop)
 			{
-				for (auto&& connection : stoppingPendingConnections)
-				{
-					connection->connection->Stop();
-				}
-				for (auto&& connection : stoppingConnections)
-				{
-					connection->connection->Stop();
-					OnClientDisconnected(connection->clientId);
-				}
 				for (vint i = 0; i < stoppingLocalClients.Count(); i++)
 				{
 					NotifyLocalClientDisconnected(stoppingLocalClients[i]);
 					OnClientDisconnected(stoppingLocalClientIds[i]);
+				}
+			}
+
+			TServerBase::Stop();
+
+			if (shouldStop)
+			{
+				// Network connections are owned and stopped by TServerBase.
+				for (auto&& connection : stoppingConnections)
+				{
+					OnClientDisconnected(connection->clientId);
 				}
 			}
 		}
@@ -611,7 +632,7 @@ NetworkProtocolChannelServer
 			{
 				result = stopped;
 			}
-			return result;
+			return result || TServerBase::IsStopped();
 		}
 	};
 }

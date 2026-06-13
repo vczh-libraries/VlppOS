@@ -117,7 +117,15 @@ RESTART_LOOP:
 		}
 
 		DWORD error = GetLastError();
-		if (error == ERROR_BROKEN_PIPE || error == ERROR_INVALID_HANDLE)
+		if (error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+		{
+			if (!stopped)
+			{
+				OnDisconnected();
+			}
+			return;
+		}
+		if (error == ERROR_INVALID_HANDLE)
 		{
 			if (!stopped)
 			{
@@ -176,7 +184,16 @@ RESTART_LOOP:
 				else
 				{
 					DWORD error = GetLastError();
-					if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE || error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+					if (error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+					{
+						if (!self->stopped)
+						{
+							self->OnDisconnected();
+						}
+						finalize();
+						return;
+					}
+					if (error == ERROR_OPERATION_ABORTED || error == ERROR_INVALID_HANDLE)
 					{
 						if (!self->stopped)
 						{
@@ -371,6 +388,14 @@ void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 void NamedPipeConnection::Stop()
 {
 	stopped = 1;
+	SPIN_LOCK(lockWrite)
+	{
+		if (hPipe != INVALID_HANDLE_VALUE)
+		{
+			CancelIoEx(hPipe, NULL);
+		}
+	}
+
 	ReadWaitContext* context = readWaitContext.exchange(nullptr);
 	if (context)
 	{
@@ -391,7 +416,6 @@ void NamedPipeConnection::Stop()
 	{
 		if (hPipe != INVALID_HANDLE_VALUE)
 		{
-			CancelIoEx(hPipe, NULL);
 			CloseHandle(hPipe);
 			hPipe = INVALID_HANDLE_VALUE;
 		}

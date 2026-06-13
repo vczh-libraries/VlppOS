@@ -4,6 +4,7 @@
 #include "../../Source/InterProcess/Windows/HttpClient.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServer.Windows.h"
 #endif
+#include <utility>
 
 using namespace vl;
 using namespace vl::collections;
@@ -349,6 +350,8 @@ namespace mynamespace
 		bool							client2Stopped = false;
 		bool							clientId1ReceivedHello = false;
 		bool							clientId2ReceivedHello = false;
+		vint							networkClientConnections = 0;
+		bool							localClientConnected = false;
 
 		ChannelChatData()
 		{
@@ -359,10 +362,11 @@ namespace mynamespace
 		}
 	};
 
+	template<typename TServerBase>
 	class ChannelServer
-		: public NetworkProtocolChannelServer<WString, WStringListSerializer>
+		: public NetworkProtocolChannelServer<WString, WStringListSerializer, TServerBase>
 	{
-		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer>;
+		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer, TServerBase>;
 
 	private:
 		ChannelChatData*				chatData = nullptr;
@@ -370,14 +374,27 @@ namespace mynamespace
 	public:
 		using Base::OnClientConnected;
 
-		ChannelServer(ChannelChatData& _chatData)
-			: chatData(&_chatData)
+		template<typename... TArgs>
+		ChannelServer(ChannelChatData& _chatData, TArgs&&... args)
+			: Base(std::forward<TArgs>(args)...)
+			, chatData(&_chatData)
 		{
 		}
 
-		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels) override
+		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels, IChannelClient<WString>* localClient) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
+			SPIN_LOCK(chatData->lockServer)
+			{
+				if (localClient)
+				{
+					chatData->localClientConnected = true;
+				}
+				else
+				{
+					chatData->networkClientConnections++;
+				}
+			}
 			return WaitForClientResult::Accept;
 		}
 	};
@@ -737,6 +754,8 @@ namespace mynamespace
 		{
 			TEST_ASSERT(chatData.clientId1ReceivedHello);
 			TEST_ASSERT(chatData.clientId2ReceivedHello);
+			TEST_ASSERT(chatData.networkClientConnections == 2);
+			TEST_ASSERT(chatData.localClientConnected);
 		}
 	}
 }
@@ -776,67 +795,21 @@ namespace mynamespace
 		}
 	};
 
-	class NamedPipeChannelServer : public ChannelServer, public NamedPipeServer
+	class NamedPipeChannelServer : public ChannelServer<NamedPipeServer>
 	{
 	public:
 		NamedPipeChannelServer(ChannelChatData& chatData, const WString& pipeName)
-			: ChannelServer(chatData)
-			, NamedPipeServer(pipeName)
+			: ChannelServer<NamedPipeServer>(chatData, pipeName)
 		{
-		}
-
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
-		{
-			return ChannelServer::OnClientConnected(connection);
-		}
-
-		void Start() override
-		{
-			ChannelServer::Start();
-			NamedPipeServer::Start();
-		}
-
-		void Stop() override
-		{
-			ChannelServer::Stop();
-			NamedPipeServer::Stop();
-		}
-
-		bool IsStopped() override
-		{
-			return ChannelServer::IsStopped() || NamedPipeServer::IsStopped();
 		}
 	};
 
-	class HttpChannelServer : public ChannelServer, public HttpServer
+	class HttpChannelServer : public ChannelServer<HttpServer>
 	{
 	public:
 		HttpChannelServer(ChannelChatData& chatData, const WString& baseUrl, vint port)
-			: ChannelServer(chatData)
-			, HttpServer(baseUrl, port)
+			: ChannelServer<HttpServer>(chatData, baseUrl, port)
 		{
-		}
-
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
-		{
-			return ChannelServer::OnClientConnected(connection);
-		}
-
-		void Start() override
-		{
-			ChannelServer::Start();
-			HttpServer::Start();
-		}
-
-		void Stop() override
-		{
-			HttpServer::Stop();
-			ChannelServer::Stop();
-		}
-
-		bool IsStopped() override
-		{
-			return ChannelServer::IsStopped() || HttpServer::IsStopped();
 		}
 	};
 }

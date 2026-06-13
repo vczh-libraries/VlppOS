@@ -19,20 +19,32 @@ NetworkProtocolLocalChannelClient
 ***********************************************************************/
 
 	template<typename TPackage, typename TSerialization>
+	class INetworkProtocolLocalChannelServer : public virtual Interface
+	{
+	protected:
+		using PackageList = typename TSerialization::SourceType;
+
+	public:
+		virtual bool SendFromLocalClient(Nullable<vint> receiverClientId, const NetworkPackage::ClientIdList& blockedReceivers, vint senderClientId, const WString& channelName, const PackageList& batch) = 0;
+		virtual void BroadcastError(const WString& errorMessage) = 0;
+	};
+
+	template<typename TPackage, typename TSerialization, typename TServerBase>
 	class NetworkProtocolChannelServer;
 
 	template<typename TPackage, typename TSerialization>
 	class NetworkProtocolLocalChannelClient : public NetworkProtocolChannelClientBase<TPackage, TSerialization>
 	{
-		friend class NetworkProtocolChannelServer<TPackage, TSerialization>;
+		template<typename, typename, typename>
+		friend class NetworkProtocolChannelServer;
 
 	private:
 		using Base = NetworkProtocolChannelClientBase<TPackage, TSerialization>;
 		using PackageList = typename TSerialization::SourceType;
 
-		NetworkProtocolChannelServer<TPackage, TSerialization>*		localServer = nullptr;
+		INetworkProtocolLocalChannelServer<TPackage, TSerialization>*	localServer = nullptr;
 
-		bool ConnectLocalServer(NetworkProtocolChannelServer<TPackage, TSerialization>* server, vint assignedClientId)
+		bool ConnectLocalServer(INetworkProtocolLocalChannelServer<TPackage, TSerialization>* server, vint assignedClientId)
 		{
 			CHECK_ERROR(server, L"NetworkProtocolLocalChannelClient::ConnectLocalServer needs a valid server.");
 			localServer = server;

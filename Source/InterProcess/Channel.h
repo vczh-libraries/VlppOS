@@ -222,8 +222,9 @@ IChannelServer
 		/// </summary>
 		/// <param name="clientId">The client id.</param>
 		/// <param name="availableChannels">The available channels.</param>
+		/// <param name="localClient">The local client. It is null for network clients.</param>
 		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
-		virtual WaitForClientResult			OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels) = 0;
+		virtual WaitForClientResult			OnClientConnected(vint clientId, const IChannelClient<TPackage>::ChannelNameList& availableChannels, IChannelClient<TPackage>* localClient) = 0;
 
 		/// <summary>
 		/// Start the server.
