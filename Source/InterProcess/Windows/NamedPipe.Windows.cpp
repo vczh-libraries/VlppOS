@@ -380,8 +380,9 @@ NamedPipeConnection::~NamedPipeConnection()
 
 void NamedPipeConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
+	CHECK_ERROR(!callback || !_callback, L"NamedPipeConnection::InstallCallback only accepts one callback at a time.");
 	callback = _callback;
-	CHECK_ERROR(callback, L"NamedPipeConnection::InstallCallback needs a valid INetworkProtocolCallback.");
+	if (!callback) return;
 	callback->OnInstalled(this);
 }
 

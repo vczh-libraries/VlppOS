@@ -73,10 +73,10 @@ INetworkProtocolServer
 	public:
 		/// <summary>
 		/// Install the callback to the connection.
-		/// If multiple text messages are received before installing the callback, all text messages will be pushed to the callback right away.
-		/// This function can only be called once to install a callback, and no uninstallation is supported.
+		/// Uninstall by passing nullptr.
+		/// Only one callback can be installed at a time.
 		/// </summary>
-		/// <param name="callback">The callback object. It should not be null.</param>
+		/// <param name="callback">The callback object.</param>
 		virtual void							InstallCallback(INetworkProtocolCallback* callback) = 0;
 
 		/// <summary>

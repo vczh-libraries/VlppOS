@@ -331,8 +331,9 @@ HttpClient::~HttpClient()
 
 void HttpClient::InstallCallback(INetworkProtocolCallback* _callback)
 {
+	CHECK_ERROR(!callback || !_callback, L"HttpClient::InstallCallback only accepts one callback at a time.");
 	callback = _callback;
-	CHECK_ERROR(callback, L"HttpClient::InstallCallback needs a valid INetworkProtocolCallback.");
+	if (!callback) return;
 	callback->OnInstalled(this);
 }
 
