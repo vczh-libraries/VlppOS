@@ -267,6 +267,7 @@ namespace mynamespace
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before Stop.");
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
+				client->GetConnection()->InstallCallback(nullptr);
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -285,6 +286,7 @@ namespace mynamespace
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Connected, L"Client should still be connected before Stop.");
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
+				client->GetConnection()->InstallCallback(nullptr);
 			}
 			timeoutThread->threadCounter++;
 		});

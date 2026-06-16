@@ -182,6 +182,7 @@ NetworkProtocolChannelClient
 			{
 				npClient->GetConnection()->Stop();
 			}
+			npClient->GetConnection()->InstallCallback(nullptr);
 		}
 
 		void WaitForServer() override
