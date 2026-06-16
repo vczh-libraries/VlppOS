@@ -101,18 +101,21 @@ WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 void HttpServerConnection::InstallCallback(INetworkProtocolCallback* _callback)
 {
 	CHECK_ERROR(!callback || !_callback, L"HttpServerConnection::InstallCallback only accepts one callback at a time.");
+	if (_callback)
+	{
+		_callback->OnInstalled(this);
+	}
 
 	List<WString> strings;
 	SPIN_LOCK(lockQueuedStrings)
 	{
 		callback = _callback;
 		if (!callback) return;
-		callback->OnConnected();
 		strings = std::move(queuedStrings);
 	}
 	for (const auto& str : strings)
 	{
-		callback->OnReadString(str);
+		_callback->OnReadString(str);
 	}
 }
 
