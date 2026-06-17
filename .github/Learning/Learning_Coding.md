@@ -2,11 +2,13 @@
 
 # Orders
 
-- `vl::inter_process` shutdown must finish callbacks before returning [4]
+- `vl::inter_process` shutdown must finish callbacks before returning [5]
 - Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [3]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [2]
 - `NetworkProtocolChannel` uses explicit positive sender and receiver ids [2]
+- Template `NetworkProtocolChannelServer` over the protocol server base [1]
+- Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
 - Keep channel protocol declarations separate from implementation headers [1]
@@ -34,11 +36,23 @@ Channel APIs should derive the sender id from the owning channel client instead 
 
 For `vl::inter_process`, transport and channel servers should initialize handles and state in constructors, but begin named-pipe or HTTP accept callbacks only from `Start()`. Channel servers should reject remote and local clients before they are started, and callers should start the channel layer and transport layer only after concrete server construction is complete.
 
+## Template `NetworkProtocolChannelServer` over the protocol server base
+
+`NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>` should inherit the concrete protocol server base (for example `NamedPipeServer` or `HttpServer`) and `IChannelServer<TPackage>`, forwarding constructor arguments to `TServerBase`. The channel layer should own channel bookkeeping, local-client routing, and message dispatch, while the transport base owns listening, network connection lifetime, and transport shutdown.
+
+When the constructor has overloads for serializer context plus transport arguments, disambiguate the context-aware overload before forwarding the remaining arguments to the transport base so a serializer context is not accidentally treated as a transport constructor argument.
+
+## Use `IChannelServer::OnClientConnected` `localClient` to identify local clients
+
+`IChannelServer::OnClientConnected` receives a final `IChannelClient<TPackage>* localClient` argument. It is non-null only for server-side local clients and null for network clients, so channel-server implementations and tests should use this callback argument instead of inferring locality from connection order or extra registration flags.
+
 ## `vl::inter_process` shutdown must finish callbacks before returning
 
 Named-pipe and HTTP protocol stop paths must cancel pending work, unregister waits, close active handles, and wait for final callbacks before returning. Unit tests should call `Stop()` as the boundary instead of adding sleeps to hope that callbacks finish later.
 
 For WinHTTP requests, track request lifetime before `WinHttpSendRequest` and release it from `WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING` for successfully submitted requests; handle-closing is the reliable final callback boundary. For registered waits, use owned wait contexts plus atomic exchange/compare-exchange so `Stop()` can either unregister a not-yet-started wait or wait for an already-started callback before handles and buffers are destroyed.
+
+For named-pipe connections, cancel pending overlapped pipe I/O before waiting for callbacks to drain when the remote side can close first. `NetworkProtocolChannelClient` destruction should also check whether the transport connection is already disconnected before trying to stop it.
 
 ## Keep `IChannelServer` delivery-only; use local clients for server speech
 
