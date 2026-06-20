@@ -8,6 +8,7 @@
 ../../Source/FileSystem.cpp
 ../../Source/FileSystem.Injectable.cpp
 ../../Source/FileSystem.Linux.cpp
+../../Source/InterProcess/ChannelImpls/ChannelPackage.cpp
 ../../Source/Locale.cpp
 ../../Source/Locale.Linux.cpp
 ../../Source/Stream/Accessor.cpp
@@ -23,6 +24,7 @@
 ../../Source/Stream/RecorderStream.cpp
 ../../Source/Threading.cpp
 ../../Source/Threading.Linux.cpp
+../Source/TestInterProcess.cpp
 ../Source/TestStreamBase64.cpp
 ../Source/TestFileSystem.cpp
 ../Source/TestLocaleString.cpp

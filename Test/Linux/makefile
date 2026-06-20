@@ -18,7 +18,7 @@ clean:
 
 all:pre-build ./Bin/UnitTest
 
-./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
+./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/ChannelPackage.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TestInterProcess.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../Import/Vlpp.cpp ../../Import/Vlpp.h
@@ -49,6 +49,9 @@ all:pre-build ./Bin/UnitTest
 	$(CPP_COMPILE)
 
 ./Obj/FileSystem.Linux.o: ../../Source/FileSystem.Linux.cpp ../../Source/FileSystem.h ../../Source/Encoding/CharFormat/CharFormat.h ../../Source/Encoding/CharFormat/MbcsEncoding.h ../../Source/Encoding/CharFormat/../Encoding.h ../../Source/Encoding/CharFormat/../../Stream/Interfaces.h ../../Import/Vlpp.h ../../Source/Encoding/CharFormat/UtfEncoding.h ../../Source/Encoding/CharFormat/BomEncoding.h ../../Source/Stream/FileStream.h ../../Source/Stream/Interfaces.h ../../Source/Locale.h ../../Source/Stream/MemoryWrapperStream.h ../../Source/Stream/Accessor.h ../../Source/Stream/MemoryStream.h ../../Source/Stream/EncodingStream.h ../../Source/Stream/../Encoding/Encoding.h
+	$(CPP_COMPILE)
+
+./Obj/ChannelPackage.o: ../../Source/InterProcess/ChannelImpls/ChannelPackage.cpp ../../Source/InterProcess/ChannelImpls/ChannelPackage.h ../../Source/InterProcess/ChannelImpls/../Channel.h ../../Import/Vlpp.h
 	$(CPP_COMPILE)
 
 ./Obj/Locale.o: ../../Source/Locale.cpp ../../Source/Locale.h ../../Import/Vlpp.h
@@ -94,6 +97,9 @@ all:pre-build ./Bin/UnitTest
 	$(CPP_COMPILE)
 
 ./Obj/Threading.Linux.o: ../../Source/Threading.Linux.cpp ../../Source/Threading.h ../../Import/Vlpp.h
+	$(CPP_COMPILE)
+
+./Obj/TestInterProcess.o: ../Source/TestInterProcess.cpp ../Source/../../Source/InterProcess/NetworkProtocolChannel.h ../Source/../../Source/InterProcess/NetworkProtocol.h ../Source/../../Source/InterProcess/Channel.h ../../Import/Vlpp.h ../Source/../../Source/InterProcess/ChannelImpls/ChannelPackage.h ../Source/../../Source/InterProcess/ChannelImpls/../Channel.h ../Source/../../Source/InterProcess/ChannelImpls/ChannelImpl.h ../Source/../../Source/InterProcess/ChannelImpls/../../Threading.h ../Source/../../Source/InterProcess/ChannelImpls/ChannelClientBaseImpl.h ../Source/../../Source/InterProcess/ChannelImpls/ChannelClientImpl.h ../Source/../../Source/InterProcess/ChannelImpls/../NetworkProtocol.h ../Source/../../Source/InterProcess/ChannelImpls/LocalChannelClientImpl.h ../Source/../../Source/InterProcess/ChannelImpls/ChannelServerImpl.h
 	$(CPP_COMPILE)
 
 ./Obj/TestStreamBase64.o: ../Source/TestStreamBase64.cpp ../Source/../../Source/Stream/Accessor.h ../Source/../../Source/Stream/Interfaces.h ../../Import/Vlpp.h ../Source/../../Source/Stream/MemoryStream.h ../Source/../../Source/Stream/EncodingStream.h ../Source/../../Source/Stream/../Encoding/Encoding.h ../Source/../../Source/Stream/../Encoding/../Stream/Interfaces.h ../Source/../../Source/Encoding/Base64Encoding.h ../Source/../../Source/Encoding/Encoding.h
