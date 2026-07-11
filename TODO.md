@@ -17,6 +17,14 @@
   - Test app hosts http service in two different ports
     - JS from one service calls another service
     - Test against Windows(Chrome), Ubuntu(firefox), macOS(safari)
+  - Multiple server on one port share the same IAsyncSocketServer.
+    - A spin lock protects a global map pointer.
+    - each item is refcount protected, released automatically.
+    - the whole map is refcount protected, released automatically.
+    - If creating socket server fails because of port is occupied:
+      - server should take a look at the map again to see if one has been created.
+      - if not created retry, in total 5 times.
+      - creating socket server should not hold the spin lock.
 
 ### IChannelServer
 
