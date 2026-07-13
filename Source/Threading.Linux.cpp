@@ -285,6 +285,13 @@ Semaphore
 			sem_t			semUnnamed;
 			sem_t*			semNamed = nullptr;
 		};
+
+#if defined(__APPLE__)
+		void FailOnUnnamedSemaphore()
+		{
+			CHECK_FAIL(L"vl::Semaphore::~Semaphore()#Unnamed semaphores are not supported on macOS.");
+		}
+#endif
 	}
 
 	Semaphore::Semaphore()
@@ -302,7 +309,9 @@ Semaphore
 			}
 			else
 			{
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+				threading_internal::FailOnUnnamedSemaphore();
+#else
 				sem_destroy(&internalData->semUnnamed);
 #endif
 			}
