@@ -281,16 +281,27 @@ Apply backpressure by waiting for the body consumer before reading without bound
 ### Windows
 
 <!-- Explain IOCP -->
+<!-- Starting an Socket Sync, or if it forced us Async -->
+<!-- Waiting for a client Async -->
+<!-- Reading/Writing data Async>
 
 ### Linux
 
 <!-- Explain io_uring -->
+<!-- Starting an Socket Sync, or if it forced us Async -->
+<!-- Waiting for a client Async -->
+<!-- Reading/Writing data Async>
 
 ### macOS
 
 <!-- Explain Framework.Network -->
+<!-- Starting an Socket Sync, or if it forced us Async -->
+<!-- Waiting for a client Async -->
+<!-- Reading/Writing data Async>
 
-## Must-Have features to let Firefox/Chrome/Safari interact with such Http service
+## Must-Have features to let Firefox/Chrome/Safari interact with a minimized Http service
+
+<!-- summarization of must-have features according -->
 
 ### HTTP service as RESTful API
 
