@@ -306,9 +306,11 @@ public:
       - server should take a look at the map again to see if one has been created.
       - if not created retry, in total 5 times.
       - creating socket server should not hold the spin lock.
-- INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)
-  - On Windows, use socket vs http api in unit test (shared)
-  - On any platform, use socket vs socket in unit test (shared)
+
+## INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)
+
+- On Windows, use socket vs http api in unit test (shared)
+- On any platform, use socket vs socket in unit test (shared)
 
 ## Determine the boundary of an HTTP request
 
