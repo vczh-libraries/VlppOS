@@ -10,7 +10,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include <sys/stat.h>
 #include <semaphore.h>
 #include <errno.h>
-#if defined(__APPLE__) || defined(__APPLE_CC__)
+#if defined VCZH_APPLE
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
@@ -286,7 +286,7 @@ Semaphore
 			sem_t*			semNamed = nullptr;
 		};
 
-#if defined(__APPLE__)
+#if defined VCZH_APPLE
 		void FailOnUnnamedSemaphore()
 		{
 			CHECK_FAIL(L"vl::Semaphore::~Semaphore()#Unnamed semaphores are not supported on macOS.");
@@ -309,7 +309,7 @@ Semaphore
 			}
 			else
 			{
-#if defined(__APPLE__)
+#if defined VCZH_APPLE
 				threading_internal::FailOnUnnamedSemaphore();
 #else
 				sem_destroy(&internalData->semUnnamed);
@@ -325,8 +325,8 @@ Semaphore
 		if (initialCount > maxCount) return false;
 
 		internalData = new SemaphoreData;
-#if defined(__APPLE__)
-        
+#if defined VCZH_APPLE
+
 		AString auuid;
 		if(name.Length() == 0)
 		{
