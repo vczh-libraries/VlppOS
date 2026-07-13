@@ -18,6 +18,7 @@ NamedPipe.Windows.(h|cpp) using `vl::inter_process::named_pipe` namespace.
 
 Interface in `AsyncSocket/AsyncSocket.h`
 Implementations in `(Windows|Linux|macOS)/AsyncSocket.(windows|linux|macos).(h|cpp)`
+Using namespace `vl::inter_process::async_tcp_socket(::(windows|linux|macos)_socket)?`
 
 - Binary async-only interface implemented in:
   - Windows
@@ -39,16 +40,101 @@ The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 Cross platform request parser/constructor
 Interface in `AsyncSocket/HttpRequest.h`
 Implementations in `AsyncSocket/Http(Server|Client).(h|cpp)`
+Using namespace `vl::inter_process::async_tcp_socket`
 
 ### HTTP Request Data Structure:
 
 ```C++
+struct HttpVersion
+{
+	vint                                        major = 1;
+	vint                                        minor = 1;
+};
+
+struct HttpField
+{
+	// Field names are ASCII and case-insensitive. Store them in lowercase.
+	WString                                     name;
+
+	// Field values are HTTP octets, not Unicode text in general.
+	collections::Array<vuint8_t>                value;
+};
+
+struct HttpRequestBodyChunk
+{
+	// Chunk framing is removed. This array contains only chunk data.
+	collections::Array<vuint8_t>                data;
+};
+
+struct HttpRequestBody
+{
+	collections::List<HttpRequestBodyChunk>     chunks;
+	collections::List<HttpField>                trailers;
+};
+
+class HttpRequest : public Object
+{
+public:
+	HttpVersion                                 version;
+	WString                                     method;
+	WString                                     requestTarget;
+	collections::List<HttpField>                headers;
+	HttpRequestBody                             body;
+};
 ```
+
+`HttpRequest` is a parsed, buffered HTTP/1.1 request containing only transmitted message data. Connection state, socket objects, TLS state, timeouts, keep-alive policy, response callbacks and routing behavior do not belong in it.
+
+- `method` keeps the original case and is not an enum, because extension methods are allowed.
+- `requestTarget` keeps the exact percent-encoded request target. It is not limited to a path and query because origin-form, absolute-form, authority-form and asterisk-form are all possible.
+- `headers` is an ordered list instead of a dictionary. Repeated field lines are possible, and the order of repeated values can be significant.
+- Header names and other strictly ASCII protocol elements use `WString` after validation. A generic field value uses `Array<vuint8_t>` because bytes `0x80` through `0xFF` have no universal Unicode interpretation.
+- A request without a body has no chunks. A fixed-length body is stored as one chunk. A chunked body is stored as one item per HTTP chunk. Socket-read boundaries are never represented as body chunks.
+- `HttpRequestBodyChunk::data` contains arbitrary binary data. Chunk size lines and framing CRLFs are not stored.
+- Trailer fields are stored separately from header fields. They appear only after the zero-sized last chunk and are not part of the body data.
+- `Content-Encoding`, such as gzip, is not decoded here. The body contains the representation bytes after HTTP transfer framing has been removed.
+
+The structure is move-only because Vlpp `Array` and `List` are move-only. An asynchronous interface should transfer it with `HttpRequest&&` or share an immutable completed request with `Ptr<HttpRequest>`.
 
 ### HTTP Request Body Parsing:
 
 ```C++
+enum class HttpRequestBodyParsingResult
+{
+	Succeeded,
+	Incomplete,
+	Invalid,
+};
+
+HttpRequestBodyParsingResult ParseHttpRequestBodyToChunks(
+	const vuint8_t*                            buffer,
+	vint                                       availableBytes,
+	HttpRequestBody&                           output,
+	vint&                                      consumedBytes
+	);
 ```
+
+The request-line and headers must be parsed before selecting a body parser:
+
+- Without `Transfer-Encoding` or `Content-Length`, construct an empty `HttpRequestBody`.
+- With a valid `Content-Length: N`, wait for exactly `N` bytes and store them as one `HttpRequestBodyChunk`. `N == 0` produces no chunks.
+- With `Transfer-Encoding` whose final coding is `chunked`, call `ParseHttpRequestBodyToChunks` on the buffered bytes beginning immediately after the header section.
+
+`ParseHttpRequestBodyToChunks` is a helper used by the cross-platform HTTP request parser, not something application code should normally call. Its contract is:
+
+- `Succeeded`: `output` contains all nonzero chunks and trailer fields. `consumedBytes` is the exact encoded size through the final empty line after the trailers. Bytes after that position belong to a possible next request and must remain buffered.
+- `Incomplete`: more socket data is required. The caller preserves the buffered bytes and retries after another read.
+- `Invalid`: the chunk-size line, chunk-data terminator or trailer section is malformed, overflows an integer, or violates configured limits. The request must be rejected.
+
+The function repeatedly parses a hexadecimal chunk size, copies exactly that many data bytes, and requires the following `\r\n`. A zero size ends the data chunks; field lines after it are parsed into `trailers` until the final empty line. Chunk extensions should be validated and ignored by the initial implementation. They are transfer metadata and are not required to access the body.
+
+For example, the encoded body:
+
+```text
+7\r\nHello, \r\n6\r\nworld!\r\n0\r\nDigest: value\r\n\r\n
+```
+
+produces two chunks containing `Hello, ` and `world!`, plus one `Digest` trailer. The size lines, zero chunk and framing CRLFs are consumed but do not appear in `HttpRequestBody`.
 
 ### Interface proposal:
 
