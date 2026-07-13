@@ -38,18 +38,44 @@ Implements:
   - On Windows, use socket vs http api in unit test (shared)
   - On any platform, use socket vs socket in unit test (shared)
 
-## Determine the end of an HTTP request
+## Determine the boundary of an HTTP request
+
+<!-- Definition of Chunk Format -->
+
+### Chunk Based
+
+<!-- Introduction -->
+
+#### Unicode Encoding
+
+#### Escaping of Chunk Body (including (CR)?LF)
+
+#### Binary Chunk
+
+### Non-Chunk Based
 
 ## Async Socket Implementations
 
 ### Windows
 
-IOCP
+<!-- Explain IOCP -->
 
 ### Linux
 
+<!-- Explain io_uring -->
+
 ### macOS
 
-Framework.Network
+<!-- Explain Framework.Network -->
+
+## Must-Have features to let Firefox/Chrome/Safari interact with such Http service
+
+### HTTP service as RESTful API
+
+### HTTP service hosting a website
+
+### XSS and Options verb
+
+## Convenient Async TCP Socket Interface
 
 ## Http(Server|Client).Windows.(h|cpp) Request Convention
