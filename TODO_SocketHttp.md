@@ -7,7 +7,17 @@ Implements:
 - text network protocol on http api layer on socket api layer
   - compatible with windows http api implementation
 
+Files are based in `Source/InterProcess`.
+
+## Refactoring for Preparation
+
+Http(Server|Client)(Api)?.Windows.(h|cpp) moved from `Windows` to `Windows/HTTP` folder, using `vl::inter_process::windows_http` namespace.
+NamedPipe.Windows.(h|cpp) using `vl::inter_process::named_pipe` namespace.
+
 ## IAsyncSocket(Server|Client)
+
+Interface in `AsyncSocket/AsyncSocket.h`
+Implementations in `(Windows|Linux|macOS)/AsyncSocket.(windows|linux|macos).(h|cpp)`
 
 - Binary async-only interface implemented in:
   - Windows
@@ -26,7 +36,9 @@ The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
 ## IHttpRequest(Server|Client) on IAsyncSocket(Server|Client)
 
-- Cross platform request parser/constructor
+Cross platform request parser/constructor
+Interface in `AsyncSocket/HttpRequest.h`
+Implementations in `AsyncSocket/Http(Server|Client).(h|cpp)`
 
 HTTP Request Data Structure:
 
