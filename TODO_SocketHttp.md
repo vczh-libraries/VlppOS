@@ -27,7 +27,7 @@ Implementations in `(Windows|Linux|macOS)/AsyncSocket.(windows|linux|macos).(h|c
 - Focus on async binary data accessing, pattern like `read_some`, which it push data to users, users can't request for a specific length.
 - Connect to current machine (127.0.0.1) only with user-specified port
 
-Interface proposal:
+### Interface proposal:
 
 The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
@@ -40,12 +40,17 @@ Cross platform request parser/constructor
 Interface in `AsyncSocket/HttpRequest.h`
 Implementations in `AsyncSocket/Http(Server|Client).(h|cpp)`
 
-HTTP Request Data Structure:
+### HTTP Request Data Structure:
 
 ```C++
 ```
 
-Interface proposal:
+### HTTP Request Body Parsing:
+
+```C++
+```
+
+### Interface proposal:
 
 The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
