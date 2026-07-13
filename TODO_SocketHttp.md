@@ -1,17 +1,10 @@
 # Http Service on TCP Socket
 
-Implements:
-- socket api layer
-- text network protocol on socket api layer
-- http api layer on socket api layer
-- text network protocol on http api layer on socket api layer
-  - compatible with windows http api implementation
-
 - Files are based in `Source/InterProcess`.
-- [IAsyncSocket(Server|Client)](./TODO_SocketHttp_AsyncSocket.md)
-- [IHttpRequest(Server|Client) on IAsyncSocket(Server|Client)](./TODO_SocketHttp_HttpRequest.md)
-- [SocketHttp(server|client) based on IHttpRequest(Server|Client)](./TODO_SocketHttp_MiniHttpApi.md)
-- [INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)](./TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md)
+- [Async Socket on Multiple Platforms](./TODO_SocketHttp_AsyncSocket.md)
+- [HTTP Request and Response Transmission](./TODO_SocketHttp_HttpRequest.md)
+- [Minimized HTTP Server/Client](./TODO_SocketHttp_MiniHttpApi.md)
+  - [INetworkProtocol(Server|Client) implementation](./TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md)
 
 ## Refactoring for Preparation
 
