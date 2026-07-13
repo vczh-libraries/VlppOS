@@ -33,7 +33,73 @@ Using namespace `vl::inter_process::async_tcp_socket(::(windows|linux|macos)_soc
 The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
 ```C++
+class AsyncSocketBuffer : public Object
+{
+public:
+	collections::Array<vuint8_t>                data;
+};
+
+class IAsyncSocketConnection;
+
+class IAsyncSocketCallback : public virtual Interface
+{
+public:
+	// The buffer is borrowed and is valid only during this callback.
+	// One callback represents one arbitrary read_some result.
+	virtual void                                OnRead(const vuint8_t* buffer, vint size) = 0;
+
+	// Called after the complete buffer passed to WriteAsync has been sent.
+	virtual void                                OnWriteCompleted(Ptr<AsyncSocketBuffer> buffer) {}
+
+	virtual void                                OnError(const WString& error, bool fatal) {}
+	virtual void                                OnConnected() {}
+	virtual void                                OnDisconnected() {}
+	virtual void                                OnInstalled(IAsyncSocketConnection* connection) = 0;
+};
+
+class IAsyncSocketConnection : public virtual Interface
+{
+public:
+	virtual void                                InstallCallback(IAsyncSocketCallback* callback) = 0;
+
+	// Continuously perform read_some and deliver every result through OnRead.
+	virtual void                                BeginReadingLoopUnsafe() = 0;
+
+	// Send the whole buffer in order. The implementation handles partial OS writes.
+	virtual void                                WriteAsync(Ptr<AsyncSocketBuffer> buffer) = 0;
+
+	virtual void                                Stop() = 0;
+};
+
+class IAsyncSocketClient : public virtual Interface
+{
+public:
+	virtual IAsyncSocketConnection*             GetConnection() = 0;
+	virtual void                                WaitForServer() = 0;
+	virtual ClientStatus                        GetStatus() = 0;
+};
+
+class IAsyncSocketServer : public virtual Interface
+{
+public:
+	virtual WaitForClientResult                 OnClientConnected(IAsyncSocketConnection* connection) = 0;
+	virtual void                                Start() = 0;
+	virtual void                                Stop() = 0;
+	virtual bool                                IsStopped() = 0;
+};
 ```
+
+The connection is an ordered full-duplex byte stream. It deliberately does not expose packets, TCP segments or a requested read length.
+
+- `BeginReadingLoopUnsafe` starts a continuous callback-driven `read_some` loop, matching `INetworkProtocolConnection`. After it is called, the implementation keeps exactly one read outstanding and schedules the next read after the current `OnRead` callback returns. The consumer cannot request a byte count, pause between protocol states or decide what one callback contains.
+- `OnRead` may contain any positive number of bytes chosen by the implementation. It can split or combine protocol elements arbitrarily. The callback must consume the bytes or copy any required remainder before returning.
+- Only one write may be outstanding. `WriteAsync` retains the supplied `Ptr<AsyncSocketBuffer>` until `OnWriteCompleted`, sends all bytes in order, and hides platform-specific partial writes. A user that has multiple buffers maintains its own write queue and submits the next buffer from its state machine.
+- One read and one write may be outstanding simultaneously. Callbacks can run on any thread, so the callback and connection state must be thread-safe.
+- `OnDisconnected` represents EOF or loss of the peer. A fatal `OnError` is followed by disconnection. A nonfatal error leaves the connection usable according to the operation-specific contract.
+- `InstallCallback` accepts one callback and uses `nullptr` to uninstall it, matching `INetworkProtocolConnection`.
+- `Stop` is the shutdown boundary. It cancels pending operations and waits until callbacks that could access the connection owner have finished before returning.
+
+This small contract is sufficient for the buffered state machine described in `Efficient TCP Socket Async Reading`: the connection issues efficient block reads continuously, while the user-owned state machine preserves surplus bytes and parses as much as possible whenever `OnRead` pushes another arbitrary block. Because the next read is scheduled only after the callback returns, callback execution provides basic backpressure without exposing read scheduling to the consumer.
 
 ## IHttpRequest(Server|Client) on IAsyncSocket(Server|Client)
 
@@ -60,15 +126,15 @@ struct HttpField
 	collections::Array<vuint8_t>                value;
 };
 
-struct HttpRequestBodyChunk
+struct HttpBodyChunk
 {
 	// Chunk framing is removed. This array contains only chunk data.
 	collections::Array<vuint8_t>                data;
 };
 
-struct HttpRequestBody
+struct HttpBody
 {
-	collections::List<HttpRequestBodyChunk>     chunks;
+	collections::List<HttpBodyChunk>            chunks;
 	collections::List<HttpField>                trailers;
 };
 
@@ -79,7 +145,7 @@ public:
 	WString                                     method;
 	WString                                     requestTarget;
 	collections::List<HttpField>                headers;
-	HttpRequestBody                             body;
+	HttpBody                                    body;
 };
 ```
 
@@ -90,7 +156,7 @@ public:
 - `headers` is an ordered list instead of a dictionary. Repeated field lines are possible, and the order of repeated values can be significant.
 - Header names and other strictly ASCII protocol elements use `WString` after validation. A generic field value uses `Array<vuint8_t>` because bytes `0x80` through `0xFF` have no universal Unicode interpretation.
 - A request without a body has no chunks. A fixed-length body is stored as one chunk. A chunked body is stored as one item per HTTP chunk. Socket-read boundaries are never represented as body chunks.
-- `HttpRequestBodyChunk::data` contains arbitrary binary data. Chunk size lines and framing CRLFs are not stored.
+- `HttpBodyChunk::data` contains arbitrary binary data. Chunk size lines and framing CRLFs are not stored.
 - Trailer fields are stored separately from header fields. They appear only after the zero-sized last chunk and are not part of the body data.
 - `Content-Encoding`, such as gzip, is not decoded here. The body contains the representation bytes after HTTP transfer framing has been removed.
 
@@ -109,15 +175,15 @@ enum class HttpRequestBodyParsingResult
 HttpRequestBodyParsingResult ParseHttpRequestBodyToChunks(
 	const vuint8_t*                            buffer,
 	vint                                       availableBytes,
-	HttpRequestBody&                           output,
+	HttpBody&                                  output,
 	vint&                                      consumedBytes
 	);
 ```
 
 The request-line and headers must be parsed before selecting a body parser:
 
-- Without `Transfer-Encoding` or `Content-Length`, construct an empty `HttpRequestBody`.
-- With a valid `Content-Length: N`, wait for exactly `N` bytes and store them as one `HttpRequestBodyChunk`. `N == 0` produces no chunks.
+- Without `Transfer-Encoding` or `Content-Length`, construct an empty `HttpBody`.
+- With a valid `Content-Length: N`, wait for exactly `N` bytes and store them as one `HttpBodyChunk`. `N == 0` produces no chunks.
 - With `Transfer-Encoding` whose final coding is `chunked`, call `ParseHttpRequestBodyToChunks` on the buffered bytes beginning immediately after the header section.
 
 `ParseHttpRequestBodyToChunks` is a helper used by the cross-platform HTTP request parser, not something application code should normally call. Its contract is:
@@ -134,14 +200,89 @@ For example, the encoded body:
 7\r\nHello, \r\n6\r\nworld!\r\n0\r\nDigest: value\r\n\r\n
 ```
 
-produces two chunks containing `Hello, ` and `world!`, plus one `Digest` trailer. The size lines, zero chunk and framing CRLFs are consumed but do not appear in `HttpRequestBody`.
+produces two chunks containing `Hello, ` and `world!`, plus one `Digest` trailer. The size lines, zero chunk and framing CRLFs are consumed but do not appear in `HttpBody`.
 
 ### Interface proposal:
 
 The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
 ```C++
+class HttpResponse : public Object
+{
+public:
+	HttpVersion                                 version;
+	vint                                        statusCode = 200;
+	WString                                     reason;
+	collections::List<HttpField>                headers;
+	HttpBody                                    body;
+};
+
+class IHttpRequestConnection;
+
+class IHttpRequestCallback : public virtual Interface
+{
+public:
+	// A server-side connection receives requests.
+	virtual void                                OnReadRequest(Ptr<HttpRequest> request) {}
+
+	// A client-side connection receives responses.
+	virtual void                                OnReadResponse(Ptr<HttpResponse> response) {}
+
+	// Completes the single SendRequest or SendResponse currently in progress.
+	virtual void                                OnWriteCompleted() {}
+
+	virtual void                                OnError(const WString& error, bool fatal) {}
+	virtual void                                OnConnected() {}
+	virtual void                                OnDisconnected() {}
+	virtual void                                OnInstalled(IHttpRequestConnection* connection) = 0;
+};
+
+class IHttpRequestConnection : public virtual Interface
+{
+public:
+	virtual void                                InstallCallback(IHttpRequestCallback* callback) = 0;
+
+	// Continuously read requests on the server or responses on the client.
+	virtual void                                BeginReadingLoopUnsafe() = 0;
+
+	// Client-side operation. Only one request/response exchange is active at a time.
+	virtual void                                SendRequest(Ptr<HttpRequest> request) = 0;
+
+	// Server-side operation. Responds to the most recently delivered request.
+	virtual void                                SendResponse(Ptr<HttpResponse> response) = 0;
+
+	virtual void                                Stop() = 0;
+};
+
+class IHttpRequestClient : public virtual Interface
+{
+public:
+	virtual IHttpRequestConnection*             GetConnection() = 0;
+	virtual void                                WaitForServer() = 0;
+	virtual ClientStatus                        GetStatus() = 0;
+};
+
+class IHttpRequestServer : public virtual Interface
+{
+public:
+	virtual WaitForClientResult                 OnClientConnected(IHttpRequestConnection* connection) = 0;
+	virtual void                                Start() = 0;
+	virtual void                                Stop() = 0;
+	virtual bool                                IsStopped() = 0;
+};
 ```
+
+`IHttpRequestConnection` owns the cross-platform HTTP/1.1 state machine on one `IAsyncSocketConnection`. It receives the continuous sequence of arbitrary socket `OnRead` callbacks and turns them into complete logical HTTP messages.
+
+- On a server connection, the continuous reading loop produces `OnReadRequest` whenever a complete request has been parsed. The server calls `SendResponse` for each delivered request.
+- On a client connection, the client calls `SendRequest` and the continuous reading loop eventually produces the corresponding `OnReadResponse`. The next request is not sent until the current response body is complete.
+- The initial implementation supports one in-flight request/response exchange per connection and does not support HTTP pipelining. This is sufficient for persistent sequential communication on the same machine and removes request identifiers and response reordering from the interface.
+- `BeginReadingLoopUnsafe` continuously translates arbitrary socket callbacks into complete HTTP messages. When a request or response completes, surplus bytes remain buffered and are considered for the next message when the HTTP state machine permits it.
+- `SendRequest` and `SendResponse` serialize the data structures, generate or validate HTTP framing, and use one or more socket writes internally. `OnWriteCompleted` means the entire HTTP message has been written.
+- Chunking, `Content-Length`, header limits, body limits and trailer parsing belong to this cross-platform layer. URL routing, cookies, content decoding, authentication and application behavior remain above it.
+- HTTP keep-alive does not add another socket operation. The HTTP state machine decides whether the already-running loop may continue parsing messages from the same open connection.
+- `HttpResponse` is the response-side equivalent of `HttpRequest`. Its body follows the same rules: binary chunks with transfer framing removed and trailers stored separately.
+- Installation, connection notification, client status, accepting/rejecting clients and shutdown intentionally follow `NetworkProtocol.h`.
 
 ## INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)
 
@@ -329,7 +470,7 @@ HTTP/2 is a different protocol even though it can run over TCP. It uses length-p
 
 ### Efficient TCP Socket Async Reading
 
-Do not issue one asynchronous socket operation per byte. Issue `read_some` into the free portion of a reusable per-connection buffer, then let an incremental parser consume as much buffered data as possible. Only issue another socket read when the parser reports that it needs more data.
+Do not issue one asynchronous socket operation per byte. `BeginReadingLoopUnsafe` keeps one `read_some` operation outstanding per connection and pushes every completed block to `OnRead`. The consumer cannot request a size or control when the next read happens. It incrementally consumes each callback and preserves any incomplete protocol data in its own per-connection buffer.
 
 One read completion has no protocol meaning. All of the following are valid:
 
@@ -381,20 +522,22 @@ Use an incremental state machine resembling:
 7. `Complete`
    - Deliver the request, reset to `Headers`, and immediately parse any unconsumed bytes as the next request.
 
-The receive loop is conceptually:
+The callback-driven receive loop is conceptually:
 
 ```text
-while connection is open:
+BeginReadingLoopUnsafe()
+
+OnRead(block):
+    append block to the per-connection buffer
     while parser can make progress from buffered bytes:
         consume bytes and dispatch parser events
-    if application backpressure prevents progress:
-        wait for the consumer
-    else:
-        compact or grow the bounded buffer if necessary
-        await socket.read_some(free buffer tail)
+    compact or grow the bounded buffer within configured limits
+    return
+
+the socket implementation schedules the next read_some after OnRead returns
 ```
 
-Apply backpressure by waiting for the body consumer before reading without bound. A zero-byte socket read means EOF: it is a normal connection end only when no request is partially parsed; while waiting for headers, a declared fixed body, chunk data, chunk framing or trailers, it makes the request incomplete. Header/body idle timeouts are also required to prevent slow clients from retaining a connection indefinitely.
+Returning from `OnRead` allows the next read, so callback execution provides basic backpressure without a public read-control API. This project uses bounded, buffered requests and a small number of local connections; exceeding a configured header/body buffer limit is a fatal protocol error instead of allowing unbounded buffering. A zero-byte platform read becomes `OnDisconnected`: it is a normal connection end only when no request is partially parsed; while waiting for headers, a declared fixed body, chunk data, chunk framing or trailers, it makes the request incomplete. Header/body idle timeouts are also required to prevent a stalled local peer from retaining a connection indefinitely.
 
 ### References
 
