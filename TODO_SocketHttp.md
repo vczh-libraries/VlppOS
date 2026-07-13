@@ -15,8 +15,11 @@ Implements:
   - macOS
   - unit test
 - Focus on async binary data accessing, pattern like `read_some`, which it push data to users, users can't request for a specific length.
+- Connect to current machine (127.0.0.1) only with user-specified port
 
 Interface proposal:
+
+The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
 ```C++
 ```
@@ -31,6 +34,8 @@ HTTP Request Data Structure:
 ```
 
 Interface proposal:
+
+The design is similar to `INetworkProtocol(Server|Client|Connection|Callback)`
 
 ```C++
 ```
