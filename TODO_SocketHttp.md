@@ -7,26 +7,49 @@ Implements:
 - text network protocol on http api layer on socket api layer
   - compatible with windows http api implementation
 
-## IAsyncSocketServer / IAsyncSocketClient
+## IAsyncSocket(Server|Client)
 
 - Binary async-only interface implemented in:
   - Windows
   - Linux
   - macOS
   - unit test
+- Focus on async binary data accessing, pattern like `read_some`, which it push data to users, users can't request for a specific length.
+
+Interface proposal:
+
+```C++
+```
+
+## IHttpRequest(Server|Client) on IAsyncSocket(Server|Client)
+
+- Cross platform request parser/constructor
+
+HTTP Request Data Structure:
+
+```C++
+```
+
+Interface proposal:
+
+```C++
+```
+
+## INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)
+
 - INetworkProtocolServer / INetworkProtocolClient:
   - Text service based on socket.
   - Text block encoded in length in bytes + non-zero-terminated utf-8 string.
   - unit test (shared)
 
-## HTTP server / client based on IAsyncSocketServer / IAsyncSocketClient
+## SocketHttp(server|client) based on IHttpRequest(Server|Client)
 
 - SocketHttpServer / SocketHttpClient
   - On Windows, use socket vs http api in unit test.
   - Test app hosts http service in two different ports
     - JS from one service calls another service
     - Test against Windows(Chrome), Ubuntu(firefox), macOS(safari)
-  - Multiple server on one port share the same IAsyncSocketServer.
+  - Multiple server on one port share the same IHttpRequestServer.
     - A spin lock protects a global map pointer.
     - each item is refcount protected, released automatically.
     - the whole map is refcount protected, released automatically.
@@ -34,7 +57,7 @@ Implements:
       - server should take a look at the map again to see if one has been created.
       - if not created retry, in total 5 times.
       - creating socket server should not hold the spin lock.
-- INetworkProtocolServer / INetworkProtocolClient based on SocketHttpServer / SocketHttpClient
+- INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)
   - On Windows, use socket vs http api in unit test (shared)
   - On any platform, use socket vs socket in unit test (shared)
 
@@ -313,7 +336,5 @@ Apply backpressure by waiting for the body consumer before reading without bound
 
 <!-- one direction: can't decode gzip -->
 <!-- another direction: force browser to only use unicode, so we don't need to deal with others -->
-
-## Convenient Async TCP Socket Interface
 
 ## Http(Server|Client).Windows.(h|cpp) Request Convention
