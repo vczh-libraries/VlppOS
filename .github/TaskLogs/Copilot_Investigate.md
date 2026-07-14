@@ -45,3 +45,17 @@ After the product change:
 The initial Debug x64 unit-test build failed with zero warnings and four compiler errors at the two new using-directives in `TestInterProcess.cpp`. MSVC reported that `named_pipe` and `windows_http` are not members of `vl::inter_process` and that neither namespace exists. The headers cited by the compiler still declare `namespace vl::inter_process`, confirming the exact public-namespace mismatch requested by the task while leaving the existing named-pipe and HTTP behavioral scenarios ready for proposal verification.
 
 # PROPOSALS
+
+- No.1 Move Windows transports into feature-specific nested namespaces
+
+## No.1 Move Windows transports into feature-specific nested namespaces
+
+Change the namespace in every `HttpServer.Windows.*`, `HttpClient.Windows.*`, `HttpServerApi.Windows.*` and `HttpClientApi.Windows.*` source/header file from `vl::inter_process` to `vl::inter_process::windows_http`. This moves the complete HTTP family together: `HttpServer`, `HttpServerConnection`, `HttpClient`, `HttpServerApi`, `HttpServerResponse`, `HttpClientApi`, `HttpRequest`, `HttpResponse` and `HttpError`.
+
+Change `NamedPipe.Windows.h` and `NamedPipe.Windows.cpp` from `vl::inter_process` to `vl::inter_process::named_pipe`, moving `NamedPipeServer`, `NamedPipeConnection` and `NamedPipeClient` as one family. Both nested namespaces continue to find the generic protocol interfaces, status enums and common Vlpp types through their enclosing namespaces, so the generic `INetworkProtocol*`, channel templates, `ClientStatus` and `WaitForClientResult` remain in `vl::inter_process`.
+
+Update the diagnostic identity string owned by `HttpClientApi` to its new fully qualified name. Update the existing Windows inter-process test composition boundary to import both nested namespaces; no behavioral test logic needs to change because this is an API organization change rather than a transport behavior change.
+
+Update `Index_VlppOS.md` and `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` so concrete transport/helper names are fully qualified where the namespace distinction matters, explicitly explain which family belongs to each nested namespace, and preserve the parent namespace for transport-agnostic APIs. Regenerate all VlppOS release outputs with the repository code-pack tool so downstream imports receive the public namespace change.
+
+### CODE CHANGE
