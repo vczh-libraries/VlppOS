@@ -17,6 +17,8 @@
 - Do not invoke inter-process user callbacks while holding queue locks [1]
 - Split remote channel errors from local transport errors [1]
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
+- `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
+- Async-socket concrete server and client constructors stay port-only across platforms [1]
 
 # Refinements
 
@@ -93,3 +95,11 @@ Use `IChannelClient::OnReadError` only for errors broadcast by `IChannelServer::
 ## `NetworkPackage` first section preserves null client ids and normalizes empty extras
 
 `NetworkPackage` serializes the first section as `clientId,extraClientId1,...`. A null `clientId` with extras starts with a comma, while a null `clientId` without extras stays empty, so deserialization can distinguish broadcast markers from extra id lists. Empty `extraClientIds` and null `extraClientIds` should normalize to null after deserialization.
+
+## `vl::inter_process` Windows transports use feature-specific nested namespaces
+
+Keep concrete named-pipe types from `NamedPipe.Windows.*` in `vl::inter_process::named_pipe` and concrete Windows HTTP types from `Http(Server|Client)(Api)?.Windows.*` in `vl::inter_process::windows_http`. Keep the VlppOS knowledge base, generated Release surface, and downstream consumers aligned with these public namespace locations.
+
+## Async-socket concrete server and client constructors stay port-only across platforms
+
+Keep Windows, Linux, and macOS concrete async-socket server/client constructors shaped around `vint port` as the sole constructor argument where possible. A common constructor contract lets `TestServer<TServerBase>` and platform-neutral factories instantiate every implementation without platform-specific glue.

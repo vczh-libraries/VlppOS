@@ -7,6 +7,7 @@
 - Split channel clients by role when validating sender ids [5]
 - Repeat inter-process transport scenarios instead of sleeping after `Stop()` [1]
 - Search project metadata after source file renames [1]
+- `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [1]
 
 # Refinements
 
@@ -35,3 +36,7 @@ When validating named-pipe and HTTP callback draining, remove fixed `Thread::Sle
 ## Search project metadata after source file renames
 
 After splitting, renaming, or deleting inter-process source files, search both source includes and MSBuild project/filter metadata for stale file names. A successful focused unit test is not enough if old headers or deleted `.cpp` files remain referenced by project files.
+
+## `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms
+
+Keep the async-socket behavioral `TEST_CASE` registrations in one platform-neutral helper. Windows, Linux, and macOS branches should supply only their concrete server/client types, maximum read-block size, and timed-wait binding, then invoke the common registration. Add a new platform by filling its prepared binding and running the existing cases; do not copy the five scenarios.
