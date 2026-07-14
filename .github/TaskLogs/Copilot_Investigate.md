@@ -31,7 +31,7 @@ The baseline Debug x64 build succeeded with zero warnings and zero errors. The u
 
 # PROPOSALS
 
-- No.1 Share async-socket test registration and prepare platform implementation tasks
+- No.1 Share async-socket test registration and prepare platform implementation tasks [CONFIRMED]
 
 ## No.1 Share async-socket test registration and prepare platform implementation tasks
 
@@ -42,3 +42,17 @@ Replace the Windows-only server test adapter with `TestServer<TServerBase>`. Its
 Create `TODO_Task_Linux.md` and `TODO_Task_macOS.md` as standalone future `investigate repro` tasks modeled after `TODO_Task.md`. Both documents preserve the existing common interface and callback/shutdown contract, scope work to one platform implementation and its build integration, explicitly exclude `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, expose concrete server/client classes with port-only constructors where possible, and incorporate the corresponding `liburing`/`io_uring` or Network.framework/Grand Central Dispatch requirements from `TODO_SocketHttp_AsyncSocket.md`. They do not request new test scenarios; instead they direct the implementer to fill the prepared platform include/invocation branch in `TestInterProcess_AsyncSocket.cpp` and run the shared cases.
 
 ### CODE CHANGE
+
+Updated `Test/Source/TestInterProcess_AsyncSocket.cpp` with explicit Windows, macOS, and Linux branches at the platform include, timed-wait binding, and `TEST_FILE` entry points. The unimplemented GCC branches are empty placeholders and compile without instantiating unavailable concrete types.
+
+Replaced `WindowsTestServer`, `CreateWindowsServer`, and `CreateWindowsClient` with the platform-neutral `TestServer<TServerBase>`, `CreateTestServer<TServerBase>`, and `CreateTestClient<TClient>` templates. `TestServer<TServerBase>` forwards `vint port` to its concrete base and overrides only the shared accept callback. Added `RunAsyncSocketTestCases<TServerBase, TClient>`, which creates the factory delegates and contains the five existing test registrations once. The Windows entry now supplies `windows_socket::AsyncSocketServer`, `windows_socket::AsyncSocketClient`, its 64 KiB receive maximum, and its bounded event-wait function in one invocation.
+
+Created `TODO_Task_Linux.md` and `TODO_Task_macOS.md`. Each standalone future task specifies the port-only public constructors, private native implementation shape, common byte-stream/callback/shutdown contract, platform-native completion and cancellation rules, project/vmake integration, and activation of the prepared shared test entry without authoring duplicate scenarios. Both explicitly exclude the `INetworkProtocol*` adapter section. Review identified that `EventObject::WaitForTime` is currently Windows-only, so both tasks now include the same order-independent GCC prerequisite: add timed `ConditionVariable`/`EventObject` waiting once in `Threading.Linux.cpp` using `pthread_cond_timedwait`, then bind that bounded wait through the existing test seam. The Linux task also accounts for `liburing` link order, and the macOS task preserves the authoritative distinction between retryable `waiting` and terminal `failed` Network.framework states.
+
+### CONFIRMED
+
+The refactored Debug x64 solution built with zero warnings and zero errors. The unfiltered post-change unit-test run registered all five async-socket cases exactly once and passed 13/13 files and 122/122 cases. `Execute.log` ends at the passing summary and contains no CRT memory-leak report.
+
+Source review confirms that all five `TEST_CASE` bodies now occur only inside the platform-neutral `RunAsyncSocketTestCases` template, while each platform has a separate include/binding/invocation branch. The common test server and factories enforce the requested port-only constructor shape at template instantiation. Independent C++ review found no lifetime issue: the unit-test framework executes each registered case synchronously while the helper's factory and timed-wait delegates remain alive.
+
+Independent Linux and macOS document reviews confirmed the final scopes, constructor contracts, native lifecycle guidance, build selection, adapter exclusion, and shared-test reuse. Their only initial findings—the missing GCC bounded event wait, an early as-needed `liburing` link, and ambiguous macOS `failed` handling—were corrected and re-reviewed with no remaining concrete issues.
