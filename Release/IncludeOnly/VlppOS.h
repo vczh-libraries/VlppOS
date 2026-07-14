@@ -9,6 +9,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\Channel.h"
 #include "..\..\Source\InterProcess\ChannelSerializer.h"
 #include "..\..\Source\InterProcess\NetworkProtocol.h"
+#include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h"
 #include "..\..\Source\InterProcess\ChannelImpls\ChannelImpl.h"
 #include "..\..\Source\InterProcess\ChannelImpls\ChannelPackage.h"
 #include "..\..\Source\InterProcess\ChannelImpls\ChannelClientBaseImpl.h"

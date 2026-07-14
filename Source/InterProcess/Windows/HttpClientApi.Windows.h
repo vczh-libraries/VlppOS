@@ -12,7 +12,7 @@ Interfaces:
 
 #include "NetworkProtocol.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 /// <summary>An http request.</summary>

@@ -5,6 +5,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "VlppOS.h"
 #include "Vlpp.h"
 
+#include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h"
 #include "..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.h"
 #include "..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h"
 #include "..\..\Source\InterProcess\Windows\HttpClient.Windows.h"

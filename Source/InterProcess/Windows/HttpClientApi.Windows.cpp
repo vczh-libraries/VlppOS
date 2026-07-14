@@ -6,7 +6,7 @@ static_assert(false, "Do not build this file for non-Windows applications.");
 
 #pragma comment(lib, "WinHttp.lib")
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 using namespace vl::collections;
@@ -394,7 +394,7 @@ HttpClientApi::HttpClientApi(const WString& _server, vint _port)
 	CHECK_ERROR(eventPendingCallbacks.CreateManualUnsignal(true), L"HttpClientApi initialization failed on eventPendingCallbacks.CreateManualUnsignal.");
 
 	httpSession = WinHttpOpen(
-		L"vl::inter_process::HttpClientApi",
+		L"vl::inter_process::windows_http::HttpClientApi",
 		WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 		WINHTTP_NO_PROXY_NAME,
 		WINHTTP_NO_PROXY_BYPASS,

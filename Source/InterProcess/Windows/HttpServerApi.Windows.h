@@ -12,7 +12,7 @@ Interfaces:
 
 #include "NetworkProtocol.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 /// <summary>A response to be sent by <see cref="HttpServerApi"/>.</summary>

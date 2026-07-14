@@ -12,7 +12,7 @@ Interfaces:
 
 #include "HttpClientApi.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 class HttpClient : public Object, public virtual INetworkProtocolConnection, public virtual INetworkProtocolClient

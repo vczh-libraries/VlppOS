@@ -1,6 +1,6 @@
 #include "HttpServer.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 using namespace vl::collections;

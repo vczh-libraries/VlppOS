@@ -12,7 +12,7 @@ Interfaces:
 
 #include "HttpServerApi.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 class HttpServer;

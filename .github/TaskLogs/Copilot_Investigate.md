@@ -46,7 +46,7 @@ The initial Debug x64 unit-test build failed with zero warnings and four compile
 
 # PROPOSALS
 
-- No.1 Move Windows transports into feature-specific nested namespaces
+- No.1 Move Windows transports into feature-specific nested namespaces [CONFIRMED]
 
 ## No.1 Move Windows transports into feature-specific nested namespaces
 
@@ -59,3 +59,15 @@ Update the diagnostic identity string owned by `HttpClientApi` to its new fully 
 Update `Index_VlppOS.md` and `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` so concrete transport/helper names are fully qualified where the namespace distinction matters, explicitly explain which family belongs to each nested namespace, and preserve the parent namespace for transport-agnostic APIs. Regenerate all VlppOS release outputs with the repository code-pack tool so downstream imports receive the public namespace change.
 
 ### CODE CHANGE
+
+Changed the namespace declaration in all eight HTTP product files (`HttpClient.Windows.*`, `HttpClientApi.Windows.*`, `HttpServer.Windows.*` and `HttpServerApi.Windows.*`) to `vl::inter_process::windows_http`. This moves the HTTP transport classes, server connection, lower-level APIs, request/response value types and error type together. Updated the WinHTTP user-agent identity to `vl::inter_process::windows_http::HttpClientApi`.
+
+Changed both `NamedPipe.Windows.*` files to `vl::inter_process::named_pipe`, moving the server, connection and client together. The generic protocol interfaces and channel implementation remain unchanged in `vl::inter_process`. The existing Windows inter-process tests now import the two concrete namespaces only under `VCZH_MSVC` while continuing to import the generic parent namespace on every platform.
+
+Updated `Index_VlppOS.md` and `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` with the fully qualified concrete transport names, the parent-versus-nested namespace boundary, all HTTP helper/value types, and `HttpServerConnection`. Regenerated the complete `Release` folder with `Codepack.backup.exe`. The generated changes include the requested namespaces and also package the already-implemented AsyncSocket source for the first time because the previous AsyncSocket task explicitly excluded generated release files.
+
+### CONFIRMED
+
+After the namespace declarations changed, the Debug x64 solution build succeeded with zero warnings and zero errors. The unfiltered Debug x64 unit-test invocation exercised all five `TestInterProcess.cpp` cases—raw and channel scenarios over both named pipes and HTTP, plus `NetworkPackage`—and the complete suite passed 13/13 files and 122/122 cases. `Execute.log` ends at the passing summary and contains no appended CRT memory-leak report.
+
+The remaining Debug Win32, Release x64 and Release Win32 builds also succeeded with zero warnings and zero errors, completing the four-configuration Windows matrix. The code-pack tool regenerated the release successfully, and searches of both source and generated Windows release files found only `vl::inter_process::named_pipe` and `vl::inter_process::windows_http` declarations for the moved families, with no old fully qualified concrete names remaining. Independent review found one missing fully qualified `HttpServerConnection` introduction in the knowledge base; that documentation omission was corrected, after which the source, test, generated release and knowledge-base diffs passed review and `git diff --check`.

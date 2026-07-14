@@ -8,6 +8,7 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Locale.Windows.cpp"
 #include "..\..\Source\Threading.Windows.cpp"
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp"
+#include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp"

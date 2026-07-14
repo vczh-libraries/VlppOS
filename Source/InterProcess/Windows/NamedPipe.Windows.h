@@ -13,7 +13,7 @@ Interfaces:
 
 #include "NetworkProtocol.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::named_pipe
 {
 
 class NamedPipeServer;

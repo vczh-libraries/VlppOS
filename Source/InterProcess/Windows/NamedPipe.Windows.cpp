@@ -1,6 +1,6 @@
 #include "NamedPipe.Windows.h"
 
-namespace vl::inter_process
+namespace vl::inter_process::named_pipe
 {
 
 using namespace vl::console;

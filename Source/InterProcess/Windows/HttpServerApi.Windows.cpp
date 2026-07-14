@@ -6,7 +6,7 @@ static_assert(false, "Do not build this file for non-Windows applications.");
 
 #pragma comment(lib, "Httpapi.lib")
 
-namespace vl::inter_process
+namespace vl::inter_process::windows_http
 {
 
 using namespace vl::collections;
