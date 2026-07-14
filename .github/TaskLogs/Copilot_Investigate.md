@@ -2,72 +2,31 @@
 
 # PROBLEM DESCRIPTION
 
-commit and push all local changes
+Take a look at [TestInterProcess.cpp](Test/Source/TestInterProcess.cpp) , the test case is organized in cross-platform way while the entry create different set of classes per different platforms. This make multiple implementations share the same set of test cases, ensuring feature consistency.
 
-## Task 1
-This task is for VlppOS repo
-Http(Server|Client)(Api)?.Windows.(h|cpp)  using `vl::inter_process::windows_http` namespace.
-NamedPipe.Windows.(h|cpp) using `vl::inter_process::named_pipe` namespace.
-update knowledge base in VlppOS to reflect this change
+Now take a look at [TestInterProcess_AsyncSocket.cpp](Test/Source/TestInterProcess_AsyncSocket.cpp) , it is organized in a similar way but not quite perfect. Think about when linux and macos implementations added in, there are still a little bit code need to duplicate e.g. 5 test cases. Twist it a little bit, make placeholder for linux and macos like [TestInterProcess.cpp](Test/Source/TestInterProcess.cpp) , minimized platform specific code. By the way, the `WindowsTestServer` class seems to be able to convert to a template class by making the base class into template argument, it just requires other platform's socket server are authored in the same constructor shape, which should be definitely doable. I expect only a few lines of code changes as the overall structure looks good.
 
-## Task 2
-Release VlppOS to Workflow and fix build breaks due to namespace changing
-To verify, you need to follow the SOP to run chatbot test projects.
+And take a look at [TODO_Task.md](TODO_Task.md) , you are going to write TODO_Task_Linux.md and TODO_Task_macOS.md for linux/macos implementation, but now since the unit test has already been done, you can skip the testing part, just say add the platform specific implementation to [TestInterProcess_AsyncSocket.cpp](Test/Source/TestInterProcess_AsyncSocket.cpp) and run the test case. Note that some platform specific technical details already in [TODO_SocketHttp_AsyncSocket.md](TODO_SocketHttp_AsyncSocket.md) , and skip `**INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`. By the way, the Windows version of socket client/server only take port as the only constructor argument, keep that if possible.**
 
-## Task 3
-Release VlppOS to GacUI and fix build breaks due to namespace changing.
-To verify, you need to:
-- follow the SOP to run RemotingTest_(Core|Rendering_Win32) and make sure `/RCP /HTTP` works
-- Run GacJS against RemotingTest_Core and make sure `/RCP /HTTP` works
-
-## Task 4
-Update document website to reflect the namespace changing, if anything actually updates, publish it
-
-## Task 5
-Run [job.Windows.copilotInitAll.prompt.md](Tools/Jobs/job.Windows.copilotInitAll.prompt.md) but skip learning.
+commit and push to master, rebase if conflict.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Update the existing Windows inter-process test source to import `vl::inter_process::named_pipe` and `vl::inter_process::windows_http` while leaving the generic protocol and channel APIs imported from `vl::inter_process`. A Debug x64 build before the product change must fail because the two requested nested namespaces do not exist yet. This confirms that the current public transport types still live directly in `vl::inter_process`.
+The existing `TestInterProcess_AsyncSocket.cpp` runners already cover the shared async-socket contract through five scenarios: long full-duplex binary transfer, rejected connection shutdown, `Stop` from `OnRead`, connection retry followed by success, and stopping during retry. Use the current Windows implementation as the baseline binding for these existing scenarios; no new behavioral test case is needed.
 
-After the product change:
+The organization problem is confirmed by source inspection when all five `TEST_CASE` registrations are inside the Windows-only preprocessor block. In that shape, adding Linux and macOS bindings would require repeating those registrations or expanding Windows-specific code. The refactored source succeeds structurally when:
 
-1. Build and run the focused `TestInterProcess.cpp` tests in Debug x64. The named-pipe and HTTP raw-protocol and channel scenarios must all pass through the new namespaces.
-2. Run the complete Debug x64 unit-test suite and confirm the final summary reports every test passing with no CRT memory-leak report.
-3. Build the unit-test solution in Debug/Release and Win32/x64 so every generated Windows release surface compiles with the new namespaces.
-4. Regenerate `Release` through the repository code-pack tool, confirm the generated `VlppOS.Windows.h` and `VlppOS.Windows.cpp` contain the new namespace declarations, and confirm no affected concrete transport/helper declaration remains directly in `vl::inter_process`.
-5. Review the VlppOS knowledge-base index and detailed inter-process page to ensure every moved public type is documented with its fully qualified namespace while the generic `INetworkProtocol*` and channel APIs remain in `vl::inter_process`.
+1. The five registrations exist only once in platform-neutral code.
+2. Windows, macOS, and Linux have explicit include/binding/invocation branches, with unimplemented platforms left as clear placeholders.
+3. The shared server adapter is templated over a concrete `IAsyncSocketServer` base whose constructor takes only the port.
+4. Each platform branch only supplies its concrete server/client types, maximum read block size, and timed-event binding before invoking the shared registrations.
+
+Build and run the existing async-socket cases after the refactor. The Debug x64 unit-test result must pass all selected test files and cases, and `Execute.log` must contain no CRT memory-leak report. Review `TODO_Task_Linux.md` and `TODO_Task_macOS.md` to confirm that both preserve the common async byte-stream and shutdown contract, incorporate the platform-specific guidance from `TODO_SocketHttp_AsyncSocket.md`, exclude `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, prefer port-only concrete server/client constructors, and direct the implementer to bind the platform classes in `TestInterProcess_AsyncSocket.cpp` and run the already-authored cases instead of creating duplicate tests.
 
 ## Confirmation
 
-The initial Debug x64 unit-test build failed with zero warnings and four compiler errors at the two new using-directives in `TestInterProcess.cpp`. MSVC reported that `named_pipe` and `windows_http` are not members of `vl::inter_process` and that neither namespace exists. The headers cited by the compiler still declare `namespace vl::inter_process`, confirming the exact public-namespace mismatch requested by the task while leaving the existing named-pipe and HTTP behavioral scenarios ready for proposal verification.
+The baseline Debug x64 build succeeded with zero warnings and zero errors. The unfiltered unit-test run passed 13/13 files and 122/122 cases, including all five existing async-socket scenarios, and `Execute.log` contains no CRT memory-leak report. Source inspection confirms the organizational defect independently of behavior: the five scenario registrations are all inside `#ifdef VCZH_MSVC`, the Windows factory setup is embedded beside them, and there are no macOS or Linux binding placeholders. Therefore the behavior is already covered while future platform activation would currently require duplicating or restructuring the registration block.
 
 # PROPOSALS
-
-- No.1 Move Windows transports into feature-specific nested namespaces [CONFIRMED]
-
-## No.1 Move Windows transports into feature-specific nested namespaces
-
-Change the namespace in every `HttpServer.Windows.*`, `HttpClient.Windows.*`, `HttpServerApi.Windows.*` and `HttpClientApi.Windows.*` source/header file from `vl::inter_process` to `vl::inter_process::windows_http`. This moves the complete HTTP family together: `HttpServer`, `HttpServerConnection`, `HttpClient`, `HttpServerApi`, `HttpServerResponse`, `HttpClientApi`, `HttpRequest`, `HttpResponse` and `HttpError`.
-
-Change `NamedPipe.Windows.h` and `NamedPipe.Windows.cpp` from `vl::inter_process` to `vl::inter_process::named_pipe`, moving `NamedPipeServer`, `NamedPipeConnection` and `NamedPipeClient` as one family. Both nested namespaces continue to find the generic protocol interfaces, status enums and common Vlpp types through their enclosing namespaces, so the generic `INetworkProtocol*`, channel templates, `ClientStatus` and `WaitForClientResult` remain in `vl::inter_process`.
-
-Update the diagnostic identity string owned by `HttpClientApi` to its new fully qualified name. Update the existing Windows inter-process test composition boundary to import both nested namespaces; no behavioral test logic needs to change because this is an API organization change rather than a transport behavior change.
-
-Update `Index_VlppOS.md` and `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` so concrete transport/helper names are fully qualified where the namespace distinction matters, explicitly explain which family belongs to each nested namespace, and preserve the parent namespace for transport-agnostic APIs. Regenerate all VlppOS release outputs with the repository code-pack tool so downstream imports receive the public namespace change.
-
-### CODE CHANGE
-
-Changed the namespace declaration in all eight HTTP product files (`HttpClient.Windows.*`, `HttpClientApi.Windows.*`, `HttpServer.Windows.*` and `HttpServerApi.Windows.*`) to `vl::inter_process::windows_http`. This moves the HTTP transport classes, server connection, lower-level APIs, request/response value types and error type together. Updated the WinHTTP user-agent identity to `vl::inter_process::windows_http::HttpClientApi`.
-
-Changed both `NamedPipe.Windows.*` files to `vl::inter_process::named_pipe`, moving the server, connection and client together. The generic protocol interfaces and channel implementation remain unchanged in `vl::inter_process`. The existing Windows inter-process tests now import the two concrete namespaces only under `VCZH_MSVC` while continuing to import the generic parent namespace on every platform.
-
-Updated `Index_VlppOS.md` and `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` with the fully qualified concrete transport names, the parent-versus-nested namespace boundary, all HTTP helper/value types, and `HttpServerConnection`. Regenerated the complete `Release` folder with `Codepack.backup.exe`. The generated changes include the requested namespaces and also package the already-implemented AsyncSocket source for the first time because the previous AsyncSocket task explicitly excluded generated release files.
-
-### CONFIRMED
-
-After the namespace declarations changed, the Debug x64 solution build succeeded with zero warnings and zero errors. The unfiltered Debug x64 unit-test invocation exercised all five `TestInterProcess.cpp` cases—raw and channel scenarios over both named pipes and HTTP, plus `NetworkPackage`—and the complete suite passed 13/13 files and 122/122 cases. `Execute.log` ends at the passing summary and contains no appended CRT memory-leak report.
-
-The remaining Debug Win32, Release x64 and Release Win32 builds also succeeded with zero warnings and zero errors, completing the four-configuration Windows matrix. The code-pack tool regenerated the release successfully, and searches of both source and generated Windows release files found only `vl::inter_process::named_pipe` and `vl::inter_process::windows_http` declarations for the moved families, with no old fully qualified concrete names remaining. Independent review found one missing fully qualified `HttpServerConnection` introduction in the knowledge base; that documentation omission was corrected, after which the source, test, generated release and knowledge-base diffs passed review and `git diff --check`.
