@@ -223,6 +223,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\Source\TestInterProcess.cpp" />
+    <ClCompile Include="..\..\Source\TestInterProcess_AsyncSocket.cpp" />
     <ClCompile Include="..\..\Source\TestStreamBase64.cpp" />
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
