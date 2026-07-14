@@ -8,6 +8,7 @@
 ../../Source/FileSystem.cpp
 ../../Source/FileSystem.Injectable.cpp
 ../../Source/FileSystem.Linux.cpp
+../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp
 ../../Source/InterProcess/ChannelImpls/ChannelPackage.cpp
 ../../Source/Locale.cpp
 ../../Source/Locale.Linux.cpp
@@ -25,6 +26,7 @@
 ../../Source/Threading.cpp
 ../../Source/Threading.Linux.cpp
 ../Source/TestInterProcess.cpp
+../Source/TestInterProcess_AsyncSocket.cpp
 ../Source/TestStreamBase64.cpp
 ../Source/TestFileSystem.cpp
 ../Source/TestLocaleString.cpp

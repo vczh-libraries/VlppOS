@@ -16,7 +16,7 @@ The normal environment reproduces the failure because `/usr/include/liburing.h` 
 
 # PROPOSALS
 
-- No.1 Declare the liburing dependency and make vmake dependency failures fatal
+- No.1 [CONFIRMED] Declare the liburing dependency and make vmake dependency failures fatal
 
 ## No.1 Declare the liburing dependency and make vmake dependency failures fatal
 
@@ -25,3 +25,11 @@ Add `liburing-dev` to the canonical Ubuntu `vapt` help and installation target l
 Regenerate the UnitTest `vmake.txt` and `makefile` through the prescribed build with a valid liburing development environment rather than hand-editing them. The generated files must contain the Linux async implementation and shared async test, and a missing liburing header must stop `vmake` with the original compiler diagnostic instead of leaving a malformed successful makefile.
 
 ### CODE CHANGE
+
+In `../Tools`, added `liburing-dev` to the Ubuntu package installer and documented the dependency-generation failure contract. Changed `vutil_CppDependencies` to retain the `clang++ -MM` result and return its nonzero status before formatting any output. Changed `vmake-cpp` to capture and validate each dependency result before emitting the corresponding object rule. Propagated the two shared build-tool changes with `vgo uci VlppOS`.
+
+Regenerated `Test/Linux/vmake.txt` and `Test/Linux/makefile` through `.github/Ubuntu/build.sh -f` with the liburing development headers and library available. No UnitTest source or test case was changed.
+
+### CONFIRMED
+
+Without liburing in the environment, `.github/Ubuntu/build.sh -f` now exits with status 1 at `liburing.h file not found`, and the generated makefile contains no literal `./Obj/` rule. With liburing available, the same command performs a clean build successfully. The regenerated source list contains `AsyncSocket.Linux.cpp` and `TestInterProcess_AsyncSocket.cpp`, excludes the macOS and Windows implementations, and the link command places all objects before `-luring`. The complete UnitTest run passes 11/11 test files and 115/115 test cases.
