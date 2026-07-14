@@ -232,26 +232,6 @@ namespace mynamespace
 		}
 	};
 
-	template<typename TAsyncSocketServer>
-	class AsyncSocketTextServer
-		: protected TextServerCallbackHost
-		, public async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>
-	{
-		using Base = async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>;
-
-	public:
-		AsyncSocketTextServer(ChatData& chatData, vint port)
-			: TextServerCallbackHost(chatData)
-			, Base(port)
-		{
-		}
-
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
-		{
-			return AcceptTextConnection(connection);
-		}
-	};
-
 	void RunTextNetworkProtocol(
 		Func<Ptr<INetworkProtocolServer>(ChatData&)> createServer,
 		Func<Ptr<INetworkProtocolClient>()> createClient
@@ -429,19 +409,6 @@ namespace mynamespace
 				}
 			}
 			return WaitForClientResult::Accept;
-		}
-	};
-
-	template<typename TAsyncSocketServer>
-	class AsyncSocketChannelServer
-		: public ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>
-	{
-		using Base = ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>;
-
-	public:
-		AsyncSocketChannelServer(ChannelChatData& chatData, vint port)
-			: Base(chatData, port)
-		{
 		}
 	};
 
@@ -804,41 +771,13 @@ namespace mynamespace
 			TEST_ASSERT(chatData.localClientConnected);
 		}
 	}
-
-	template<typename TAsyncSocketServer, typename TAsyncSocketClient>
-	void RunAsyncSocketNetworkProtocolTestCases()
-	{
-		TEST_CASE(L"AsyncSocket (NetworkProtocol)")
-		{
-			for (vint i = 0; i < InterProcessTestRepeatCount; i++)
-			{
-				const vint port = 38500 + i;
-				RunTextNetworkProtocol(
-					[port](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new AsyncSocketTextServer<TAsyncSocketServer>(chatData, port)); },
-					[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
-				);
-			}
-		});
-
-		TEST_CASE(L"AsyncSocket (Channel)")
-		{
-			for (vint i = 0; i < InterProcessTestRepeatCount; i++)
-			{
-				const vint port = 38600 + i;
-				RunNetworkProtocolChannel(
-					[port](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new AsyncSocketChannelServer<TAsyncSocketServer>(chatData, port)); },
-					[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
-				);
-			}
-		});
-	}
 }
 using namespace mynamespace;
 
-#ifdef VCZH_MSVC
-
 namespace mynamespace
 {
+#ifdef VCZH_MSVC
+
 	class NamedPipeTextServer : protected TextServerCallbackHost, public NamedPipeServer
 	{
 	public:
@@ -886,9 +825,70 @@ namespace mynamespace
 		{
 		}
 	};
-}
 
 #endif
+
+	template<typename TAsyncSocketServer>
+	class AsyncSocketTextServer
+		: protected TextServerCallbackHost
+		, public async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>
+	{
+		using Base = async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>;
+
+	public:
+		AsyncSocketTextServer(ChatData& chatData, vint port)
+			: TextServerCallbackHost(chatData)
+			, Base(port)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return AcceptTextConnection(connection);
+		}
+	};
+
+	template<typename TAsyncSocketServer>
+	class AsyncSocketChannelServer
+		: public ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>
+	{
+		using Base = ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>;
+
+	public:
+		AsyncSocketChannelServer(ChannelChatData& chatData, vint port)
+			: Base(chatData, port)
+		{
+		}
+	};
+}
+
+template<typename TAsyncSocketServer, typename TAsyncSocketClient>
+void RunAsyncSocketNetworkProtocolTestCases()
+{
+	TEST_CASE(L"AsyncSocket (NetworkProtocol)")
+	{
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 38500 + i;
+			RunTextNetworkProtocol(
+				[port](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new AsyncSocketTextServer<TAsyncSocketServer>(chatData, port)); },
+				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+			);
+		}
+	});
+
+	TEST_CASE(L"AsyncSocket (Channel)")
+	{
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 38600 + i;
+			RunNetworkProtocolChannel(
+				[port](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new AsyncSocketChannelServer<TAsyncSocketServer>(chatData, port)); },
+				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+			);
+		}
+	});
+}
 
 TEST_FILE
 {
