@@ -9,6 +9,10 @@
 using namespace vl;
 using namespace vl::collections;
 using namespace vl::inter_process;
+#ifdef VCZH_MSVC
+using namespace vl::inter_process::named_pipe;
+using namespace vl::inter_process::windows_http;
+#endif
 
 namespace mynamespace
 {
