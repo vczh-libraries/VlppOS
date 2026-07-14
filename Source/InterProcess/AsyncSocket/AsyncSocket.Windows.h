@@ -12,6 +12,7 @@ Windows implementation of IAsyncSocket(Server|Client)
 // Winsock must precede every include that can include windows.h.
 #include <WinSock2.h>
 #include <MSWSock.h>
+#define _WINSOCKAPI_
 #include <Windows.h>
 
 #include "AsyncSocket.h"
