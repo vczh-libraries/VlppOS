@@ -181,7 +181,7 @@ The Debug x64 unit-test project built successfully with zero warnings and zero e
 
 # PROPOSALS
 
-- No.1 Implement a retained IOCP state machine with two-phase shutdown
+- No.1 Implement a retained IOCP state machine with two-phase shutdown [CONFIRMED]
 
 ## No.1 Implement a retained IOCP state machine with two-phase shutdown
 
@@ -198,3 +198,17 @@ Use `ConnectEx` with a fresh bound/associated socket per attempt. Put the retry 
 Complete explicit Visual Studio project/filter entries for all product files, add Windows source exclusion bookkeeping to `Test/Linux/vmake`, and keep generated Linux files unchanged. Remove the temporary missing-header fallback from the active test path by making the new public header available, then use the already committed shared runners to validate the implementation.
 
 ### CODE CHANGE
+
+Created `Source/InterProcess/AsyncSocket/AsyncSocket.h` with the platform-neutral binary stream interfaces, the retained `AsyncSocketBuffer`, and shared retry policy constants. Created `AsyncSocket.Windows.h` with Winsock-first includes and the concrete Windows server/client facades, and created `AsyncSocket.Windows.cpp` with an IPv4 loopback IOCP implementation. The Windows runtime balances Winsock startup, owns one completion worker and one serialized callback worker, associates every socket with its completion port, and retains per-operation state for `AcceptEx`, `ConnectEx`, `WSARecv`, and `WSASend` until the final completion is consumed.
+
+The server performs synchronous listener setup only from `Start`, keeps one accept pending, owns every delivered connection, rejects connections by draining their connection state, and elects one caller to perform ordered listener/connection/runtime shutdown. The client creates a freshly bound and associated socket for each connect attempt, uses the shared bounded retry policy through a drained thread-pool timer, reports intermediate failures as nonfatal, and wakes `WaitForServer` only after `OnConnected` or terminal shutdown. Runtime and server finalization use once-only election plus manual-reset completion events so concurrent repeated `Stop` calls cannot terminate or release the IOCP ahead of another caller's drain.
+
+Connection state permits one receive and one retained write concurrently. Critical sections serialize lifecycle changes with native operation submission without holding a spin lock across Winsock calls. Reads use a 64 KiB borrowed block and repost only after `OnRead` returns; writes retain the exact submitted buffer and resubmit an unsent suffix after a short completion. Terminal state gates new work before reporting an error, cancellation completions are bookkeeping only, and fatal errors precede the once-only disconnection callback. `Stop` detaches the socket, requests an orderly shutdown before closing it, drains native completions and callbacks, supports reentrant stop from the connection's current callback, and lets a later external call drain that callback before its non-owning callback owner is detached.
+
+Activated the committed platform-neutral test harness by removing its temporary missing-header fallback. Tightened timeout cleanup so queued `WaitForServer` work is always joined, and retained the five factory-driven scenarios for long full-duplex transfer, rejection, stop inside `OnRead`, retry-success, and stop-during-retry. Added explicit product/test entries and Solution Explorer filters to `UnitTest.vcxproj` and `UnitTest.vcxproj.filters`, and excluded only the Windows implementation source from Linux generation through `Test/Linux/vmake`. No network-protocol adapter, HTTP layer, Linux/macOS binding, generated make input, or solution file was changed.
+
+### CONFIRMED
+
+The first focused implementation run exposed Windows error 64 after a completed transfer when the peer socket was closed while a read remained pending. Updating the stop path to request an orderly `shutdown(SD_BOTH)` before `closesocket` made the peer observe normal stream termination while the local close still cancelled and drained overlapped work. The focused Debug x64 run then passed all five async-socket cases, including 20 distinct-port full-duplex iterations with payloads larger than eight 64 KiB blocks in both directions and 20 distinct-port reentrant callback-stop iterations.
+
+The complete unfiltered Debug x64 run passed 13/13 test files and 122/122 test cases. The end of `Execute.log` records the successful totals, and no `Execute.log.memoryleaks` file or CRT leak report was produced. `copilotBuild.ps1` succeeded with zero warnings and zero errors for Debug x64, Debug Win32, Release x64, and Release Win32; the ends of the overwritten `Build.log` were checked after each remaining matrix build. Independent final review found the API/scope, retained IOCP ownership, retry/terminal ordering, concurrent shutdown election, platform-neutral test structure, project filters, and Linux exclusion bookkeeping consistent with the task.

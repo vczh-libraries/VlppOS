@@ -34,6 +34,9 @@
     <Filter Include="Common\InterProcess">
       <UniqueIdentifier>{25f0da09-91c8-4737-9a1d-0311cfbb97a9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\InterProcess\AsyncSocket">
+      <UniqueIdentifier>{d610e778-80f6-44fc-8c8d-306cf94a18d2}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Common\InterProcess\ChannelImpls">
       <UniqueIdentifier>{0fb445ad-8934-4c8e-b6bd-ef844579bd04}</UniqueIdentifier>
     </Filter>
@@ -171,6 +174,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.cpp">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
@@ -262,6 +268,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Channel.h">
       <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h">
       <Filter>Common\InterProcess\Windows</Filter>

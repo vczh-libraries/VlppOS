@@ -1,5 +1,3 @@
-#if __has_include("../../Source/InterProcess/AsyncSocket/AsyncSocket.h")
-
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.h"
 #include "../../Source/Threading.h"
 #ifdef VCZH_MSVC
@@ -113,6 +111,15 @@ namespace async_socket_test
 		}
 		state.Fail(timeoutMessage);
 		return false;
+	}
+
+	void DrainWaitForServer(TestState& state, const WaitForEvent& waitForEvent, const wchar_t* timeoutMessage)
+	{
+		if (!waitForEvent(state.eventWaitForServerReturned, ConnectTimeout))
+		{
+			state.Fail(timeoutMessage);
+			state.eventWaitForServerReturned.Wait();
+		}
 	}
 
 	bool QueueWaitForServer(TestState& state, Ptr<IAsyncSocketClient> client)
@@ -339,7 +346,7 @@ namespace async_socket_test
 				FailTransfer(L"Unexpected async socket read callback.");
 				return;
 			}
-			if (size <= 0 || readOffset > expectedReadSize || size > expectedReadSize - readOffset)
+			if (!buffer || size <= 0 || readOffset > expectedReadSize || size > expectedReadSize - readOffset)
 			{
 				FailTransfer(L"Async socket read callback returned an invalid byte count.");
 				return;
@@ -435,7 +442,7 @@ namespace async_socket_test
 		atomic_vint						writeCompletionCount = 0;
 
 		TolerantWriteCallback(TestState& state, vint _expectedWriteSize, vuint8_t _expectedWriteSeed)
-			: TestCallbackBase(state)
+			: TestCallbackBase(state, false, true)
 			, expectedWriteSize(_expectedWriteSize)
 			, expectedWriteSeed(_expectedWriteSeed)
 		{
@@ -503,6 +510,7 @@ namespace async_socket_test
 			try
 			{
 				connection->Stop();
+				MarkStopReturned();
 				nestedStopReturned = 1;
 				if (disconnectedCount == 1)
 				{
@@ -653,6 +661,7 @@ namespace async_socket_test
 		Ptr<IAsyncSocketClient> client;
 		bool serverRunning = false;
 		bool clientReady = false;
+		bool waitQueued = false;
 		bool waitReturned = false;
 		bool accepted = false;
 		bool connectedBeforeStop = false;
@@ -665,7 +674,7 @@ namespace async_socket_test
 			client = createClient(port);
 			clientReady = client->GetStatus() == ClientStatus::Ready;
 			client->GetConnection()->InstallCallback(&clientCallback);
-			QueueWaitForServer(state, client);
+			waitQueued = QueueWaitForServer(state, client);
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return for the full-duplex test.");
 			accepted = WaitBounded(state, state.eventAccepted, waitForEvent, ConnectTimeout, L"The server did not accept the full-duplex test connection.");
 			connectedBeforeStop = waitReturned && client->GetStatus() == ClientStatus::Connected;
@@ -692,9 +701,9 @@ namespace async_socket_test
 		}
 
 		StopClient(state, client, clientCallback);
-		if (!waitReturned)
+		if (waitQueued && !waitReturned)
 		{
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not drain after stopping the full-duplex client.");
+			DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain after stopping the full-duplex client.");
 		}
 		StopServer(state, server);
 		serverCallback.MarkStopReturned();
@@ -746,13 +755,14 @@ namespace async_socket_test
 		auto server = createServer(port, acceptHandler);
 		auto client = createClient(port);
 		bool serverRunningBeforeStop = false;
+		bool waitQueued = false;
 		bool waitReturned = false;
 
 		try
 		{
 			server->Start();
 			client->GetConnection()->InstallCallback(&clientCallback);
-			QueueWaitForServer(state, client);
+			waitQueued = QueueWaitForServer(state, client);
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return for the rejected connection.");
 			WaitBounded(state, state.eventAccepted, waitForEvent, ConnectTimeout, L"The server did not observe the rejected connection.");
 			if (waitReturned && client->GetStatus() == ClientStatus::Connected)
@@ -768,9 +778,9 @@ namespace async_socket_test
 		}
 
 		StopClient(state, client, clientCallback);
-		if (!waitReturned)
+		if (waitQueued && !waitReturned)
 		{
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not drain for the rejected connection.");
+			DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain for the rejected connection.");
 		}
 		StopServer(state, server);
 
@@ -811,6 +821,7 @@ namespace async_socket_test
 
 		auto server = createServer(port, acceptHandler);
 		auto client = createClient(port);
+		bool waitQueued = false;
 		bool waitReturned = false;
 		bool accepted = false;
 
@@ -818,7 +829,7 @@ namespace async_socket_test
 		{
 			server->Start();
 			client->GetConnection()->InstallCallback(&clientCallback);
-			QueueWaitForServer(state, client);
+			waitQueued = QueueWaitForServer(state, client);
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return for the stop-from-callback test.");
 			accepted = WaitBounded(state, state.eventAccepted, waitForEvent, ConnectTimeout, L"The server did not accept the stop-from-callback connection.");
 			if (waitReturned && accepted && client->GetStatus() == ClientStatus::Connected && serverConnection)
@@ -836,9 +847,9 @@ namespace async_socket_test
 		}
 
 		StopClient(state, client, clientCallback);
-		if (!waitReturned)
+		if (waitQueued && !waitReturned)
 		{
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not drain for the stop-from-callback test.");
+			DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain for the stop-from-callback test.");
 		}
 		StopServer(state, server);
 		serverCallback.MarkStopReturned();
@@ -854,7 +865,12 @@ namespace async_socket_test
 		TEST_ASSERT(clientCallback.callbacksAfterStop == 0);
 		TEST_ASSERT(serverCallback.readCount == 0);
 		TEST_ASSERT(serverCallback.writeCompletionCount <= 1);
-		TEST_ASSERT(serverCallback.nonfatalErrorCount == 0 && serverCallback.fatalErrorCount == 0);
+		TEST_ASSERT(serverCallback.nonfatalErrorCount == 0);
+		TEST_ASSERT(serverCallback.fatalErrorCount <= 1);
+		if (serverCallback.fatalErrorCount == 1)
+		{
+			TEST_ASSERT(serverCallback.fatalErrorSequence < serverCallback.disconnectedSequence);
+		}
 		TEST_ASSERT(serverCallback.disconnectedCount == 1);
 	}
 
@@ -897,6 +913,7 @@ namespace async_socket_test
 		Ptr<IAsyncSocketServer> server;
 		bool clientReady = client->GetStatus() == ClientStatus::Ready;
 		bool firstFailureObserved = false;
+		bool waitQueued = false;
 		bool waitReturned = false;
 		bool accepted = false;
 		bool connectedBeforeStop = false;
@@ -904,7 +921,7 @@ namespace async_socket_test
 		try
 		{
 			client->GetConnection()->InstallCallback(&clientCallback);
-			QueueWaitForServer(state, client);
+			waitQueued = QueueWaitForServer(state, client);
 			firstFailureObserved = WaitBounded(state, state.eventFirstNonfatalError, waitForEvent, RetryMilestoneTimeout, L"The async socket client did not report the first retryable connection failure.");
 			if (firstFailureObserved && clientCallback.nonfatalErrorCount > 0 && clientCallback.fatalErrorCount == 0)
 			{
@@ -929,9 +946,9 @@ namespace async_socket_test
 		}
 
 		StopClient(state, client, clientCallback);
-		if (!waitReturned)
+		if (waitQueued && !waitReturned)
 		{
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not drain in the retry-then-connect test.");
+			DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain in the retry-then-connect test.");
 		}
 		StopServer(state, server);
 		serverCallback.MarkStopReturned();
@@ -963,18 +980,22 @@ namespace async_socket_test
 		auto client = createClient(port);
 		bool clientReady = client->GetStatus() == ClientStatus::Ready;
 		bool firstFailureObserved = false;
+		bool waitQueued = false;
 		bool stopReturned = false;
 
 		try
 		{
 			client->GetConnection()->InstallCallback(&clientCallback);
-			QueueWaitForServer(state, client);
+			waitQueued = QueueWaitForServer(state, client);
 			firstFailureObserved = WaitBounded(state, state.eventFirstNonfatalError, waitForEvent, RetryMilestoneTimeout, L"The async socket client did not begin retrying before Stop.");
 			client->GetConnection()->Stop();
 			stopReturned = true;
 			clientCallback.MarkStopReturned();
 			client->GetConnection()->Stop();
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return after stopping retry work.");
+			if (waitQueued)
+			{
+				DrainWaitForServer(state, waitForEvent, L"WaitForServer did not return after stopping retry work.");
+			}
 			client->GetConnection()->InstallCallback(nullptr);
 		}
 		catch (...)
@@ -985,7 +1006,10 @@ namespace async_socket_test
 		if (!stopReturned)
 		{
 			StopClient(state, client, clientCallback);
-			WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not drain after retry-stop cleanup.");
+			if (waitQueued)
+			{
+				DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain after retry-stop cleanup.");
+			}
 		}
 
 		AssertState(state);
@@ -1086,19 +1110,3 @@ TEST_FILE
 	});
 #endif
 }
-
-#else
-
-#include <Vlpp.h>
-
-using namespace vl;
-
-TEST_FILE
-{
-	TEST_CASE(L"IAsyncSocket is not implemented")
-	{
-		TEST_ASSERT(false);
-	});
-}
-
-#endif

@@ -182,6 +182,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp" />
@@ -260,6 +261,8 @@
     <ClInclude Include="..\..\..\Source\Encoding\LzwEncoding.h" />
     <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Channel.h" />
