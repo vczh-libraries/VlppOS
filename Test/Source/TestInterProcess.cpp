@@ -1,10 +1,13 @@
 #include "../../Source/InterProcess/NetworkProtocolChannel.h"
 #if defined VCZH_MSVC
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
 #include "../../Source/InterProcess/Windows/NamedPipe.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClient.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServer.Windows.h"
 #elif defined VCZH_GCC && defined VCZH_APPLE
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h"
 #endif
 #include <utility>
 
@@ -229,6 +232,26 @@ namespace mynamespace
 		}
 	};
 
+	template<typename TAsyncSocketServer>
+	class AsyncSocketTextServer
+		: protected TextServerCallbackHost
+		, public async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>
+	{
+		using Base = async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>;
+
+	public:
+		AsyncSocketTextServer(ChatData& chatData, vint port)
+			: TextServerCallbackHost(chatData)
+			, Base(port)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return AcceptTextConnection(connection);
+		}
+	};
+
 	void RunTextNetworkProtocol(
 		Func<Ptr<INetworkProtocolServer>(ChatData&)> createServer,
 		Func<Ptr<INetworkProtocolClient>()> createClient
@@ -406,6 +429,19 @@ namespace mynamespace
 				}
 			}
 			return WaitForClientResult::Accept;
+		}
+	};
+
+	template<typename TAsyncSocketServer>
+	class AsyncSocketChannelServer
+		: public ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>
+	{
+		using Base = ChannelServer<async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>>;
+
+	public:
+		AsyncSocketChannelServer(ChannelChatData& chatData, vint port)
+			: Base(chatData, port)
+		{
 		}
 	};
 
@@ -768,6 +804,34 @@ namespace mynamespace
 			TEST_ASSERT(chatData.localClientConnected);
 		}
 	}
+
+	template<typename TAsyncSocketServer, typename TAsyncSocketClient>
+	void RunAsyncSocketNetworkProtocolTestCases()
+	{
+		TEST_CASE(L"AsyncSocket (NetworkProtocol)")
+		{
+			for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+			{
+				const vint port = 38500 + i;
+				RunTextNetworkProtocol(
+					[port](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new AsyncSocketTextServer<TAsyncSocketServer>(chatData, port)); },
+					[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+				);
+			}
+		});
+
+		TEST_CASE(L"AsyncSocket (Channel)")
+		{
+			for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+			{
+				const vint port = 38600 + i;
+				RunNetworkProtocolChannel(
+					[port](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new AsyncSocketChannelServer<TAsyncSocketServer>(chatData, port)); },
+					[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+				);
+			}
+		});
+	}
 }
 using namespace mynamespace;
 
@@ -870,6 +934,11 @@ TEST_FILE
 	});
 
 #ifdef VCZH_MSVC
+	RunAsyncSocketNetworkProtocolTestCases<
+		async_tcp_socket::windows_socket::AsyncSocketServer,
+		async_tcp_socket::windows_socket::AsyncSocketClient
+	>();
+
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
@@ -914,6 +983,14 @@ TEST_FILE
 		}
 	});
 #elif defined VCZH_GCC && defined VCZH_APPLE
+	RunAsyncSocketNetworkProtocolTestCases<
+		async_tcp_socket::macos_socket::AsyncSocketServer,
+		async_tcp_socket::macos_socket::AsyncSocketClient
+	>();
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+	RunAsyncSocketNetworkProtocolTestCases<
+		async_tcp_socket::linux_socket::AsyncSocketServer,
+		async_tcp_socket::linux_socket::AsyncSocketClient
+	>();
 #endif
 }

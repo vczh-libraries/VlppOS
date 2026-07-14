@@ -2,34 +2,151 @@
 
 # PROBLEM DESCRIPTION
 
-vmake seems to not working in the UnitTest project, figure out why and fix it
+investigate repro
+
+# `INetworkProtocol(Server|Client)` on `IAsyncSocket(Server|Client)`
+
+Implement the async-socket-backed text transport described by [TODO_SocketHttp_AsyncSocket.md](./TODO_SocketHttp_AsyncSocket.md).
+
+## Scope
+
+- Implement the `INetworkProtocol*` adapters in `Source/InterProcess/AsyncSocket/AsyncSocket.h`.
+- The authoritative section is `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, together with the existing `IAsyncSocket*` byte-stream/callback contract and the `INetworkProtocol*` contract in `Source/InterProcess/NetworkProtocol.h`.
+- All paths in `TODO_SocketHttp_AsyncSocket.md` are relative to `Source/InterProcess`, as stated by [TODO_SocketHttp.md](./TODO_SocketHttp.md).
+- Keep the adapters in `vl::inter_process::async_tcp_socket`.
+- Provide reusable server and client templates parameterized by an actual concrete `IAsyncSocketServer` or `IAsyncSocketClient` implementation.
+- Instantiate the templates in `Test/Source/TestInterProcess.cpp` with all three existing platform implementations under their correct compile-time guards.
+
+The following work is explicitly out of scope:
+
+- Changing or duplicating the Windows, Linux, or macOS async-socket implementations.
+- Changing `Test/Source/TestInterProcess_AsyncSocket.cpp`; it already verifies the native byte-stream implementations.
+- Creating new test scenarios instead of reusing the shared text-protocol and channel scenarios in `TestInterProcess.cpp`.
+- HTTP request/response or minimized HTTP layers from the other `TODO_SocketHttp_*.md` documents.
+- Refactoring the existing NamedPipe or Windows HTTP transports.
+- Adding source files or changing project, solution, filter, or `vmake` files.
+- Generated files under `Release`, dependencies under `Import`, and generated `Test/Linux/vmake.txt` or `Test/Linux/makefile` files.
+
+## Public adapter shape
+
+Expose the common connection adapter and public templates from `AsyncSocket.h`, using names consistent with:
+
+- `NetworkProtocolConnection`
+- `NetworkProtocolServer<TAsyncSocketServer>`
+- `NetworkProtocolClient<TAsyncSocketClient>`
+
+Include `NetworkProtocol.h` and any required common synchronization header directly so `AsyncSocket.h` remains independently usable. Do not include any platform implementation header from this common header.
+
+The templates construct and own the supplied concrete implementation, forwarding its constructor arguments. The existing platform bindings must therefore remain constructible with their current `vint port` argument.
+
+`NetworkProtocolServer<TAsyncSocketServer>`:
+
+- Implements `INetworkProtocolServer`.
+- Bridges the concrete server's `OnClientConnected(IAsyncSocketConnection*)` to the protocol-level `OnClientConnected(INetworkProtocolConnection*)`.
+- Translates each accepted socket connection into one protocol connection and returns the protocol hook's accept/reject result to the socket server.
+- Provides the normal default acceptance behavior while remaining inheritable for test and application overrides.
+- Delegates `Start`, `Stop`, and `IsStopped` to the concrete socket server.
+- Retains translated connections for the complete lifetime required by the socket's non-owning callback, including rejection shutdown and server draining.
+- Remains suitable as `TServerBase` for `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`.
+
+Use composition or an internal concrete-server bridge where needed. Do not rely on unrelated `IAsyncSocketServer` and `INetworkProtocolServer` base interfaces to satisfy each other's virtual functions automatically.
+
+`NetworkProtocolClient<TAsyncSocketClient>`:
+
+- Implements `INetworkProtocolClient`.
+- Owns the concrete socket client and exactly one translated connection.
+- Always returns that translated connection from `GetConnection`.
+- Delegates `WaitForServer` and `GetStatus` to the concrete socket client.
+- Stops and drains the underlying connection before releasing the translated connection or its callback adapter.
+
+The client adapter cannot directly inherit both interfaces and expose both `GetConnection` functions because they differ only by unrelated return types. Use composition for the concrete client.
+
+## Text framing
+
+Encode every `WString` as one stream frame:
+
+1. One native `vint32_t` containing `WString::Length()`.
+2. Exactly `length * sizeof(wchar_t)` bytes containing the characters.
+
+This matches the string representation used by `NamedPipeConnection` without copying its redundant outer byte count. Do not add UTF-8 conversion, a BOM, a NUL terminator, an outer frame size, or any assumption about TCP/read callback boundaries. An empty string is a valid zero-length frame containing only the length field.
+
+The read side must be a buffered state machine over arbitrary positive `IAsyncSocketCallback::OnRead` blocks:
+
+- Preserve partial length fields and partial character data across callbacks.
+- Handle a split inside a `wchar_t`.
+- Deliver a frame only after all declared characters arrive.
+- Parse and deliver every complete frame when one read block contains multiple frames.
+- Preserve any incomplete suffix for the next callback.
+- Validate negative lengths and arithmetic or allocation overflow before allocating.
+- Read the length without assuming the borrowed buffer is suitably aligned.
+- Never retain or expose the borrowed socket read buffer after `OnRead` returns.
+
+## Connection behavior
+
+`NetworkProtocolConnection` implements both `INetworkProtocolConnection` and `IAsyncSocketCallback`. It installs itself on the underlying `IAsyncSocketConnection` while exposing a separate non-owning `INetworkProtocolCallback` to users.
+
+- `InstallCallback` accepts one callback at a time, calls `OnInstalled(this)` synchronously, and uses `nullptr` to uninstall.
+- Callback replacement, uninstallation, and shutdown must not leave the underlying non-owning callback pointing at a destroyed adapter.
+- `BeginReadingLoopUnsafe` delegates to the underlying socket connection.
+- `OnRead` parses frames and calls `OnReadString` once for every complete string, without holding an adapter lock while calling user code.
+- `OnError(error, fatal)` maps to `OnLocalError(error, fatal)`.
+- `OnConnected` and `OnDisconnected` preserve the corresponding protocol callback semantics and ordering.
+- The framing has no remote-error opcode, so do not invent one or reinterpret ordinary strings as `OnReadError`.
+- `Stop` delegates to the underlying hard-drain boundary and prevents later protocol callbacks from accessing the callback owner, subject only to the socket contract's existing nested-callback allowance.
+
+`SendString` adapts the synchronous protocol API to the socket's one-outstanding-write rule:
+
+- Build one retained `AsyncSocketBuffer` containing the complete frame.
+- Queue calls in FIFO order and submit only one `WriteAsync` at a time.
+- Support concurrent and reentrant `SendString` calls.
+- In `OnWriteCompleted`, consume the completed front buffer and submit the next queued frame.
+- Preserve FIFO order by the order in which concurrent or reentrant calls enter the adapter's serialized queue.
+- Clear undelivered queued frames during fatal disconnection or shutdown.
+- Never call user code or `WriteAsync` while holding an adapter lock.
+
+All callback, parser, write-queue, and lifecycle state must be thread-safe because socket callbacks may run on arbitrary threads. Keep every adapter alive until the underlying socket has drained callbacks that can reference it. Destructors must follow the same idempotent stop, drain, callback-uninstall, and release ordering.
+
+## Shared `TestInterProcess.cpp` coverage
+
+Reuse both existing shared runners; do not copy or redesign their scenarios:
+
+- `RunTextNetworkProtocol` exercises the raw `INetworkProtocol*` text transport through the framing adapter.
+- `RunNetworkProtocolChannel` verifies the same adapter beneath `NetworkProtocolChannel*`.
+
+Bind all three concrete implementations explicitly in the existing platform-specific include, namespace, server-glue, and `TEST_CASE` branches:
+
+| Guard | Header | Concrete server/client |
+| --- | --- | --- |
+| `VCZH_MSVC` | `AsyncSocket/AsyncSocket.Windows.h` | `windows_socket::AsyncSocketServer` / `windows_socket::AsyncSocketClient` |
+| `VCZH_GCC && VCZH_APPLE` | `AsyncSocket/AsyncSocket.macOS.h` | `macos_socket::AsyncSocketServer` / `macos_socket::AsyncSocketClient` |
+| `VCZH_GCC && !VCZH_APPLE` | `AsyncSocket/AsyncSocket.Linux.h` | `linux_socket::AsyncSocketServer` / `linux_socket::AsyncSocketClient` |
+
+- Keep platform-neutral templated text-server and channel-server glue outside the guards, and instantiate it with the matching server/client pair inside each branch.
+- Add one async-socket-backed NetworkProtocol case through `RunTextNetworkProtocol` and one async-socket-backed Channel case through `RunNetworkProtocolChannel` on every platform.
+- Keep the existing NamedPipe and HTTP cases in the Windows branch.
+- Fill both currently empty GCC branches; do not select one platform implementation through a Windows-only alias or leave another implementation unreferenced.
+- Preserve `InterProcessTestRepeatCount` and the existing consecutive sends. Those sends verify FIFO queuing over the one-outstanding-write socket interface.
+- Use dedicated, non-overlapping loopback port ranges, distinct from the `38000..38400` ranges in `TestInterProcess_AsyncSocket.cpp`, and use a different port for every repetition so a recently closed TCP connection cannot make repeated server binding ambiguous.
+
+No project-file change is expected: `AsyncSocket.h`, all three platform implementations, and `TestInterProcess.cpp` are already registered in the Windows and Unix-like builds.
+
+## Verification
+
+Verification for this task is Windows-only:
+
+- Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64.
+- Run the focused `TestInterProcess.cpp` cases through `.github/Scripts/copilotExecute.ps1` in Debug x64, ensuring the file is not skipped by the `.vcxproj.user` filter.
+- Run the complete Debug x64 `UnitTest` suite.
+- Read the ends of `Build.log` and `Execute.log`; all tests must pass and the Debug log must contain no CRT memory-leak report.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-From `Test/Linux`, run the repository-prescribed `.github/Ubuntu/build.sh -f` so `vmake --make` regenerates `vmake.txt` and `makefile` from `Test/UnitTest/UnitTest/UnitTest.vcxproj`. Confirm the generated Linux source list includes `AsyncSocket.Linux.cpp` and `TestInterProcess_AsyncSocket.cpp`, excludes the Windows and macOS async-socket implementations, and the generated link command places `-luring` after the object files. A clean build and the complete UnitTest run must then succeed. Also compare the generated source list with the `ClCompile` entries and the `CPP_REMOVES`/`CPP_ADDS` selection so a stale generated file cannot hide a broken `vmake` configuration.
+Extend the existing shared `TestInterProcess.cpp` coverage with the async-socket-backed protocol adapter on every compile-time platform branch. Reuse `RunTextNetworkProtocol` to exercise raw text messages, including the existing consecutive sends that require a FIFO write queue, and reuse `RunNetworkProtocolChannel` to exercise the adapter as the raw transport under the channel layer. Use a distinct loopback port for every repetition and separate port ranges from `TestInterProcess_AsyncSocket.cpp`.
 
-The source-list portion succeeds: `vutil_CppFromVcxproj` extracts both new files, the Linux `CPP_REMOVES` selection removes macOS and Windows implementations, and a regeneration with the previously extracted liburing development package produces the correct source list, object rules, link order, and a successful clean build. There is no timestamp cache or unsupported `CPP_VCXPROJ` variable involved.
+Before the adapter exists, the new bindings must fail to compile because `NetworkProtocolConnection`, `NetworkProtocolServer<TAsyncSocketServer>`, and `NetworkProtocolClient<TAsyncSocketClient>` are missing. After implementation, the Windows Debug x64 focused run must pass all `TestInterProcess.cpp` cases without timeout or CRT leak output. The complete Debug x64 suite and all four Windows build configurations must also pass. The macOS and Linux bindings must remain explicitly present under their platform guards, but their execution is outside this task's verification scope.
 
-The normal environment reproduces the failure because `/usr/include/liburing.h` is absent and the canonical Tools `vapt --install` package list does not include `liburing-dev`. `vutil_CppDependencies` invokes `clang++ -MM`, but wraps it in command substitution followed by `echo | sed`; the wrapper therefore returns success even when Clang reports the missing header. `vmake-cpp` embeds that failed command inside another `echo`, masking the status again. `vmake --make` consequently succeeds while generating a literal `./Obj/` rule instead of `./Obj/AsyncSocket.Linux.o`, after which the build reports a misleading missing-rule failure. The tracked `vmake.txt` and `makefile` also predate both async-socket platform additions, so they present the same missing-source symptom until a successful regeneration.
+The shared platform bindings reproduce the missing feature in the default Debug x64 build. MSVC reports `C2039: 'NetworkProtocolServer': is not a member of 'vl::inter_process::async_tcp_socket'` at both the raw text-server and channel-server bindings, followed by the expected dependent template errors. The client binding also cannot be instantiated until the matching `NetworkProtocolClient<TAsyncSocketClient>` adapter is added. This confirms that the platform async sockets cannot currently be used through either existing network-protocol runner.
 
 # PROPOSALS
-
-- No.1 [CONFIRMED] Declare the liburing dependency and make vmake dependency failures fatal
-
-## No.1 Declare the liburing dependency and make vmake dependency failures fatal
-
-Add `liburing-dev` to the canonical Ubuntu `vapt` help and installation target list in `../Tools`. Fix `vutil_CppDependencies` at the same source of truth so it captures `clang++ -MM` output, returns Clang's nonzero status before formatting, and only prints dependencies on success. Fix `vmake-cpp` so it captures and checks the helper result before emitting each object rule instead of evaluating it inside `echo`. Propagate shared Ubuntu build-tool changes into VlppOS with `vgo uci VlppOS`.
-
-Regenerate the UnitTest `vmake.txt` and `makefile` through the prescribed build with a valid liburing development environment rather than hand-editing them. The generated files must contain the Linux async implementation and shared async test, and a missing liburing header must stop `vmake` with the original compiler diagnostic instead of leaving a malformed successful makefile.
-
-### CODE CHANGE
-
-In `../Tools`, added `liburing-dev` to the Ubuntu package installer and documented the dependency-generation failure contract. Changed `vutil_CppDependencies` to retain the `clang++ -MM` result and return its nonzero status before formatting any output. Changed `vmake-cpp` to capture and validate each dependency result before emitting the corresponding object rule. Propagated the two shared build-tool changes with `vgo uci VlppOS`.
-
-Regenerated `Test/Linux/vmake.txt` and `Test/Linux/makefile` through `.github/Ubuntu/build.sh -f` with the liburing development headers and library available. No UnitTest source or test case was changed.
-
-### CONFIRMED
-
-Without liburing in the environment, `.github/Ubuntu/build.sh -f` now exits with status 1 at `liburing.h file not found`, and the generated makefile contains no literal `./Obj/` rule. With liburing available, the same command performs a clean build successfully. The regenerated source list contains `AsyncSocket.Linux.cpp` and `TestInterProcess_AsyncSocket.cpp`, excludes the macOS and Windows implementations, and the link command places all objects before `-luring`. The complete UnitTest run passes 11/11 test files and 115/115 test cases.
