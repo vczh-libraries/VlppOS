@@ -247,6 +247,10 @@ Kernel Mode Objects
 		bool										Unsignal();
 #ifdef VCZH_GCC
 		bool										Wait();
+		/// <summary>Wait for this event to signal for a period of time.</summary>
+		/// <returns>Returns true if the event is signaled. Returns false if this operation failed, including time out.</returns>
+		/// <param name="ms">Time in milliseconds.</param>
+		bool										WaitForTime(vint ms);
 #endif
 	};
 
@@ -413,13 +417,12 @@ Kernel Mode Objects in Process
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="cs">The critical section.</param>
 		bool										SleepWith(CriticalSection& cs);
-#ifdef VCZH_MSVC
 		/// <summary>Bind a conditional variable with a owned critical section and release it for a period of time. When the function returns, the condition variable is activated or it is time out, and the current thread owned the critical section again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="cs">The critical section.</param>
 		/// <param name="ms">Time in milliseconds.</param>
-		/// <remarks>This function is only available in Windows.</remarks>
 		bool										SleepWithForTime(CriticalSection& cs, vint ms);
+#ifdef VCZH_MSVC
 		/// <summary>Bind a conditional variable with a owned reader lock and release it. When the function returns, the condition variable is activated, and the current thread owned the reader lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The reader lock.</param>

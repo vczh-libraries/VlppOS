@@ -3,6 +3,7 @@
 #if defined VCZH_MSVC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
 #elif defined VCZH_GCC && defined VCZH_APPLE
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 
@@ -1109,6 +1110,15 @@ namespace async_socket_test
 }
 
 #elif defined VCZH_GCC && defined VCZH_APPLE
+
+namespace async_socket_test
+{
+	bool WaitForGccEvent(EventObject& eventObject, vint timeout)
+	{
+		return eventObject.WaitForTime(timeout);
+	}
+}
+
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 
@@ -1120,6 +1130,8 @@ TEST_FILE
 	using namespace vl::inter_process::async_tcp_socket::windows_socket;
 	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForWindowsEvent));
 #elif defined VCZH_GCC && defined VCZH_APPLE
+	using namespace vl::inter_process::async_tcp_socket::macos_socket;
+	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForGccEvent));
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 }

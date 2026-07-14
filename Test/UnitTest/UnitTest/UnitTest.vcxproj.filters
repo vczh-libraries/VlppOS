@@ -177,6 +177,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServer.Windows.cpp">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
@@ -273,6 +276,9 @@
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClient.Windows.h">

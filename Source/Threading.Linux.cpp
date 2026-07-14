@@ -10,6 +10,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include <sys/stat.h>
 #include <semaphore.h>
 #include <errno.h>
+#include <time.h>
 #if defined VCZH_APPLE
 #include <CoreFoundation/CoreFoundation.h>
 #endif
@@ -530,6 +531,29 @@ EventObject
 		return true;
 	}
 
+	bool EventObject::WaitForTime(vint ms)
+	{
+		if (!internalData || ms < 0) return false;
+
+		bool result = true;
+		internalData->mutex.Enter();
+		if (internalData->signaled)
+		{
+			if (internalData->autoReset)
+			{
+				internalData->signaled = false;
+			}
+		}
+		else
+		{
+			INCRC(&internalData->counter);
+			result = internalData->cond.SleepWithForTime(internalData->mutex, ms);
+			DECRC(&internalData->counter);
+		}
+		internalData->mutex.Leave();
+		return result;
+	}
+
 /***********************************************************************
 ThreadPoolLite
 ***********************************************************************/
@@ -844,6 +868,25 @@ ConditionVariable
 	bool ConditionVariable::SleepWith(CriticalSection& cs)
 	{
 		return pthread_cond_wait(&internalData->cond, &cs.internalData->mutex) == 0;
+	}
+
+	bool ConditionVariable::SleepWithForTime(CriticalSection& cs, vint ms)
+	{
+		if (ms < 0) return false;
+
+		timespec deadline;
+		if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+		{
+			return false;
+		}
+		deadline.tv_sec += ms / 1000;
+		deadline.tv_nsec += (ms % 1000) * 1000000;
+		if (deadline.tv_nsec >= 1000000000)
+		{
+			deadline.tv_sec += deadline.tv_nsec / 1000000000;
+			deadline.tv_nsec %= 1000000000;
+		}
+		return pthread_cond_timedwait(&internalData->cond, &cs.internalData->mutex, &deadline) == 0;
 	}
 
 	void ConditionVariable::WakeOnePending()
