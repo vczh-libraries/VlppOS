@@ -1,158 +1,136 @@
 investigate repro
 
-# Windows `IAsyncSocket(Server|Client)`
+# `INetworkProtocol(Server|Client)` on `IAsyncSocket(Server|Client)`
 
-Implement the first async TCP socket stage described by [TODO_SocketHttp_AsyncSocket.md](./TODO_SocketHttp_AsyncSocket.md).
+Implement the async-socket-backed text transport described by [TODO_SocketHttp_AsyncSocket.md](./TODO_SocketHttp_AsyncSocket.md).
 
 ## Scope
 
-- Implement the common binary async-socket interfaces and the Windows implementation only.
-- The authoritative parts of `TODO_SocketHttp_AsyncSocket.md` are the interface proposal, its byte-stream/callback contract, the common implementation rules under `Async Socket Implementations`, and the `Windows` section.
-- All paths in that document are relative to `Source/InterProcess`, as stated by [TODO_SocketHttp.md](./TODO_SocketHttp.md).
-- Resolve its namespace placeholder as:
-  - `vl::inter_process::async_tcp_socket` for the common interfaces.
-  - `vl::inter_process::async_tcp_socket::windows_socket` for the concrete Windows implementation.
+- Implement the `INetworkProtocol*` adapters in `Source/InterProcess/AsyncSocket/AsyncSocket.h`.
+- The authoritative section is `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, together with the existing `IAsyncSocket*` byte-stream/callback contract and the `INetworkProtocol*` contract in `Source/InterProcess/NetworkProtocol.h`.
+- All paths in `TODO_SocketHttp_AsyncSocket.md` are relative to `Source/InterProcess`, as stated by [TODO_SocketHttp.md](./TODO_SocketHttp.md).
+- Keep the adapters in `vl::inter_process::async_tcp_socket`.
+- Provide reusable server and client templates parameterized by an actual concrete `IAsyncSocketServer` or `IAsyncSocketClient` implementation.
+- Instantiate the templates in `Test/Source/TestInterProcess.cpp` with all three existing platform implementations under their correct compile-time guards.
 
 The following work is explicitly out of scope:
 
-- `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`. Do not create adapters, templates, framing, UTF-8 serialization, or make any change to the existing `INetworkProtocol*` implementation.
-- Linux and macOS implementations, platform bindings, and active test cases.
+- Changing or duplicating the Windows, Linux, or macOS async-socket implementations.
+- Changing `Test/Source/TestInterProcess_AsyncSocket.cpp`; it already verifies the native byte-stream implementations.
+- Creating new test scenarios instead of reusing the shared text-protocol and channel scenarios in `TestInterProcess.cpp`.
 - HTTP request/response or minimized HTTP layers from the other `TODO_SocketHttp_*.md` documents.
 - Refactoring the existing NamedPipe or Windows HTTP transports.
-- Generated files under `Release` and dependencies under `Import`.
+- Adding source files or changing project, solution, filter, or `vmake` files.
+- Generated files under `Release`, dependencies under `Import`, and generated `Test/Linux/vmake.txt` or `Test/Linux/makefile` files.
 
-## Files and public API
+## Public adapter shape
 
-Create all product files in the `AsyncSocket` physical folder:
+Expose the common connection adapter and public templates from `AsyncSocket.h`, using names consistent with:
 
-- `Source/InterProcess/AsyncSocket/AsyncSocket.h`
-- `Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h`
-- `Source/InterProcess/AsyncSocket/AsyncSocket.Windows.cpp`
+- `NetworkProtocolConnection`
+- `NetworkProtocolServer<TAsyncSocketServer>`
+- `NetworkProtocolClient<TAsyncSocketClient>`
 
-Use the repository's case-sensitive `.Windows.h` / `.Windows.cpp` convention. Do not put these files in the existing `Source/InterProcess/Windows` folder.
+Include `NetworkProtocol.h` and any required common synchronization header directly so `AsyncSocket.h` remains independently usable. Do not include any platform implementation header from this common header.
 
-`AsyncSocket.h` should declare the proposal from `TODO_SocketHttp_AsyncSocket.md` without adding message or packet concepts:
+The templates construct and own the supplied concrete implementation, forwarding its constructor arguments. The existing platform bindings must therefore remain constructible with their current `vint port` argument.
 
-- `AsyncSocketBuffer`
-- `IAsyncSocketCallback`
-- `IAsyncSocketConnection`
-- `IAsyncSocketClient`
-- `IAsyncSocketServer`
+`NetworkProtocolServer<TAsyncSocketServer>`:
 
-Reuse `ClientStatus` and `WaitForClientResult` from `Source/InterProcess/Channel.h`; do not duplicate or move these enums. This dependency does not put the `INetworkProtocol*` adapter in scope.
+- Implements `INetworkProtocolServer`.
+- Bridges the concrete server's `OnClientConnected(IAsyncSocketConnection*)` to the protocol-level `OnClientConnected(INetworkProtocolConnection*)`.
+- Translates each accepted socket connection into one protocol connection and returns the protocol hook's accept/reject result to the socket server.
+- Provides the normal default acceptance behavior while remaining inheritable for test and application overrides.
+- Delegates `Start`, `Stop`, and `IsStopped` to the concrete socket server.
+- Retains translated connections for the complete lifetime required by the socket's non-owning callback, including rejection shutdown and server draining.
+- Remains suitable as `TServerBase` for `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`.
 
-Expose these concrete Windows types in `vl::inter_process::async_tcp_socket::windows_socket`:
+Use composition or an internal concrete-server bridge where needed. Do not rely on unrelated `IAsyncSocketServer` and `INetworkProtocolServer` base interfaces to satisfy each other's virtual functions automatically.
 
-- `AsyncSocketServer(vint port)`, implementing `IAsyncSocketServer`. As with the existing transports, provide a default `OnClientConnected` that accepts the connection while allowing tests/applications to override it.
-- `AsyncSocketClient(vint port)`, implementing `IAsyncSocketClient` and owning the single client connection returned by `GetConnection()`.
+`NetworkProtocolClient<TAsyncSocketClient>`:
 
-The concrete connection and IOCP operation-context types may remain implementation details. Validate that the port is in `1..65535` using the repository's crash-early conventions.
+- Implements `INetworkProtocolClient`.
+- Owns the concrete socket client and exactly one translated connection.
+- Always returns that translated connection from `GetConnection`.
+- Delegates `WaitForServer` and `GetStatus` to the concrete socket client.
+- Stops and drains the underlying connection before releasing the translated connection or its callback adapter.
 
-## Required contract
+The client adapter cannot directly inherit both interfaces and expose both `GetConnection` functions because they differ only by unrelated return types. Use composition for the concrete client.
 
-Follow the common contract in `TODO_SocketHttp_AsyncSocket.md`, including all of these details:
+## Text framing
 
-- The transport is an ordered, full-duplex byte stream. It exposes neither messages nor TCP packet boundaries.
-- `InstallCallback` supports one non-owning callback at a time, calls `OnInstalled` when installing, and accepts `nullptr` to uninstall. Callback owners may be stack allocated.
-- `BeginReadingLoopUnsafe` keeps exactly one read outstanding. Every `OnRead` gets a positive, borrowed block valid only for that callback, and the next read is posted only after `OnRead` returns.
-- Use a fixed 64 KiB receive block in the Windows implementation. A completion may still deliver fewer bytes; this is only a deterministic upper bound for testing and not a protocol boundary.
-- Permit one read and one write concurrently, but only one user write at a time. Reject a null buffer, a write on a stopped/disconnected connection, or a second outstanding `WriteAsync` with `CHECK_ERROR` instead of silently accepting invalid use. Do not add an empty-buffer requirement without first defining its completion semantics.
-- Retain the exact `Ptr<AsyncSocketBuffer>` supplied to `WriteAsync`, handle every short OS write, and call `OnWriteCompleted` exactly once with that same object only after all bytes have been sent. A cancelled/incomplete write has no completion callback.
-- Callbacks may run on arbitrary threads. Never call user code while holding an implementation lock.
-- EOF or peer loss calls `OnDisconnected` exactly once. A fatal `OnError` is delivered before that disconnection; intentional cancellation during `Stop` does not call `OnError`.
-- `Start` is the boundary that enables server callbacks, so construction never starts callbacks against a not-yet-constructed derived server.
-- `Stop` is idempotent and is a hard drain boundary: prevent new work, cancel native work, consume every final completion, and guarantee that no new or other callback can touch the connection, server, client, or callback owner after it returns.
-- Preserve the special rule for calling `Stop` from one of the connection's own callbacks: the invoking callback is the sole exception to the previous guarantee. Do not wait for that current callback, do wait for all other callbacks, perform the one terminal disconnection notification before returning, and keep detached native state alive until the current callback and cancellation completions unwind. A later `Stop` from another thread must still be able to wait for that detached callback to finish.
-- Destructors of the concrete connection, client, and server must call their idempotent draining `Stop` path rather than relying on callers to do so.
+Encode every `WString` as one stream frame:
 
-Use explicit ownership for accepted connections, native handles, operation contexts, receive storage, and retained write buffers. Do not depend on a callback owner or connection being heap allocated.
+1. One native `vint32_t` containing `WString::Length()`.
+2. Exactly `length * sizeof(wchar_t)` bytes containing the characters.
 
-## Windows implementation
+This matches the string representation used by `NamedPipeConnection` without copying its redundant outer byte count. Do not add UTF-8 conversion, a BOM, a NUL terminator, an outer frame size, or any assumption about TCP/read callback boundaries. An empty string is a valid zero-length frame containing only the length field.
 
-Implement IPv4 TCP on numeric `127.0.0.1` only, using the user-specified port. Do not resolve `localhost`, bind to all interfaces, or add IPv6/TLS behavior.
+The read side must be a buffered state machine over arbitrary positive `IAsyncSocketCallback::OnRead` blocks:
 
-Follow the Windows mapping in `TODO_SocketHttp_AsyncSocket.md`:
+- Preserve partial length fields and partial character data across callbacks.
+- Handle a split inside a `wchar_t`.
+- Deliver a frame only after all declared characters arrive.
+- Parse and deliver every complete frame when one read block contains multiple frames.
+- Preserve any incomplete suffix for the next callback.
+- Validate negative lengths and arithmetic or allocation overflow before allocating.
+- Read the length without assuming the borrowed buffer is suitably aligned.
+- Never retain or expose the borrowed socket read buffer after `OnRead` returns.
 
-- `AsyncSocket.Windows.h` must include Winsock 2 headers before any header that can include `windows.h`. Link `Ws2_32.lib` from `AsyncSocket.Windows.cpp` with `#pragma comment(lib, ...)`.
-- Balance `WSAStartup` / `WSACleanup` only after all sockets, operations, and workers using the runtime have stopped. Avoid global objects with constructors/destructors.
-- Use `WSASocketW` with `WSA_FLAG_OVERLAPPED`, an IOCP, and a small bounded set of completion workers. Do not create one thread per connection and never block an IOCP worker waiting for a connect retry or user action.
-- Server setup is synchronous in `Start`: apply `SO_EXCLUSIVEADDRUSE`, bind to `INADDR_LOOPBACK`, listen, associate the listener with the IOCP, load `AcceptEx` with `WSAIoctl`, and keep one zero-initial-data accept pending. On completion, apply `SO_UPDATE_ACCEPT_CONTEXT`, associate the accepted socket with the IOCP, repost the next accept while still running, then invoke `OnClientConnected`; close and drain a rejected connection.
-- `WaitForServer` changes `Ready` to `WaitingForServer`, loads `ConnectEx` with `WSAIoctl`, associates a fresh socket with the IOCP, binds it to an ephemeral local endpoint, posts `ConnectEx`, and blocks only its caller. On success, apply `SO_UPDATE_CONNECT_CONTEXT`, change to `Connected`, call `OnConnected`, and then unblock the caller.
-- Put retry count/delay in named common policy constants so future platform bindings share the policy; do not bury them in Windows completion code. Schedule retries asynchronously and create a fresh socket for each failed attempt. Report intermediate failed attempts through `OnError(error, false)`. On bounded terminal failure, report one `OnError(error, true)`, change to `Disconnected`, call `OnDisconnected` once, and unblock `WaitForServer`.
-- `Stop` must cancel and drain a pending retry timer/work item as well as native socket operations. Every retry callback must recheck stopping state before creating or posting a new socket.
-- Implement reads with overlapped `WSARecv`; positive completions become `OnRead` and a zero-byte completion is EOF.
-- Implement writes with overlapped `WSASend`, resubmitting the unsent suffix after a short completion.
-- Closing/cancelling a socket does not finish cleanup by itself. Drain the resulting IOCP packets, treat expected `WSA_OPERATION_ABORTED` results as shutdown bookkeeping, and release each `OVERLAPPED` context and buffer only after its final completion has been consumed.
-- Accepted server connections are already connected before their callbacks are installed in `OnClientConnected`, so those callbacks do not receive a second `OnConnected`. The client callback receives `OnConnected` before `WaitForServer` unblocks.
-- Server shutdown drains the pending accept and every accepted connection before it stops the IOCP workers and releases the Winsock runtime.
+## Connection behavior
 
-## Project and Solution Explorer integration
+`NetworkProtocolConnection` implements both `INetworkProtocolConnection` and `IAsyncSocketCallback`. It installs itself on the underlying `IAsyncSocketConnection` while exposing a separate non-owning `INetworkProtocolCallback` to users.
 
-Update `Test/UnitTest/UnitTest/UnitTest.vcxproj` explicitly (no wildcards):
+- `InstallCallback` accepts one callback at a time, calls `OnInstalled(this)` synchronously, and uses `nullptr` to uninstall.
+- Callback replacement, uninstallation, and shutdown must not leave the underlying non-owning callback pointing at a destroyed adapter.
+- `BeginReadingLoopUnsafe` delegates to the underlying socket connection.
+- `OnRead` parses frames and calls `OnReadString` once for every complete string, without holding an adapter lock while calling user code.
+- `OnError(error, fatal)` maps to `OnLocalError(error, fatal)`.
+- `OnConnected` and `OnDisconnected` preserve the corresponding protocol callback semantics and ordering.
+- The framing has no remote-error opcode, so do not invent one or reinterpret ordinary strings as `OnReadError`.
+- `Stop` delegates to the underlying hard-drain boundary and prevents later protocol callbacks from accessing the callback owner, subject only to the socket contract's existing nested-callback allowance.
 
-- Add `AsyncSocket.Windows.cpp` and `Test/Source/TestInterProcess_AsyncSocket.cpp` as `ClCompile` entries.
-- Add `AsyncSocket.h` and `AsyncSocket.Windows.h` as `ClInclude` entries.
+`SendString` adapts the synchronous protocol API to the socket's one-outstanding-write rule:
 
-Update `Test/UnitTest/UnitTest/UnitTest.vcxproj.filters` so the files are organized in Solution Explorer as well as on disk:
+- Build one retained `AsyncSocketBuffer` containing the complete frame.
+- Queue calls in FIFO order and submit only one `WriteAsync` at a time.
+- Support concurrent and reentrant `SendString` calls.
+- In `OnWriteCompleted`, consume the completed front buffer and submit the next queued frame.
+- Preserve FIFO order by the order in which concurrent or reentrant calls enter the adapter's serialized queue.
+- Clear undelivered queued frames during fatal disconnection or shutdown.
+- Never call user code or `WriteAsync` while holding an adapter lock.
 
-- Create `Common\InterProcess\AsyncSocket` and put all three product files there.
-- Create `Source Files\AsyncSocket` and put `TestInterProcess_AsyncSocket.cpp` there.
+All callback, parser, write-queue, and lifecycle state must be thread-safe because socket callbacks may run on arbitrary threads. Keep every adapter alive until the underlying socket has drained callbacks that can reference it. Destructors must follow the same idempotent stop, drain, callback-uninstall, and release ordering.
 
-No change to `Test/UnitTest/UnitTest.sln` is needed. Add `../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.cpp` to `CPP_REMOVES` in `Test/Linux/vmake` so the existing Linux project generator does not attempt to compile this Windows-only file. This is exclusion bookkeeping only: do not add Linux code or a Linux test case, and do not edit generated `vmake.txt` or `makefile` files.
+## Shared `TestInterProcess.cpp` coverage
 
-## Shared test design
+Reuse both existing shared runners; do not copy or redesign their scenarios:
 
-Create `Test/Source/TestInterProcess_AsyncSocket.cpp`. Follow the structure of `Test/Source/TestInterProcess.cpp`, but design new socket-specific scenarios rather than reusing its chat scenario.
+- `RunTextNetworkProtocol` exercises the raw `INetworkProtocol*` text transport through the framing adapter.
+- `RunNetworkProtocolChannel` verifies the same adapter beneath `NetworkProtocolChannel*`.
 
-- Include `AsyncSocket.h` and the common threading primitives needed by the harness unconditionally.
-- Keep deterministic payload builders, shared state, callback implementations, bounded wait/error handling, and factory-driven runners such as `RunAsyncSocket(...)` outside platform guards.
-- Make runners accept factories returning `Ptr<IAsyncSocketServer>` and `Ptr<IAsyncSocketClient>` rather than constructing Windows types directly. Pass the platform implementation's maximum read-block size into the shared long-data runner instead of hardcoding the Windows value in platform-neutral code.
-- Put only the Windows implementation include, thin concrete server subclasses/factories, timed-wait binding, and active `TEST_CASE` invocations under `#ifdef VCZH_MSVC`.
-- A future Linux or macOS implementation must be able to add its include/factories and invoke the same runners without copying the scenarios.
-- Use `EventObject` milestones and bounded waits. Record the first asynchronous failure in lock-protected shared state and assert it on the test thread; do not use `TEST_ASSERT` on an IOCP callback thread.
-- Every timeout path must stop the client and server, wait for runner tasks to exit, and detach callbacks before the shared stack state is destroyed. Do not add sleeps to make shutdown appear safe.
-- Repeat the primary transfer and shutdown-drain scenarios (use 20 iterations, consistent with existing inter-process tests) and use a different fixed loopback port for each iteration to avoid immediate port-reuse/TIME_WAIT interference. The focused retry/reject cases do not need the same expensive repetition.
+Bind all three concrete implementations explicitly in the existing platform-specific include, namespace, server-glue, and `TEST_CASE` branches:
 
-### Full-duplex long-data case
+| Guard | Header | Concrete server/client |
+| --- | --- | --- |
+| `VCZH_MSVC` | `AsyncSocket/AsyncSocket.Windows.h` | `windows_socket::AsyncSocketServer` / `windows_socket::AsyncSocketClient` |
+| `VCZH_GCC && VCZH_APPLE` | `AsyncSocket/AsyncSocket.macOS.h` | `macos_socket::AsyncSocketServer` / `macos_socket::AsyncSocketClient` |
+| `VCZH_GCC && !VCZH_APPLE` | `AsyncSocket/AsyncSocket.Linux.h` | `linux_socket::AsyncSocketServer` / `linux_socket::AsyncSocketClient` |
 
-This is the primary case and must deterministically produce multiple `OnRead` callbacks.
+- Keep platform-neutral templated text-server and channel-server glue outside the guards, and instantiate it with the matching server/client pair inside each branch.
+- Add one async-socket-backed NetworkProtocol case through `RunTextNetworkProtocol` and one async-socket-backed Channel case through `RunNetworkProtocolChannel` on every platform.
+- Keep the existing NamedPipe and HTTP cases in the Windows branch.
+- Fill both currently empty GCC branches; do not select one platform implementation through a Windows-only alias or leave another implementation unreferenced.
+- Preserve `InterProcessTestRepeatCount` and the existing consecutive sends. Those sends verify FIFO queuing over the one-outstanding-write socket interface.
+- Use dedicated, non-overlapping loopback port ranges, distinct from the `38000..38400` ranges in `TestInterProcess_AsyncSocket.cpp`, and use a different port for every repetition so a recently closed TCP connection cannot make repeated server binding ambiguous.
 
-- Build two different binary payloads, one for each direction. Each must be larger than eight 64 KiB receive blocks and have an odd-sized tail (for example `8 * 65536 + 257` and `11 * 65536 + 113`). Fill them with deterministic patterns that cover `0x00`, high-bit bytes, and every other byte value.
-- Start the server first. In `OnClientConnected`, install the server callback, start its read loop, retain the accepted interface pointer only while the server owns the connection, and signal an explicit accepted/callback-installed/read-started milestone.
-- Install the client callback before `WaitForServer`; after it returns, verify `ClientStatus::Connected`, start the client read loop, and wait for the server milestone before submitting one long write from each side so read and write activity overlaps. `WaitForServer` alone does not prove that `OnClientConnected` has finished.
-- Drop the caller's local `Ptr<AsyncSocketBuffer>` immediately after each submission. The test should keep only independent expected bytes and the raw identity needed to prove that the implementation retains the buffer until `OnWriteCompleted`.
-- Treat every read boundary as arbitrary. For every callback, require `size > 0`, prevent overflow, compare the bytes at the current expected offset, accumulate the total, and count callbacks without assuming an exact count.
-- Assert exact byte order/content and total size in both directions, `OnRead` count greater than one in both directions, exactly one write completion per direction, and the identity/content of the returned write buffer.
-- Also assert one callback installation per connection, one accepted connection, one client `OnConnected`, no `OnError`, `Ready` before connecting, `Connected` after `WaitForServer`, and `Disconnected` after stopping. Assert `!IAsyncSocketServer::IsStopped()` after `Start` and `IAsyncSocketServer::IsStopped()` after `Stop`; do not invent pre-`Start` semantics.
-- After both transfers and write completions finish, stop while the continuous reads are pending. Require one disconnection per side, no cancellation error, and immediate safe callback detachment/destruction after `Stop` returns.
-
-### Reject case
-
-- Override `OnClientConnected` to return `WaitForClientResult::Reject` for one connection.
-- Start the client read loop when connection establishment returns so it can observe the peer close.
-- Assert one accept attempt, no delivered data or write completion, one eventual disconnection, and `!IAsyncSocketServer::IsStopped()` until the server is explicitly stopped. A client-side rejection may appear as EOF or as a fatal connection-reset error; if `OnError` occurs, assert that it is fatal and precedes the single disconnection instead of requiring an error-free close.
-- Do not assert a transient client status or the relative ordering between `WaitForServer` returning and the rejected socket reaching EOF; only assert the final state.
-
-### Stop-from-callback case
-
-- Have the server send data after accepting a client.
-- On the first client `OnRead`, without holding the test callback's lock, call that same connection's `Stop`, record that nested `Stop` returned, and signal an event. `OnDisconnected` is intentionally allowed to be reentrant during this call.
-- The bounded event must prove there is no deadlock. After it signals, call the same idempotent `Stop` again from the test thread so this external call drains the still-unwinding `OnRead` before callback detachment.
-- Assert exactly one read callback, no cancellation error, exactly one `OnDisconnected` delivered before the nested `Stop` returns, and no new ordinary callback after it. Do not forbid the server write completion: it may legitimately finish before or concurrently with the client read-side stop.
-- Keep callback counters and the post-stop flag alive through the external drain and the subsequent server stop, then detach/destroy callback state after the runner joins.
-
-### Connect-retry and retry-stop cases
-
-- Start `WaitForServer` on a runner task without a server listening. The first nonfatal `OnError` is the event-driven milestone proving that a failed `ConnectEx` completed without blocking the IOCP worker.
-- In the retry-success variant, start the server after that milestone and require a later retry to connect, deliver `OnConnected`, unblock `WaitForServer`, and support a small byte transfer.
-- In the retry-stop variant, call `Stop` after the first nonfatal failure. Require `WaitForServer` to unblock, one terminal disconnection, no fatal error caused by intentional cancellation, no later retry/callback, and safe destruction immediately after the external drain.
-
-Do not add tests for an exact TCP/read chunk count or ambiguous/invalid call sequences beyond the explicit preconditions above.
+No project-file change is expected: `AsyncSocket.h`, all three platform implementations, and `TestInterProcess.cpp` are already registered in the Windows and Unix-like builds.
 
 ## Verification
 
-- Build `Test/UnitTest/UnitTest.sln` on Windows through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64.
-- Run the focused `TestInterProcess_AsyncSocket.cpp` cases first through `.github/Scripts/copilotExecute.ps1` in Debug x64, making sure the new test is not skipped by any `.vcxproj.user` filter.
-- Then run the complete Debug x64 `UnitTest` suite.
+Verification for this task is Windows-only:
+
+- Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64.
+- Run the focused `TestInterProcess.cpp` cases through `.github/Scripts/copilotExecute.ps1` in Debug x64, ensuring the file is not skipped by the `.vcxproj.user` filter.
+- Run the complete Debug x64 `UnitTest` suite.
 - Read the ends of `Build.log` and `Execute.log`; all tests must pass and the Debug log must contain no CRT memory-leak report.
-- Linux and macOS builds/tests are not part of this task.
