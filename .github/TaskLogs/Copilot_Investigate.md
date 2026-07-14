@@ -178,3 +178,23 @@ The problem is confirmed when the initial Debug x64 build succeeds and the focus
 ## Confirmation
 
 The Debug x64 unit-test project built successfully with zero warnings and zero errors. Running only `TestInterProcess_AsyncSocket.cpp` through `copilotExecute.ps1` selected the fallback test and failed at `IAsyncSocket is not implemented / Assertion failure: false`; all other test files were reported as skipped. This confirms that the requested public AsyncSocket feature and implementation are absent while the complete future-facing test source is present and buildable.
+
+# PROPOSALS
+
+- No.1 Implement a retained IOCP state machine with two-phase shutdown
+
+## No.1 Implement a retained IOCP state machine with two-phase shutdown
+
+Add the common byte-stream interfaces in `AsyncSocket.h` and expose Windows server/client facades backed by private implementation objects. Each server and client owns one Winsock/IOCP runtime with one long-lived `Thread`-derived completion worker; accepted server connections share the server runtime, so there is no thread per connection. Runtime startup is explicit and runtime shutdown posts a cooperative IOCP sentinel, waits for the worker to exit, then closes the completion port and balances `WSACleanup`.
+
+Represent every `AcceptEx`, `ConnectEx`, `WSARecv`, and `WSASend` request with a heap operation context containing its own `OVERLAPPED`, retained owner/state and native buffers. Pending-operation counters and manual-reset events keep contexts and socket state alive until the final IOCP packet is consumed. Reads reuse one fixed 64 KiB context and repost only after `OnRead` returns. Writes retain the caller's exact `Ptr<AsyncSocketBuffer>`, track an offset across short completions, clear the one-write gate before invoking the sole completion callback, and never complete a cancelled write.
+
+Protect connection lifecycle, callback installation, socket ownership, active-callback counts and pending-operation counts with short lock sections. User callbacks execute outside locks. Ordinary callback entry rechecks the stopped state under the same lock, while terminal error/disconnection has a separate once-only path that preserves fatal-error-before-disconnection ordering. Accepted connections remain strongly owned by the server until server shutdown; operation contexts temporarily retain connection/client/server implementation state without creating permanent ownership cycles.
+
+Implement `Stop` as a repeatable two-phase boundary. The first caller marks stopping and detaches/closes the socket so no new work can start. An external caller drains native completions and active callbacks before issuing the once-only terminal notification and returning. When called from the runtime worker during one of that connection's own callbacks, it skips only the wait that would depend on the current IOCP packet, performs `OnDisconnected` reentrantly before returning, and leaves state retained by the operation context. A later external `Stop` still executes the drain waits even though the stopped flag is already set. Server shutdown similarly closes the listener, drains the pending accept/user accept callback, stops every accepted connection, then stops its runtime.
+
+Use `ConnectEx` with a fresh bound/associated socket per attempt. Put the retry count and delay in common named constants. A Windows thread-pool timer only schedules attempts and invokes no user code; cancellation disables and drains timer callbacks. Failed intermediate attempts report nonfatal `OnError`, terminal exhaustion reports one fatal error then disconnects, and connection stop always changes client status to `Disconnected` and releases `WaitForServer`.
+
+Complete explicit Visual Studio project/filter entries for all product files, add Windows source exclusion bookkeeping to `Test/Linux/vmake`, and keep generated Linux files unchanged. Remove the temporary missing-header fallback from the active test path by making the new public header available, then use the already committed shared runners to validate the implementation.
+
+### CODE CHANGE
