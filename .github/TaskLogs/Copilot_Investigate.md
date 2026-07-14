@@ -30,3 +30,15 @@ Build and run the existing async-socket cases after the refactor. The Debug x64 
 The baseline Debug x64 build succeeded with zero warnings and zero errors. The unfiltered unit-test run passed 13/13 files and 122/122 cases, including all five existing async-socket scenarios, and `Execute.log` contains no CRT memory-leak report. Source inspection confirms the organizational defect independently of behavior: the five scenario registrations are all inside `#ifdef VCZH_MSVC`, the Windows factory setup is embedded beside them, and there are no macOS or Linux binding placeholders. Therefore the behavior is already covered while future platform activation would currently require duplicating or restructuring the registration block.
 
 # PROPOSALS
+
+- No.1 Share async-socket test registration and prepare platform implementation tasks
+
+## No.1 Share async-socket test registration and prepare platform implementation tasks
+
+Move the five existing `TEST_CASE` registrations into one platform-neutral templated function. The function takes the concrete server and client types as template arguments, constructs the existing factory delegates, accepts the platform's maximum read-block size and timed-event delegate, and registers all existing scenarios exactly once. Keep the implementation entry inside `TEST_FILE`, where each supported platform invokes that shared function once. Add explicit empty macOS and Linux branches beside the existing Windows include and test entry so future implementations only fill their own binding branch.
+
+Replace the Windows-only server test adapter with `TestServer<TServerBase>`. Its constructor forwards only `vint port` to `TServerBase` and stores the shared accept handler; generic server/client factory templates construct `TServerBase(port)` and `TClient(port)`. This deliberately makes the port-only constructor shape and overridable server accept hook a compile-time requirement for every platform implementation while leaving the maximum receive block size platform-specific.
+
+Create `TODO_Task_Linux.md` and `TODO_Task_macOS.md` as standalone future `investigate repro` tasks modeled after `TODO_Task.md`. Both documents preserve the existing common interface and callback/shutdown contract, scope work to one platform implementation and its build integration, explicitly exclude `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, expose concrete server/client classes with port-only constructors where possible, and incorporate the corresponding `liburing`/`io_uring` or Network.framework/Grand Central Dispatch requirements from `TODO_SocketHttp_AsyncSocket.md`. They do not request new test scenarios; instead they direct the implementer to fill the prepared platform include/invocation branch in `TestInterProcess_AsyncSocket.cpp` and run the shared cases.
+
+### CODE CHANGE
