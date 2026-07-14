@@ -18,7 +18,7 @@ LLDB shows that the transport is not deadlocked. Both clients and the server hav
 
 # PROPOSALS
 
-- No.1 Centralize GCC thread completion for every derived thread
+- No.1 Centralize GCC thread completion for every derived thread [CONFIRMED]
 
 ## No.1 Centralize GCC thread completion for every derived thread
 
@@ -29,3 +29,13 @@ Set `threadState` to `Running` before `pthread_create` and roll it back to `NotS
 Add a focused `TestThread.cpp` case whose custom `Thread` subclass returns from `Run`; require `Wait` to return, its work to be visible, and its state to be `Stopped`. Retain the existing repeated async-socket network-protocol and channel cases as integration coverage.
 
 ### CODE CHANGE
+
+- `Source/Threading.Linux.cpp` stores the factory auto-delete policy in the private `ThreadData`, makes the native entry path own thread-local-storage setup and cleanup, publishes `Thread::Stopped`, signals the completion event for every derived `Thread`, and performs optional self-deletion afterward. `ProceduredThread` and `LambdaThread` now only invoke their supplied work. `Thread::Start` publishes `Running` before `pthread_create` and restores `NotStarted` on failure so fast threads cannot overwrite their final state.
+- `Test/Source/TestThread.cpp` adds a custom `DerivedThread` that returns immediately and verifies that `Wait` completes, its work is visible, and the GCC implementation reports `Stopped`.
+- The async-socket adapter and all native socket implementations remain unchanged because LLDB proved their communication and shutdown had already completed.
+
+### CONFIRMED
+
+LLDB proves the original stall is exactly the missing GCC custom-thread completion notification: all three inter-process worker tasks completed, both peers stopped, no io_uring worker remained, and the timeout pthread had exited while the main thread waited forever on its unsignaled event. Windows does not stall because its `Thread::Wait` uses the native thread handle, which the operating system signals on exit.
+
+With the proposal implemented, the focused `TestThread.cpp` run passes 12/12 cases, including the new custom-derived-thread regression. The original `TestInterProcess.cpp` reproduction now advances immediately from `AsyncSocket (NetworkProtocol)` to `AsyncSocket (Channel)` and passes 3/3 cases; each async-socket case retains its 20 repetitions. The complete Linux UnitTest suite passes 118/118 cases across 11/11 files.
