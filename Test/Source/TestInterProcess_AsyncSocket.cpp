@@ -1,7 +1,9 @@
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.h"
 #include "../../Source/Threading.h"
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 
 using namespace vl;
@@ -1025,22 +1027,16 @@ namespace async_socket_test
 		TEST_ASSERT(clientCallback.callbacksAfterStop == 0);
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
 	}
-}
 
-#ifdef VCZH_MSVC
-
-namespace async_socket_test
-{
-	using namespace vl::inter_process::async_tcp_socket::windows_socket;
-
-	class WindowsTestServer : public AsyncSocketServer
+	template<typename TServerBase>
+	class TestServer : public TServerBase
 	{
 	private:
 		AcceptHandler						acceptHandler;
 
 	public:
-		WindowsTestServer(vint port, const AcceptHandler& _acceptHandler)
-			: AsyncSocketServer(port)
+		TestServer(vint port, const AcceptHandler& _acceptHandler)
+			: TServerBase(port)
 			, acceptHandler(_acceptHandler)
 		{
 		}
@@ -1051,62 +1047,79 @@ namespace async_socket_test
 		}
 	};
 
-	Ptr<IAsyncSocketServer> CreateWindowsServer(vint port, const AcceptHandler& acceptHandler)
+	template<typename TServerBase>
+	Ptr<IAsyncSocketServer> CreateTestServer(vint port, const AcceptHandler& acceptHandler)
 	{
-		return Ptr<IAsyncSocketServer>(new WindowsTestServer(port, acceptHandler));
+		return Ptr<IAsyncSocketServer>(new TestServer<TServerBase>(port, acceptHandler));
 	}
 
-	Ptr<IAsyncSocketClient> CreateWindowsClient(vint port)
+	template<typename TClient>
+	Ptr<IAsyncSocketClient> CreateTestClient(vint port)
 	{
-		return Ptr<IAsyncSocketClient>(new AsyncSocketClient(port));
+		return Ptr<IAsyncSocketClient>(new TClient(port));
 	}
 
+	template<typename TServerBase, typename TClient>
+	void RunAsyncSocketTestCases(vint maximumReadBlockSize, const WaitForEvent& waitForEvent)
+	{
+		CreateServer createServer(&CreateTestServer<TServerBase>);
+		CreateClient createClient(&CreateTestClient<TClient>);
+
+		TEST_CASE(L"AsyncSocket full-duplex long data")
+		{
+			for (vint i = 0; i < AsyncSocketTestRepeatCount; i++)
+			{
+				RunLongFullDuplex(38000 + i, maximumReadBlockSize, createServer, createClient, waitForEvent);
+			}
+		});
+
+		TEST_CASE(L"AsyncSocket rejected connection")
+		{
+			RunReject(38100, createServer, createClient, waitForEvent);
+		});
+
+		TEST_CASE(L"AsyncSocket Stop from OnRead")
+		{
+			for (vint i = 0; i < AsyncSocketTestRepeatCount; i++)
+			{
+				RunStopFromCallback(38200 + i, createServer, createClient, waitForEvent);
+			}
+		});
+
+		TEST_CASE(L"AsyncSocket retry then connect")
+		{
+			RunRetryThenConnect(38300, createServer, createClient, waitForEvent);
+		});
+
+		TEST_CASE(L"AsyncSocket Stop during retry")
+		{
+			RunStopDuringRetry(38400, createClient, waitForEvent);
+		});
+	}
+}
+
+#if defined VCZH_MSVC
+
+namespace async_socket_test
+{
 	bool WaitForWindowsEvent(EventObject& eventObject, vint timeout)
 	{
 		return eventObject.WaitForTime(timeout);
 	}
 }
 
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 
 using namespace async_socket_test;
 
 TEST_FILE
 {
-#ifdef VCZH_MSVC
-	CreateServer createServer(&CreateWindowsServer);
-	CreateClient createClient(&CreateWindowsClient);
-	WaitForEvent waitForEvent(&WaitForWindowsEvent);
-
-	TEST_CASE(L"AsyncSocket full-duplex long data")
-	{
-		for (vint i = 0; i < AsyncSocketTestRepeatCount; i++)
-		{
-			RunLongFullDuplex(38000 + i, 65536, createServer, createClient, waitForEvent);
-		}
-	});
-
-	TEST_CASE(L"AsyncSocket rejected connection")
-	{
-		RunReject(38100, createServer, createClient, waitForEvent);
-	});
-
-	TEST_CASE(L"AsyncSocket Stop from OnRead")
-	{
-		for (vint i = 0; i < AsyncSocketTestRepeatCount; i++)
-		{
-			RunStopFromCallback(38200 + i, createServer, createClient, waitForEvent);
-		}
-	});
-
-	TEST_CASE(L"AsyncSocket retry then connect")
-	{
-		RunRetryThenConnect(38300, createServer, createClient, waitForEvent);
-	});
-
-	TEST_CASE(L"AsyncSocket Stop during retry")
-	{
-		RunStopDuringRetry(38400, createClient, waitForEvent);
-	});
+#if defined VCZH_MSVC
+	using namespace vl::inter_process::async_tcp_socket::windows_socket;
+	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForWindowsEvent));
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 }
