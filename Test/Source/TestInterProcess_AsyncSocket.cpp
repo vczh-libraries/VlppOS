@@ -5,6 +5,7 @@
 #elif defined VCZH_GCC && defined VCZH_APPLE
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h"
 #endif
 
 using namespace vl;
@@ -1120,6 +1121,13 @@ namespace async_socket_test
 }
 
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+namespace async_socket_test
+{
+	bool WaitForLinuxEvent(EventObject& eventObject, vint timeout)
+	{
+		return eventObject.WaitForTime(timeout);
+	}
+}
 #endif
 
 using namespace async_socket_test;
@@ -1133,5 +1141,7 @@ TEST_FILE
 	using namespace vl::inter_process::async_tcp_socket::macos_socket;
 	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForGccEvent));
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+	using namespace vl::inter_process::async_tcp_socket::linux_socket;
+	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForLinuxEvent));
 #endif
 }

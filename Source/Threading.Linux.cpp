@@ -439,6 +439,8 @@ EventObject
 			CriticalSection		mutex;
 			ConditionVariable	cond;
 			atomic_vint			counter = 0;
+			vint				releasedWaiters = 0;
+			vuint64_t			signalVersion = 0;
 		};
 	}
 
@@ -482,15 +484,23 @@ EventObject
 		if (!internalData) return false;
 
 		internalData->mutex.Enter();
-		internalData->signaled = true;
-		if (internalData->counter)
+		if (internalData->autoReset)
 		{
-			if (internalData->autoReset)
+			if (internalData->counter > internalData->releasedWaiters)
 			{
+				internalData->releasedWaiters++;
 				internalData->cond.WakeOnePending();
-				internalData->signaled = false;
 			}
 			else
+			{
+				internalData->signaled = true;
+			}
+		}
+		else
+		{
+			internalData->signaled = true;
+			internalData->signalVersion++;
+			if (internalData->counter)
 			{
 				internalData->cond.WakeAllPendings();
 			}
@@ -513,6 +523,7 @@ EventObject
 	{
 		if (!internalData) return false;
 
+		bool result = true;
 		internalData->mutex.Enter();
 		if (internalData->signaled)
 		{
@@ -523,17 +534,31 @@ EventObject
 		}
 		else
 		{
+			auto signalVersion = internalData->signalVersion;
 			INCRC(&internalData->counter);
-			internalData->cond.SleepWith(internalData->mutex);
+			while (internalData->autoReset
+				? internalData->releasedWaiters == 0
+				: !internalData->signaled && internalData->signalVersion == signalVersion)
+			{
+				if (!internalData->cond.SleepWith(internalData->mutex))
+				{
+					result = false;
+					break;
+				}
+			}
+			if (result && internalData->autoReset)
+			{
+				internalData->releasedWaiters--;
+			}
 			DECRC(&internalData->counter);
 		}
 		internalData->mutex.Leave();
-		return true;
+		return result;
 	}
 
 	bool EventObject::WaitForTime(vint ms)
 	{
-		if (!internalData || ms < 0) return false;
+		if (!internalData) return false;
 
 		bool result = true;
 		internalData->mutex.Enter();
@@ -546,8 +571,52 @@ EventObject
 		}
 		else
 		{
+			auto signalVersion = internalData->signalVersion;
+			timespec now;
+#if defined VCZH_APPLE
+			constexpr auto waitClock = CLOCK_REALTIME;
+#else
+			constexpr auto waitClock = CLOCK_MONOTONIC;
+#endif
+			if (ms <= 0 || clock_gettime(waitClock, &now) != 0)
+			{
+				internalData->mutex.Leave();
+				return false;
+			}
+			auto deadline = (vuint64_t)now.tv_sec * 1000000000 + now.tv_nsec + (vuint64_t)ms * 1000000;
+			auto remaining = ms;
 			INCRC(&internalData->counter);
-			result = internalData->cond.SleepWithForTime(internalData->mutex, ms);
+			while (internalData->autoReset
+				? internalData->releasedWaiters == 0
+				: !internalData->signaled && internalData->signalVersion == signalVersion)
+			{
+				if (!internalData->cond.SleepWithForTime(internalData->mutex, remaining))
+				{
+					result = false;
+					break;
+				}
+				if (clock_gettime(waitClock, &now) != 0)
+				{
+					result = false;
+					break;
+				}
+				auto current = (vuint64_t)now.tv_sec * 1000000000 + now.tv_nsec;
+				if (current >= deadline)
+				{
+					result = false;
+					break;
+				}
+				remaining = (vint)((deadline - current + 999999) / 1000000);
+			}
+			if (internalData->autoReset && internalData->releasedWaiters > 0)
+			{
+				internalData->releasedWaiters--;
+				result = true;
+			}
+			else if (!internalData->autoReset && (internalData->signaled || internalData->signalVersion != signalVersion))
+			{
+				result = true;
+			}
 			DECRC(&internalData->counter);
 		}
 		internalData->mutex.Leave();
@@ -855,8 +924,30 @@ ConditionVariable
 
 	ConditionVariable::ConditionVariable()
 	{
+#define ERROR_MESSAGE_PREFIX L"vl::ConditionVariable::ConditionVariable()#"
 		internalData = new ConditionVariableData;
-		pthread_cond_init(&internalData->cond, nullptr);
+#if defined VCZH_APPLE
+		auto initResult = pthread_cond_init(&internalData->cond, nullptr);
+#else
+		pthread_condattr_t attributes;
+		auto attributeResult = pthread_condattr_init(&attributes);
+		if (attributeResult != 0)
+		{
+			delete internalData;
+			internalData = nullptr;
+			CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to initialize condition-variable attributes.");
+		}
+		auto clockResult = pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC);
+		auto initResult = clockResult == 0 ? pthread_cond_init(&internalData->cond, &attributes) : clockResult;
+		pthread_condattr_destroy(&attributes);
+#endif
+		if (initResult != 0)
+		{
+			delete internalData;
+			internalData = nullptr;
+			CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to initialize the condition variable.");
+		}
+#undef ERROR_MESSAGE_PREFIX
 	}
 
 	ConditionVariable::~ConditionVariable()
@@ -874,19 +965,31 @@ ConditionVariable
 	{
 		if (ms < 0) return false;
 
-		timespec deadline;
-		if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+		timespec timeout;
+#if defined VCZH_APPLE
+		constexpr auto waitClock = CLOCK_REALTIME;
+#else
+		constexpr auto waitClock = CLOCK_MONOTONIC;
+#endif
+		if (clock_gettime(waitClock, &timeout) != 0)
 		{
 			return false;
 		}
-		deadline.tv_sec += ms / 1000;
-		deadline.tv_nsec += (ms % 1000) * 1000000;
-		if (deadline.tv_nsec >= 1000000000)
+
+		timeout.tv_sec += ms / 1000;
+		timeout.tv_nsec += (ms % 1000) * 1000000;
+		if (timeout.tv_nsec >= 1000000000)
 		{
-			deadline.tv_sec += deadline.tv_nsec / 1000000000;
-			deadline.tv_nsec %= 1000000000;
+			timeout.tv_sec++;
+			timeout.tv_nsec -= 1000000000;
 		}
-		return pthread_cond_timedwait(&internalData->cond, &cs.internalData->mutex, &deadline) == 0;
+		else if (timeout.tv_nsec < 0)
+		{
+			timeout.tv_sec--;
+			timeout.tv_nsec += 1000000000;
+		}
+
+		return pthread_cond_timedwait(&internalData->cond, &cs.internalData->mutex, &timeout) == 0;
 	}
 
 	void ConditionVariable::WakeOnePending()

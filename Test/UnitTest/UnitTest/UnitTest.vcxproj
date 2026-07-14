@@ -182,6 +182,12 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
@@ -268,6 +274,7 @@
     <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpClientApi.Windows.h" />
