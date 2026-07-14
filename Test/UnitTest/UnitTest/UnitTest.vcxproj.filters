@@ -5,9 +5,6 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="Source Files\AsyncSocket">
-      <UniqueIdentifier>{0d0da3a9-18ea-4cb3-9ea8-294b0fed5d56}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Header Files">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
@@ -45,6 +42,9 @@
     </Filter>
     <Filter Include="Common\InterProcess\WindowsAPI">
       <UniqueIdentifier>{c5f336aa-0742-4723-937a-eff88c63e9bc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\TestInterProcess">
+      <UniqueIdentifier>{0d0da3a9-18ea-4cb3-9ea8-294b0fed5d56}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -186,11 +186,8 @@
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.cpp">
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Source\TestInterProcess.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Source\TestInterProcess_AsyncSocket.cpp">
-      <Filter>Source Files\AsyncSocket</Filter>
+      <Filter>Source Files\TestInterProcess</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp">
       <Filter>Common\InterProcess\ChannelImpls</Filter>
@@ -200,6 +197,9 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp">
       <Filter>Common\InterProcess\WindowsAPI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\TestInterProcess.cpp">
+      <Filter>Source Files\TestInterProcess</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
