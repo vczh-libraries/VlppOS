@@ -93,7 +93,7 @@ Offer template classes, take an actual implementation of `IAsyncSocket*`, and im
 
 - INetworkProtocolServer / INetworkProtocolClient:
   - Text service based on socket.
-  - Text block encoded in length in bytes + non-zero-terminated utf-8 string.
+  - Text block encoded in length in WString::Length + non-zero-terminated wchar_t characters.
   - unit test (shared)
 
 ## Async Socket Implementations
