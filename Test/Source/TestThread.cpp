@@ -25,6 +25,24 @@ namespace mynamespace
 		((ThreadData*)argument)->modified=true;
 	}
 
+	class DerivedThread : public Thread
+	{
+	private:
+		atomic_vint*				counter = nullptr;
+
+	protected:
+		void Run() override
+		{
+			(*counter)++;
+		}
+
+	public:
+		DerivedThread(atomic_vint& _counter)
+			: counter(&_counter)
+		{
+		}
+	};
+
 	/***********************************************************************
 	Mutex
 	***********************************************************************/
@@ -266,6 +284,18 @@ TEST_FILE
 		TEST_ASSERT(thread->GetState() == Thread::Stopped);
 		delete thread;
 		TEST_ASSERT(data.modified == true);
+	});
+
+	TEST_CASE(L"Test Derived Thread")
+	{
+		atomic_vint counter = 0;
+		DerivedThread thread(counter);
+		TEST_ASSERT(thread.Start());
+		TEST_ASSERT(thread.Wait());
+	#ifdef VCZH_GCC
+		TEST_ASSERT(thread.GetState() == Thread::Stopped);
+	#endif
+		TEST_ASSERT(counter == 1);
 	});
 
 	TEST_CASE(L"Test Mutex")

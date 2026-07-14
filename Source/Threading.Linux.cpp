@@ -35,6 +35,7 @@ Thread
 		{
 			pthread_t					id;
 			EventObject					ev;
+			bool						deleteAfterStopped = false;
 		};
 
 		class ProceduredThread : public Thread
@@ -42,36 +43,18 @@ Thread
 		private:
 			Thread::ThreadProcedure		procedure;
 			void*						argument;
-			bool						deleteAfterStopped;
 
 		protected:
 			void Run()
 			{
-				bool deleteAfterStopped = this->deleteAfterStopped;
-				ThreadLocalStorage::FixStorages();
-				try
-				{
-					procedure(this, argument);
-					threadState=Thread::Stopped;
-					internalData->ev.Signal();
-					ThreadLocalStorage::ClearStorages();
-				}
-				catch (...)
-				{
-					ThreadLocalStorage::ClearStorages();
-					throw;
-				}
-				if(deleteAfterStopped)
-				{
-					delete this;
-				}
+				procedure(this, argument);
 			}
 		public:
 			ProceduredThread(Thread::ThreadProcedure _procedure, void* _argument, bool _deleteAfterStopped)
 				:procedure(_procedure)
 				,argument(_argument)
-				,deleteAfterStopped(_deleteAfterStopped)
 			{
+				internalData->deleteAfterStopped = _deleteAfterStopped;
 			}
 		};
 
@@ -79,42 +62,41 @@ Thread
 		{
 		private:
 			Func<void()>				procedure;
-			bool						deleteAfterStopped;
 
 		protected:
 			void Run()
 			{
-				bool deleteAfterStopped = this->deleteAfterStopped;
-				ThreadLocalStorage::FixStorages();
-				try
-				{
-					procedure();
-					threadState=Thread::Stopped;
-					internalData->ev.Signal();
-					ThreadLocalStorage::ClearStorages();
-				}
-				catch (...)
-				{
-					ThreadLocalStorage::ClearStorages();
-					throw;
-				}
-				if(deleteAfterStopped)
-				{
-					delete this;
-				}
+				procedure();
 			}
 		public:
 			LambdaThread(const Func<void()>& _procedure, bool _deleteAfterStopped)
 				:procedure(_procedure)
-				,deleteAfterStopped(_deleteAfterStopped)
 			{
+				internalData->deleteAfterStopped = _deleteAfterStopped;
 			}
 		};
 	}
 
 	void InternalThreadProc(Thread* thread)
 	{
-		thread->Run();
+		auto deleteAfterStopped = thread->internalData->deleteAfterStopped;
+		ThreadLocalStorage::FixStorages();
+		try
+		{
+			thread->Run();
+			ThreadLocalStorage::ClearStorages();
+			thread->threadState=Thread::Stopped;
+			thread->internalData->ev.Signal();
+		}
+		catch (...)
+		{
+			ThreadLocalStorage::ClearStorages();
+			throw;
+		}
+		if(deleteAfterStopped)
+		{
+			delete thread;
+		}
 	}
 
 	void* InternalThreadProcWrapper(void* lpParameter)
@@ -200,11 +182,12 @@ Thread
 	{
 		if(threadState==Thread::NotStarted)
 		{
+			threadState=Thread::Running;
 			if(pthread_create(&internalData->id, nullptr, &InternalThreadProcWrapper, this)==0)
 			{
-				threadState=Thread::Running;
 				return true;
 			}
+			threadState=Thread::NotStarted;
 		}
 		return false;
 	}
