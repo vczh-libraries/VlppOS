@@ -1,8 +1,10 @@
 #include "../../Source/InterProcess/NetworkProtocolChannel.h"
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 #include "../../Source/InterProcess/Windows/NamedPipe.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClient.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServer.Windows.h"
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 #include <utility>
 
@@ -12,6 +14,8 @@ using namespace vl::inter_process;
 #ifdef VCZH_MSVC
 using namespace vl::inter_process::named_pipe;
 using namespace vl::inter_process::windows_http;
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 
 namespace mynamespace
@@ -909,5 +913,7 @@ TEST_FILE
 			);
 		}
 	});
+#elif defined VCZH_GCC && defined VCZH_APPLE
+#elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
 }
