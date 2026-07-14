@@ -150,3 +150,19 @@ Before the adapter exists, the new bindings must fail to compile because `Networ
 The shared platform bindings reproduce the missing feature in the default Debug x64 build. MSVC reports `C2039: 'NetworkProtocolServer': is not a member of 'vl::inter_process::async_tcp_socket'` at both the raw text-server and channel-server bindings, followed by the expected dependent template errors. The client binding also cannot be instantiated until the matching `NetworkProtocolClient<TAsyncSocketClient>` adapter is added. This confirms that the platform async sockets cannot currently be used through either existing network-protocol runner.
 
 # PROPOSALS
+
+- No.1 Add reusable framed protocol adapters over concrete async sockets
+
+## No.1 Add reusable framed protocol adapters over concrete async sockets
+
+Add the header-only `NetworkProtocolConnection`, `NetworkProtocolServer<TAsyncSocketServer>`, and `NetworkProtocolClient<TAsyncSocketClient>` adapters to `AsyncSocket.h`. Keep the native client and server implementations behind composition: the client owns its concrete client followed by one translated connection, while the server owns an internal concrete-server bridge followed by every translated accepted connection. This avoids the incompatible socket/protocol `GetConnection` return types and ensures translated callbacks are detached and drained while their native transports are still alive.
+
+Implement the connection as both an `INetworkProtocolConnection` and the single installed `IAsyncSocketCallback`. Frame each string with a copied native `vint32_t` character count followed by the exact non-terminated `wchar_t` bytes. Use a parser lock with separate header and aligned payload storage so arbitrary byte fragments, splits inside a character, empty messages, and multiple frames per read are handled without retaining the borrowed read buffer. Validate negative lengths and multiplication/allocation overflow; report malformed input as a fatal local error and stop the connection.
+
+Protect lifecycle, callback, parser, and write state with common cross-platform synchronization. Track active protocol callbacks and per-thread nested callback depth with a callback-frame chain, allowing nested stop/uninstall without deadlock while making external stop/uninstall wait for every callback that could still reference the non-owning callback owner. Never invoke protocol callbacks while holding a state lock. Stop must serialize concurrent callers, prevent new work, wait for out-of-lock write submissions, hard-stop and detach the native callback, clear the protocol callback, and preserve the underlying nested-callback allowance.
+
+Adapt synchronous `SendString` to the one-outstanding-write socket contract with a retained FIFO of complete `AsyncSocketBuffer` frames. Select the front and account for every out-of-lock `WriteAsync` submission under the lifecycle lock, submit outside the lock, consume the exact completed front in `OnWriteCompleted`, and submit the next item. Fatal error, disconnect, and stop clear unsent frames and prevent further submission. Use exception-safe submission accounting so shutdown cannot race an untracked `WriteAsync` call.
+
+Keep the shared test helpers platform-neutral and instantiate them explicitly with the Windows, macOS, and Linux concrete server/client pairs under their existing guards. Exercise both `RunTextNetworkProtocol` and `RunNetworkProtocolChannel` with dedicated per-repetition ports, preserving the existing consecutive sends as FIFO coverage. Verify only on Windows as required, using the focused Debug x64 inter-process run, the complete Debug x64 suite, and all four Debug/Release Win32/x64 builds.
+
+### CODE CHANGE
