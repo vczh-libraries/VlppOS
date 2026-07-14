@@ -1,136 +1,122 @@
 investigate repro
 
-# `INetworkProtocol(Server|Client)` on `IAsyncSocket(Server|Client)`
+# Windows async-socket protocol latency
 
-Implement the async-socket-backed text transport described by [TODO_SocketHttp_AsyncSocket.md](./TODO_SocketHttp_AsyncSocket.md).
+Probe, verify, and fix the Windows-only performance problem in the async-socket-backed network-protocol tests.
 
-## Scope
+## Problem
 
-- Implement the `INetworkProtocol*` adapters in `Source/InterProcess/AsyncSocket/AsyncSocket.h`.
-- The authoritative section is `INetworkProtocol(Server|Client) on IAsyncSocket(Server|Client)`, together with the existing `IAsyncSocket*` byte-stream/callback contract and the `INetworkProtocol*` contract in `Source/InterProcess/NetworkProtocol.h`.
-- All paths in `TODO_SocketHttp_AsyncSocket.md` are relative to `Source/InterProcess`, as stated by [TODO_SocketHttp.md](./TODO_SocketHttp.md).
-- Keep the adapters in `vl::inter_process::async_tcp_socket`.
-- Provide reusable server and client templates parameterized by an actual concrete `IAsyncSocketServer` or `IAsyncSocketClient` implementation.
-- Instantiate the templates in `Test/Source/TestInterProcess.cpp` with all three existing platform implementations under their correct compile-time guards.
+The GCC thread-completion fix in commit `6ac98df` makes the existing async-socket protocol coverage finish on Linux and macOS. Windows also passes the derived-thread regression, but the following cases in `Test/Source/TestInterProcess.cpp` have become observably slow, taking about ten seconds while the NamedPipe and HTTP cases remain fast:
 
-The following work is explicitly out of scope:
+- `AsyncSocket (NetworkProtocol)`
+- `AsyncSocket (Channel)`
 
-- Changing or duplicating the Windows, Linux, or macOS async-socket implementations.
-- Changing `Test/Source/TestInterProcess_AsyncSocket.cpp`; it already verifies the native byte-stream implementations.
-- Creating new test scenarios instead of reusing the shared text-protocol and channel scenarios in `TestInterProcess.cpp`.
-- HTTP request/response or minimized HTTP layers from the other `TODO_SocketHttp_*.md` documents.
-- Refactoring the existing NamedPipe or Windows HTTP transports.
-- Adding source files or changing project, solution, filter, or `vmake` files.
-- Generated files under `Release`, dependencies under `Import`, and generated `Test/Linux/vmake.txt` or `Test/Linux/makefile` files.
+Establish a measured Windows baseline before changing code. Do not assume that commit `6ac98df` directly caused the regression: its production change is confined to `Source/Threading.Linux.cpp`, which is excluded from every Windows build. The only Windows-compiled addition is an isolated test in `TestThread.cpp`, and a focused `TestInterProcess.cpp` run does not execute it.
 
-## Public adapter shape
+Determine why the Windows async-socket transport accumulates the latency, prove the cause in the debugger or with temporary instrumentation, implement the root fix, verify the improvement, then commit and push the result.
 
-Expose the common connection adapter and public templates from `AsyncSocket.h`, using names consistent with:
+## Leading hypothesis: Nagle and delayed acknowledgments
 
-- `NetworkProtocolConnection`
-- `NetworkProtocolServer<TAsyncSocketServer>`
-- `NetworkProtocolClient<TAsyncSocketClient>`
+Treat this as the leading hypothesis to verify, not as a predetermined fix.
 
-Include `NetworkProtocol.h` and any required common synchronization header directly so `AsyncSocket.h` remains independently usable. Do not include any platform implementation header from this common header.
+`async_tcp_socket::NetworkProtocolConnection::SendString` encodes every small `WString` as a separate frame. It permits only one outstanding native write and submits the next frame from `OnWriteCompleted`. The shared scenarios deliberately contain consecutive sends on the same connection, including:
 
-The templates construct and own the supplied concrete implementation, forwarding its constructor arguments. The existing platform bindings must therefore remain constructible with their current `vint port` argument.
+```C++
+connection->SendString(L"Tom:Good");
+connection->SendString(L"Stop");
+```
 
-`NetworkProtocolServer<TAsyncSocketServer>`:
+The Windows implementation creates client and accepted TCP sockets without enabling `TCP_NODELAY`. On Windows, a small send-send-receive sequence can encounter the Nagle algorithm and delayed acknowledgments, adding roughly `RTT + 200 ms` at a serialized exchange. The tests repeat each scenario 20 times, and the channel scenario contains multiple small serialized exchanges, so this could plausibly accumulate to the observed duration. NamedPipe and HTTP do not use this raw TCP behavior.
 
-- Implements `INetworkProtocolServer`.
-- Bridges the concrete server's `OnClientConnected(IAsyncSocketConnection*)` to the protocol-level `OnClientConnected(INetworkProtocolConnection*)`.
-- Translates each accepted socket connection into one protocol connection and returns the protocol hook's accept/reject result to the socket server.
-- Provides the normal default acceptance behavior while remaining inheritable for test and application overrides.
-- Delegates `Start`, `Stop`, and `IsStopped` to the concrete socket server.
-- Retains translated connections for the complete lifetime required by the socket's non-owning callback, including rejection shutdown and server draining.
-- Remains suitable as `TServerBase` for `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`.
+Relevant code:
 
-Use composition or an internal concrete-server bridge where needed. Do not rely on unrelated `IAsyncSocketServer` and `INetworkProtocolServer` base interfaces to satisfy each other's virtual functions automatically.
+- `Source/InterProcess/AsyncSocket/AsyncSocket.h`
+  - `NetworkProtocolConnection::SendString`
+  - `NetworkProtocolConnection::OnWriteCompleted`
+  - `NetworkProtocolConnection::StopConnection`
+- `Source/InterProcess/AsyncSocket/AsyncSocket.Windows.cpp`
+  - client socket creation and `ConnectEx` setup
+  - accepted socket completion and setup
+  - `ConnectionState::DeliverWrite`
+- `Test/Source/TestInterProcess.cpp`
+  - `RunTextNetworkProtocol`
+  - `RunNetworkProtocolChannel`
+  - `RunAsyncSocketNetworkProtocolTestCases`
 
-`NetworkProtocolClient<TAsyncSocketClient>`:
+Microsoft's [`TCP/IP-specific Issues`](https://learn.microsoft.com/en-us/windows/win32/winsock/tcp-ip-specific-issues-2) documentation describes the Nagle delay for the send-send-receive programming model. Use authoritative Windows/Winsock documentation when deciding where and when a socket option should be applied.
 
-- Implements `INetworkProtocolClient`.
-- Owns the concrete socket client and exactly one translated connection.
-- Always returns that translated connection from `GetConnection`.
-- Delegates `WaitForServer` and `GetStatus` to the concrete socket client.
-- Stops and drains the underlying connection before releasing the translated connection or its callback adapter.
+## Competing explanations that must be ruled out
 
-The client adapter cannot directly inherit both interfaces and expose both `GetConnection` functions because they differ only by unrelated return types. Use composition for the concrete client.
+### Bounded protocol write drain
 
-## Text framing
+`NetworkProtocolConnection::StopConnection` waits up to `WriteDrainTimeout == 1000` milliseconds when accepted frames remain queued. The scenarios signal their completion events immediately after final sends, so an external `Stop()` intentionally races write completion.
 
-Encode every `WString` as one stream frame:
+Count or break on the `now >= deadline` path. If the slow run repeatedly reaches that branch, determine why `OnWriteCompleted` does not drain the FIFO promptly. Do not merely reduce or remove the timeout.
 
-1. One native `vint32_t` containing `WString::Length()`.
-2. Exactly `length * sizeof(wchar_t)` bytes containing the characters.
+### Client startup retries
 
-This matches the string representation used by `NamedPipeConnection` without copying its redundant outer byte count. Do not add UTF-8 conversion, a BOM, a NUL terminator, an outer frame size, or any assumption about TCP/read callback boundaries. An empty string is a valid zero-length frame containing only the length field.
+The server and two clients run on separate thread-pool tasks. A client can attempt `ConnectEx` before the listener is ready. Windows retries after `AsyncSocketClientRetryDelay == 100` milliseconds.
 
-The read side must be a buffered state machine over arbitrary positive `IAsyncSocketCallback::OnRead` blocks:
+Inspect `ConnectionState::clientAttempts`, `ScheduleRetry`, and connection timestamps. If the delay occurs in 100-millisecond increments before connection, fix the startup or retry cause rather than changing unrelated write behavior.
 
-- Preserve partial length fields and partial character data across callbacks.
-- Handle a split inside a `wchar_t`.
-- Deliver a frame only after all declared characters arrive.
-- Parse and deliver every complete frame when one read block contains multiple frames.
-- Preserve any incomplete suffix for the next callback.
-- Validate negative lengths and arithmetic or allocation overflow before allocating.
-- Read the length without assuming the borrowed buffer is suitably aligned.
-- Never retain or expose the borrowed socket read buffer after `OnRead` returns.
+### Runtime construction and shutdown
 
-## Connection behavior
+Every repetition creates one server and two clients. Each Windows object owns an `IocpRuntime` with a completion worker and a callback worker, so one test case creates and joins 120 worker threads over 20 repetitions. Native shutdown also drains accepts, I/O completions, callbacks, timers, and the IOCP workers.
 
-`NetworkProtocolConnection` implements both `INetworkProtocolConnection` and `IAsyncSocketCallback`. It installs itself on the underlying `IAsyncSocketConnection` while exposing a separate non-owning `INetworkProtocolCallback` to users.
+Measure construction, protocol exchange, connection stop, and runtime stop independently. Confirm whether runtime churn is material before refactoring it.
 
-- `InstallCallback` accepts one callback at a time, calls `OnInstalled(this)` synchronously, and uses `nullptr` to uninstall.
-- Callback replacement, uninstallation, and shutdown must not leave the underlying non-owning callback pointing at a destroyed adapter.
-- `BeginReadingLoopUnsafe` delegates to the underlying socket connection.
-- `OnRead` parses frames and calls `OnReadString` once for every complete string, without holding an adapter lock while calling user code.
-- `OnError(error, fatal)` maps to `OnLocalError(error, fatal)`.
-- `OnConnected` and `OnDisconnected` preserve the corresponding protocol callback semantics and ordering.
-- The framing has no remote-error opcode, so do not invent one or reinterpret ordinary strings as `OnReadError`.
-- `Stop` delegates to the underlying hard-drain boundary and prevents later protocol callbacks from accessing the callback owner, subject only to the socket contract's existing nested-callback allowance.
+### Test watchdog contention
 
-`SendString` adapts the synchronous protocol API to the socket's one-outstanding-write rule:
+`TimeoutThread` busy-spins until all three scenario tasks complete or five seconds elapse. It can add CPU contention, but it predates the GCC fix and is shared by AsyncSocket, NamedPipe, and HTTP cases. Do not change it unless measurements prove it is part of the Windows-specific slowdown.
 
-- Build one retained `AsyncSocketBuffer` containing the complete frame.
-- Queue calls in FIFO order and submit only one `WriteAsync` at a time.
-- Support concurrent and reentrant `SendString` calls.
-- In `OnWriteCompleted`, consume the completed front buffer and submit the next queued frame.
-- Preserve FIFO order by the order in which concurrent or reentrant calls enter the adapter's serialized queue.
-- Clear undelivered queued frames during fatal disconnection or shutdown.
-- Never call user code or `WriteAsync` while holding an adapter lock.
+## Required investigation
 
-All callback, parser, write-queue, and lifecycle state must be thread-safe because socket callbacks may run on arbitrary threads. Keep every adapter alive until the underlying socket has drained callbacks that can reference it. Destructors must follow the same idempotent stop, drain, callback-uninstall, and release ordering.
+1. Build Debug x64 with the repository-provided Windows scripts.
+2. Run only `TestInterProcess.cpp` and record elapsed time for every transport case.
+3. Record per-repetition timing for the two async-socket cases, separating:
+   - server/client construction;
+   - first connection attempt and any retries;
+   - protocol message exchange;
+   - protocol write draining;
+   - native connection and IOCP runtime shutdown.
+4. During a slow interval, use the repository-provided debugger scripts or temporary instrumentation to identify the actual wait or serialized network operation.
+5. Specifically establish:
+   - whether the write-drain deadline is reached;
+   - whether `clientAttempts` exceeds one;
+   - whether a small second send waits while earlier TCP data is unacknowledged;
+   - whether IOCP worker startup or shutdown accounts for a significant fraction of the duration.
+6. Remove all temporary diagnostics before the final commit unless they provide lasting, appropriately scoped test value.
 
-## Shared `TestInterProcess.cpp` coverage
+## Fix requirements
 
-Reuse both existing shared runners; do not copy or redesign their scenarios:
+- Fix the measured root cause rather than optimizing the test or hiding the latency.
+- If Nagle/delayed ACK is confirmed, configure every connected Windows async TCP socket consistently, including both client-created and server-accepted sockets, at a lifecycle point where failures can be reported correctly.
+- Preserve the one-outstanding-write contract, FIFO ordering, framing, callback ordering, and hard-drain shutdown guarantees.
+- Preserve `InterProcessTestRepeatCount == 20` and the consecutive-send coverage.
+- Do not add sleeps, weaken assertions, enlarge the watchdog, skip cases, or reduce retry/drain guarantees merely to make the timing look better.
+- Do not change or revert the GCC thread-completion fix.
+- Avoid unrelated NamedPipe, HTTP, Linux, or macOS refactoring. If a common change is genuinely required, explain why platform-local correction is insufficient and verify every affected platform that is available.
+- Do not add a brittle wall-clock assertion. Use timing to verify the investigation; use deterministic state/behavior coverage for any permanent regression test.
 
-- `RunTextNetworkProtocol` exercises the raw `INetworkProtocol*` text transport through the framing adapter.
-- `RunNetworkProtocolChannel` verifies the same adapter beneath `NetworkProtocolChannel*`.
+## Acceptance criteria
 
-Bind all three concrete implementations explicitly in the existing platform-specific include, namespace, server-glue, and `TEST_CASE` branches:
+- The slow path is identified with direct evidence, not inferred only from total case duration.
+- The focused Windows Debug x64 run passes all `TestInterProcess.cpp` cases.
+- The two async-socket protocol cases show a clear and repeatable improvement under the same machine, configuration, and execution method used for the baseline.
+- The final run does not repeatedly hit the one-second write-drain deadline or unnecessary 100-millisecond connection retries unless either is proven unrelated and documented.
+- NamedPipe, HTTP, and native async-socket tests remain passing.
+- The complete Debug x64 UnitTest suite passes without a CRT memory-leak report.
+- Debug/Release and Win32/x64 builds all succeed.
 
-| Guard | Header | Concrete server/client |
-| --- | --- | --- |
-| `VCZH_MSVC` | `AsyncSocket/AsyncSocket.Windows.h` | `windows_socket::AsyncSocketServer` / `windows_socket::AsyncSocketClient` |
-| `VCZH_GCC && VCZH_APPLE` | `AsyncSocket/AsyncSocket.macOS.h` | `macos_socket::AsyncSocketServer` / `macos_socket::AsyncSocketClient` |
-| `VCZH_GCC && !VCZH_APPLE` | `AsyncSocket/AsyncSocket.Linux.h` | `linux_socket::AsyncSocketServer` / `linux_socket::AsyncSocketClient` |
+## Windows verification
 
-- Keep platform-neutral templated text-server and channel-server glue outside the guards, and instantiate it with the matching server/client pair inside each branch.
-- Add one async-socket-backed NetworkProtocol case through `RunTextNetworkProtocol` and one async-socket-backed Channel case through `RunNetworkProtocolChannel` on every platform.
-- Keep the existing NamedPipe and HTTP cases in the Windows branch.
-- Fill both currently empty GCC branches; do not select one platform implementation through a Windows-only alias or leave another implementation unreferenced.
-- Preserve `InterProcessTestRepeatCount` and the existing consecutive sends. Those sends verify FIFO queuing over the one-outstanding-write socket interface.
-- Use dedicated, non-overlapping loopback port ranges, distinct from the `38000..38400` ranges in `TestInterProcess_AsyncSocket.cpp`, and use a different port for every repetition so a recently closed TCP connection cannot make repeated server binding ambiguous.
-
-No project-file change is expected: `AsyncSocket.h`, all three platform implementations, and `TestInterProcess.cpp` are already registered in the Windows and Unix-like builds.
-
-## Verification
-
-Verification for this task is Windows-only:
+Use only the repository-provided scripts and follow `.github/copilot-instructions.md`, `Project.md`, and the referenced build, execution, debugging, and native-dialog guidance.
 
 - Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64.
 - Run the focused `TestInterProcess.cpp` cases through `.github/Scripts/copilotExecute.ps1` in Debug x64, ensuring the file is not skipped by the `.vcxproj.user` filter.
-- Run the complete Debug x64 `UnitTest` suite.
-- Read the ends of `Build.log` and `Execute.log`; all tests must pass and the Debug log must contain no CRT memory-leak report.
+- Run `TestInterProcess_AsyncSocket.cpp` in Debug x64.
+- Run the complete Debug x64 UnitTest suite.
+- Inspect the ends of `.github/Scripts/Build.log` and `.github/Scripts/Execute.log`; require passing tests, zero build errors, and no Debug CRT memory-leak report.
+- Record the before/after timings and the evidence that selected the fix in `.github/TaskLogs/Copilot_Investigate.md`.
+
+Commit only the intentional fix, tests, and investigation record, then push the current branch.
