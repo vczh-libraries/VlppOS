@@ -1,4 +1,5 @@
 #include "AsyncSocket.Linux.h"
+#if defined VCZH_GCC && !defined VCZH_APPLE
 #include "../../Threading.h"
 
 #include <liburing.h>
@@ -2221,3 +2222,5 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		return impl->GetStatus();
 	}
 }
+
+#endif

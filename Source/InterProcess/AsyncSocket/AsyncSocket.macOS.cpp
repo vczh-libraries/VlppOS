@@ -1,4 +1,5 @@
 #include "AsyncSocket.macOS.h"
+#if defined VCZH_GCC && defined VCZH_APPLE
 #include "../../Threading.h"
 
 #include <Network/Network.h>
@@ -1682,3 +1683,4 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		return impl->GetStatus();
 	}
 }
+#endif

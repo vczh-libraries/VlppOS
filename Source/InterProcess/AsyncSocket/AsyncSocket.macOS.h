@@ -11,6 +11,8 @@ macOS implementation of IAsyncSocket(Server|Client)
 
 #include "AsyncSocket.h"
 
+#if defined VCZH_GCC && defined VCZH_APPLE
+
 namespace vl::inter_process::async_tcp_socket::macos_socket
 {
 	class AsyncSocketServer : public Object, public virtual IAsyncSocketServer
@@ -44,5 +46,7 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		ClientStatus						GetStatus() override;
 	};
 }
+
+#endif
 
 #endif
