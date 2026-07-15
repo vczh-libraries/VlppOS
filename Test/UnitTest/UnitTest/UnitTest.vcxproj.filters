@@ -177,6 +177,15 @@
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestClient.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
@@ -196,6 +205,9 @@
       <Filter>Common\InterProcess\Windows</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Source\TestInterProcess_AsyncSocket.cpp">
+      <Filter>Source Files\TestInterProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\TestInterProcess_HttpRequest.cpp">
       <Filter>Source Files\TestInterProcess</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp">
@@ -279,6 +291,18 @@
       <Filter>Common\InterProcess</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestClient.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\HttpRequest.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.h">

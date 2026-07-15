@@ -215,9 +215,9 @@ Acceptance requires all focused cases above to pass in Debug x64, including both
 
 # PROPOSALS
 
-- No.1 Add one bounded octet codec and retained async-socket adapters
+- No.1 Add one bounded octet codec and retained async-socket adapters [CONFIRMED]
 
-## No.1 Add one bounded octet codec and retained async-socket adapters
+## No.1 Add one bounded octet codec and retained async-socket adapters [CONFIRMED]
 
 Add the four self-contained public/common headers and three common implementation files requested by the task. `HttpRequest.h` owns only the move-only wire model, the chunk helper, and the two connection callback interfaces. `AsyncSocket_HttpRequest.h` declares the concrete shared connection adapter and its implementation-only construction/timing seams. `AsyncSocket_HttpRequestServer.h` and `AsyncSocket_HttpRequestClient.h` expose subclassable pointer-wrapping `HttpRequestServer` and `HttpRequestClient`; no HTTP server/client interface, native template, or platform implementation header is introduced.
 
@@ -245,4 +245,26 @@ Add `TestInterProcess_HttpRequest.cpp` and explicit project/filter entries. The 
 
 ### CODE CHANGE
 
-The implementation, tests, project metadata, and verification evidence will be recorded here after this proposal is implemented.
+Implemented the complete shared HTTP layer in the requested seven product files:
+
+- `HttpRequest.h` defines the HTTP version, ordered opaque byte fields, fixed/chunked body representation, request/response objects, direct chunk parser contract, and HTTP callback/connection interfaces.
+- `AsyncSocket_HttpRequest.cpp` contains one octet-oriented request/response codec and serializer. It preserves method/target text, ordered repeated fields, binary values, body chunk boundaries, and trailers; lowercases only validated ASCII field names; implements fixed and chunked framing; rejects ambiguous, unsupported, malformed, overflowing, or unframed input; and keeps a completed message's suffix buffered for the next sequential exchange.
+- The shared connection adapter owns the parser, one-message write buffer, sequential exchange state, `Connection: close` state, deterministic timeout controller, callback domain, and hard-drain lifecycle. User callbacks and native writes execute outside the state lock. Fatal protocol and timeout errors precede disconnection. Callback-reentrant stop, response-delivery races, peer disconnect during a native call, and callback-reentrant sequential client requests are explicitly phased so completed callbacks retain their ordering and no accepted adapter is released early.
+- The configured limits are 8 KiB start line, 64 KiB headers, 16 MiB decoded body, 4 KiB chunk-size/extension line, 64 KiB trailers, and a 30-second incomplete-message timeout. Checked internal caps additionally bound a wire message to 128 MiB and a body to 65,536 nonzero chunks.
+- `HttpRequestServer` composes the prerequisite `IAsyncSocketServerCallback`, converts each offered socket to an HTTP connection, and retains accepted/rejected adapters through callback and native-call drain. Its callback-aware stop path is idempotent and retains the supplied server until hard shutdown. Because C++ base destruction begins after derived members are destroyed, the public header documents the required two-phase rule that a derived destructor calls `Stop()` before destroying state used by `OnClientConnected`.
+- `HttpRequestClient` composes the supplied `IAsyncSocketClient`, exposes its one HTTP connection, and defers native-client release when destruction is entered reentrantly from a connection callback.
+
+Added `TestInterProcess_HttpRequest.cpp` with 31 cases. Deterministic fake sockets and timeout controllers cover direct chunk parsing, binary data, every framing form and representative malformed form, exact boundaries, fragmentation/coalescing, serialization, size limits, timeout cancellation/failure, operation ordering, `Connection: close`, callback reentrancy, peer-disconnect races, retained-adapter drain, and no native write under the HTTP callback/state locks. The shared native scenario performs two sequential exchanges and is instantiated under the existing Windows, Linux, and macOS guards. Windows additionally crosses WinHTTP into the new server and the new client into HTTP.sys.
+
+Registered all four headers, all three implementation files, and the test file explicitly in `UnitTest.vcxproj` and its filters. No native socket implementation, solution, generated Unix build file, release output, import dependency, or existing Windows HTTP transport was changed.
+
+### CONFIRMED
+
+The implementation satisfies the reproduced structural gap and all acceptance checks available on this host:
+
+- The 31 HTTP cases pass in Debug x64, including the two-exchange new-client/new-server scenario, `windows_http::HttpClientApi` to `HttpRequestServer`, and `HttpRequestClient` to `windows_http::HttpServerApi`.
+- The complete Debug x64 suite passes 14/14 files and 159/159 cases. The execution script produced no Debug CRT memory-leak report.
+- Debug Win32, Debug x64, Release Win32, and Release x64 builds all succeed with zero warnings and zero errors through `copilotBuild.ps1`.
+- The final diff passes whitespace validation. The project/filter entries are explicit, the common runner remains bound once under all three platform guards, common headers contain no platform implementation includes, and the test's waits and cleanup barriers are bounded.
+
+Only Windows tooling is available in this environment, so Linux and macOS were not built or executed. Their common source registration and guarded native bindings were reviewed textually; no unavailable-platform execution is claimed.
