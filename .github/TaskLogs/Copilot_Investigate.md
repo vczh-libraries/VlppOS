@@ -4,185 +4,213 @@
 
 investigate repro
 
-# Supply `IAsyncSocketServerCallback` to `IAsyncSocketServer::Start`
+# HTTP/1.1 request and response transmission on async sockets
 
-Refactor the async-socket server acceptance API so an already-created `Ptr<IAsyncSocketServer>` can receive an external accept callback without subclassing a concrete Windows, Linux, or macOS server.
+Implement the cross-platform buffered HTTP/1.1 request/response layer described by [TODO_SocketHttp_HttpRequest.md](./TODO_SocketHttp_HttpRequest.md) on top of `IAsyncSocketServer`, `IAsyncSocketClient`, and `IAsyncSocketConnection` from `Source/InterProcess/AsyncSocket/AsyncSocket.h`.
 
-This is a focused prerequisite for the pointer-based `HttpRequestServer` in [TODO_Task.md](./TODO_Task.md). Implement the callback refactor across all three native async-socket servers and migrate every affected caller and unit test, but execute verification only on Windows. The user will run the Linux and macOS tests separately.
+The goal is a small HTTP wire codec and asynchronous request/response transport. A client sends an `HttpRequest`, a server receives and parses it, the server sends an `HttpResponse`, and the client receives and parses it. This task is not the minimized HTTP application/service layer from [TODO_SocketHttp_MiniHttpApi.md](./TODO_SocketHttp_MiniHttpApi.md).
 
-## Public API change
+## Authoritative design and corrections
 
-In `Source/InterProcess/AsyncSocket/AsyncSocket.h`, replace the acceptance virtual function on `IAsyncSocketServer` with a dedicated callback supplied to `Start`:
+Treat `TODO_SocketHttp_HttpRequest.md` as the authoritative data, framing, buffering, and callback contract, with these corrections and clarifications:
 
-```C++
-class IAsyncSocketServerCallback : public virtual Interface
-{
-public:
-	virtual WaitForClientResult                 OnClientConnected(IAsyncSocketConnection* connection) = 0;
-};
+- Keep everything in `vl::inter_process::async_tcp_socket`.
+- Keep `IHttpRequestCallback` and `IHttpRequestConnection` as interfaces.
+- Do not create `IHttpRequestServer` or `IHttpRequestClient`. Implement subclassable concrete classes named `HttpRequestServer` and `HttpRequestClient`, exposing the server/client operations proposed in the document.
+- `HttpRequestServer` owns a `Ptr<IAsyncSocketServer>` supplied to its constructor. `HttpRequestClient` owns a `Ptr<IAsyncSocketClient>` supplied to its constructor. Do not make either class a platform-specific template and do not construct a native socket implementation internally.
+- This task assumes the `IAsyncSocketServerCallback` API in [TODO_Task_SocketCallback.md](./TODO_Task_SocketCallback.md) has already been implemented and committed. Do not fold that three-platform socket refactor into the HTTP implementation commit.
+- Assume, as a constructor precondition that does not need runtime verification, that `IAsyncSocketServer::Start` has not been called and `IAsyncSocketClient::WaitForServer` has not been called before the object is passed to the HTTP wrapper.
+- Use the file layout expressed by `AsyncSocket_HttpRequest(Server|Client)?.(h|cpp)`: `AsyncSocket_HttpRequest.h/.cpp` for shared connection, parsing, field, body-framing, serialization, buffering, and lifecycle implementation; `AsyncSocket_HttpRequestServer.h/.cpp` for `HttpRequestServer`; and `AsyncSocket_HttpRequestClient.h/.cpp` for `HttpRequestClient`. `HttpRequest` and `HttpResponse` are deliberately similar; do not maintain separate copies of the same parser or serializer logic, and keep their common implementation in `AsyncSocket_HttpRequest.cpp`.
+- Do not route HTTP data through `NetworkProtocolConnection`, `NetworkProtocolServer`, `NetworkProtocolClient`, channels, or their text framing. They are unrelated to HTTP wire syntax and the prerequisite callback task has already migrated the affected adapter.
 
-class IAsyncSocketServer : public virtual Interface
-{
-public:
-	virtual void                                Start(IAsyncSocketServerCallback* callback) = 0;
-	virtual void                                Stop() = 0;
-	virtual bool                                IsStopped() = 0;
-};
-```
+Define the documented `HttpVersion`, `HttpField`, `HttpBodyChunk`, `HttpBody`, `HttpRequest`, `HttpResponse`, `HttpRequestBodyParsingResult`, `ParseHttpRequestBodyToChunks`, `IHttpRequestCallback`, and `IHttpRequestConnection` in `Source/InterProcess/AsyncSocket/HttpRequest.h`. Declare the two concrete wrappers in their focused `AsyncSocket_HttpRequestServer.h` and `AsyncSocket_HttpRequestClient.h` headers, with shared implementation declarations in `AsyncSocket_HttpRequest.h`. Keep all four headers self-contained and free of Windows, Linux, or macOS implementation headers.
 
-- Remove `IAsyncSocketServer::OnClientConnected` and the corresponding default overrides from `windows_socket::AsyncSocketServer`, `linux_socket::AsyncSocketServer`, and `macos_socket::AsyncSocketServer`.
-- `Start` requires a valid callback. Follow the repository's fail-fast style for `nullptr`; do not silently accept every connection or retain the old virtual function as a fallback.
-- The callback pointer is non-owning. The caller keeps it alive from the call to `Start` until `Stop` has reached the callback-drain boundary described below.
-- Keep native server constructors port-only and leave `Stop` and `IsStopped` on `IAsyncSocketServer`.
-- Update the interface proposal and related explanation in [TODO_SocketHttp_AsyncSocket.md](./TODO_SocketHttp_AsyncSocket.md) so the design document matches the implemented public API.
+## Async-socket callback prerequisite
 
-Do not add a separate installation method. Supplying the callback to `Start` makes callback attachment and listener startup one operation and guarantees that no accept can be delivered before the callback is available.
+Use the completed callback seam from `TODO_Task_SocketCallback.md` directly:
 
-## Callback and lifetime contract
+- `HttpRequestServer` implements or owns a retained `IAsyncSocketServerCallback` adapter and supplies it to `IAsyncSocketServer::Start`.
+- The callback converts each accepted `IAsyncSocketConnection` into an `IHttpRequestConnection`, retains it through the native callback lifetime, and forwards the HTTP-level accept/reject decision.
+- Keep the non-owning socket callback alive until the supplied server's hard-drain `Stop` returns, including reentrant stop handling.
+- Do not reintroduce native-server inheritance, add another callback installation API, or modify the Windows, Linux, macOS, or NetworkProtocol implementations in this task.
 
-Preserve the existing server behavior while moving ownership of the accept hook out of the concrete server object.
+## HTTP message model and wire parsing
 
-- Store the non-owning callback before the first native accept is posted or listener delivery is enabled.
-- Invoke `IAsyncSocketServerCallback::OnClientConnected` once for each offered connection, without holding native server locks.
-- Preserve `WaitForClientResult::Accept` and `WaitForClientResult::Reject` behavior exactly. A rejected connection is stopped and never retained as an accepted server connection.
-- Preserve the current exception boundary: an exception escaping the callback rejects the connection and must not terminate a native completion worker.
-- Prevent new accept callbacks as soon as stop begins. A normal external `Stop` waits for every already-entered accept callback before returning, clears the stored callback, and permits the caller to destroy the callback immediately afterward.
-- `Stop` called from inside that server's own accept callback must not deadlock by waiting for itself. It prevents later callbacks, retains all detached native/callback state until the current callback unwinds, and remains compatible with a later idempotent external `Stop` or destructor that completes deferred cleanup before the callback owner is released.
-- `Start` remains one-shot. Attach the callback as part of the same state transition already used to enforce one-time startup, and leave no reachable callback pointer if startup fails before the server can run.
+Implement the data model exactly as described in `TODO_SocketHttp_HttpRequest.md`:
 
-Do not weaken the existing hard-drain promise, add sleeps, or make callback lifetime depend on a guessed delay.
+- Preserve the original method case and exact percent-encoded request target.
+- Store parsed field names as validated lowercase ASCII `WString` values.
+- Preserve field order and repeated fields; do not collapse them into a dictionary.
+- Keep field values, body data, and trailers as bytes. Do not assume generic field values or bodies are UTF-8.
+- A fixed-length body is zero or one `HttpBodyChunk`; a chunked body retains one item per nonzero HTTP chunk. Keep trailers separate from headers and remove all transfer framing from stored body data.
 
-## Native implementations
+Parse the wire as octets. Do not convert the incoming stream to Unicode before locating and validating the HTTP delimiters and ASCII protocol elements. Require HTTP CRLF framing and determine message boundaries from HTTP syntax, never from `OnRead` or TCP boundaries.
 
-Apply the same public and lifecycle behavior to:
+Support the initial HTTP/1.1 framing forms required by the design:
 
-- `Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h/.cpp`;
-- `Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h/.cpp`;
-- `Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h/.cpp`.
+- no body when a request has neither `Transfer-Encoding` nor `Content-Length`;
+- fixed-length bodies declared by a valid `Content-Length`;
+- chunked bodies when the final transfer coding is `chunked`;
+- response bodies explicitly framed by `Content-Length` (including `0`) or chunked transfer coding for the supported request/response exchange;
+- chunk extensions that are syntactically validated and ignored;
+- arbitrary binary chunk data, trailer fields, and surplus bytes belonging to a later sequential message.
 
-Replace each native accept path's call through its owning `AsyncSocketServer` with the callback captured by `Start`. Keep callback state synchronized with that implementation's existing start/stop/accept state and use its existing callback-drain mechanism. Do not copy one platform's synchronization primitives into another platform or refactor unrelated connect/read/write/runtime code.
+Reject ambiguous or unsafe framing: `Transfer-Encoding` together with `Content-Length`, invalid/overflowing/conflicting `Content-Length`, a final request or response transfer coding other than `chunked`, an otherwise unframed response, malformed start lines or fields, invalid chunk sizes/extensions/data terminators/trailers, arithmetic overflow, and configured size-limit violations. Use named platform-neutral internal defaults for the bounded request line, header block, body, chunk-size line/extensions, trailer block, and header/body idle timeout; document the chosen values in the investigation and cover representative limit failures. A timeout while a message is incomplete is a fatal protocol error. Do not add a public MiniHttp configuration API in this task.
 
-The Linux and macOS source changes are required even though this task does not run those platforms. Review every guarded declaration/definition and every call to ensure all three implementations expose the same interface and preserve their current native cancellation semantics. Do not claim that unavailable platforms were built or tested.
+Malformed incoming protocol is reported through `IHttpRequestCallback::OnError` with `fatal == true` before disconnection; terminate the connection when parsing cannot safely continue. Invalid caller-supplied outbound structures are programming errors and should fail synchronously in the normal repository style rather than emitting a partially valid message.
 
-Respect the current source organization if non-template implementations have already moved from `AsyncSocket.h` into `AsyncSocket.cpp`; update the canonical location and do not undo that separation.
+For this first simple layer, do not expand response parsing into interim `1xx` sequences, upgrade/tunnel semantics, successful `CONNECT`, or EOF-delimited response bodies. Every supported response, including an empty response, uses `Content-Length` or chunked framing. HTTP method policy and other special application response behavior belong to MiniHttp.
 
-## Migrate `NetworkProtocolServer`
+## Chunk helper contract
 
-The existing `NetworkProtocolServer<TAsyncSocketServer>` in `AsyncSocket.h` derives an internal `SocketServerBridge` from the native concrete server only to override `OnClientConnected`. Migrate that bridge to the new callback contract with the smallest safe change: it may continue deriving from the concrete server while also implementing `IAsyncSocketServerCallback`, or it may use composition if all existing lifecycle behavior is demonstrably preserved. Pass a retained callback adapter to the native server's `Start`.
+Implement `ParseHttpRequestBodyToChunks` with the exact `Succeeded`, `Incomplete`, and `Invalid` contract from the design document.
 
-- Preserve the public `INetworkProtocolServer::Start()` signature and all existing `NetworkProtocolServer` constructor forwarding.
-- If the existing bridge is retained, have its socket-side `OnClientConnected(IAsyncSocketConnection*)` override the callback interface and call `asyncSocketServer->Start(asyncSocketServer.Obj())`; do not depend on a removed native-server virtual function.
-- Preserve translated connection retention, accept/reject behavior, callback-depth accounting, reentrant stop handling, deferred native cleanup, and hard-drain destruction.
-- Keep the callback adapter alive until the native server can no longer invoke it. Do not pass a temporary or an unretained raw owner pointer whose lifetime ends during nested stop.
-- Do not alter string framing, `NetworkProtocolConnection`, client behavior, channel behavior, port ranges, or the one-outstanding-write contract.
+- On success, return all nonzero chunks and trailers and set `consumedBytes` to the encoded size through the final empty trailer line.
+- Leave any suffix after `consumedBytes` untouched for the next message.
+- Return `Incomplete` for a valid prefix that needs more bytes.
+- Return `Invalid` for malformed/overflowing chunk syntax or configured-limit violations.
+- Count exact octets; CR, LF, NUL, `0xFF`, and delimiter-looking sequences inside chunk data have no framing meaning.
 
-## Update shared async-socket tests
+Use the same field and chunk parsing implementation from the full request/response state machine rather than creating a second interpretation of chunked syntax.
 
-Migrate `Test/Source/TestInterProcess_AsyncSocket.cpp` from a subclass override to the new callback API while keeping its scenarios registered once for Windows, Linux, and macOS.
+## Serialization and exchange state
 
-- Replace `TestServer<TServerBase>::OnClientConnected` with a small `IAsyncSocketServerCallback` implementation around the existing `AcceptHandler`.
-- Construct native servers directly and pass the scenario callback to `Start` in every server-start path, including the intentionally late server startup in the retry-then-connect scenario.
-- Retain each test callback until `Stop` returns and all callback-thread assertions have been transferred back to the test thread.
-- Update diagnostic text that still names `IAsyncSocketServer::OnClientConnected`.
-- Preserve all existing full-duplex, rejection, stop-from-read, retry, cancellation, repeat-count, bounded-wait, and no-sleep coverage.
+Serialize valid HTTP/1.1 request/status lines, ordered fields, fixed bodies, chunked bodies, and trailers. Share request/response field and body serialization, differing only in the start line and direction-specific state.
 
-Add focused deterministic coverage for the new non-owning callback boundary on Windows:
+- Honor and validate explicit `Content-Length` or `Transfer-Encoding` fields.
+- When framing is not supplied, generate `Content-Length` for a single buffered fixed body and `Transfer-Encoding: chunked` when multiple logical chunks or trailers must be represented. Emit an empty response with `Content-Length: 0`; an empty request may use the document's request-specific no-body form or an explicit zero length.
+- Never expose socket read boundaries as chunks or socket write boundaries as HTTP semantics.
+- Respect the socket's one-outstanding-write rule. Queue or aggregate internal writes as needed, retain every `AsyncSocketBuffer` until its completion, and preserve wire order.
+- `IHttpRequestCallback::OnWriteCompleted` means the entire `SendRequest` or `SendResponse` message has completed, not merely one internal socket buffer.
 
-1. Block inside `IAsyncSocketServerCallback::OnClientConnected`, call `server->Stop()` from another task, and prove that external stop does not return until the callback is released. Destroy the callback immediately after `Stop` and assert that no callback begins or continues afterward.
-2. Call `server->Stop()` from an accept callback and require no deadlock and no later accept callback. Complete any deferred finalization with an idempotent external stop before releasing the callback owner.
-3. Preserve the existing rejected-connection case so both `Accept` and `Reject` results are covered through the new interface.
+Keep one request/response exchange in flight per connection and reject invalid operation ordering. Preserve unconsumed input, but do not dispatch a pipelined next request while the previous response is outstanding. After a response is complete, reset the state and permit another sequential exchange on the same persistent connection.
 
-Use events and existing test wait helpers, not timing sleeps or brittle elapsed-time assertions.
+Recognize `Connection: close` case-insensitively as connection-reuse state rather than body framing. Finish the current request/response exchange, do not dispatch or send another exchange on that connection, and close it at the direction-appropriate boundary. Do not use EOF to delimit a declared or otherwise incomplete message.
 
-## Affected regression coverage
+## Callback, lifetime, and shutdown requirements
 
-`Test/Source/TestInterProcess.cpp` calls `INetworkProtocolServer::Start`, so it should not need a direct API rewrite. Its async-socket-backed cases are nevertheless mandatory regression coverage for the refactored internal `NetworkProtocolServer` callback adapter:
+The connection adapter installs itself on the underlying `IAsyncSocketConnection`, continuously consumes arbitrary positive `OnRead` blocks after `BeginReadingLoopUnsafe`, and exposes the documented HTTP callback interface.
 
-- `AsyncSocket (NetworkProtocol)`;
-- `AsyncSocket (Channel)`.
+- Forward connected, disconnected, and local error behavior in the documented order.
+- Invoke `OnReadRequest` only on server-side connections and `OnReadResponse` only on client-side connections.
+- Do not call user callbacks or native `WriteAsync` while holding an HTTP state lock.
+- Make parser, exchange, write-queue, callback-installation, and stop state safe for callbacks running on arbitrary threads and for reentrant callback behavior.
+- Arm or refresh the receive-idle deadline only while a header or declared body is incomplete. Cancel and drain its pending work when the message completes or the connection stops. Cover timeout behavior through a test-controlled timing seam or another bounded deterministic mechanism; do not sleep for the production timeout.
+- Retain each accepted HTTP connection for as long as the native socket can call its non-owning callback.
+- `Stop` and destruction must be idempotent hard-drain boundaries: stop native work, finish callbacks that can access owners, detach callbacks safely, and then release adapters and supplied socket objects. Do not use sleeps to approximate callback completion.
 
-Keep `InterProcessTestRepeatCount` and the shared Windows/macOS/Linux bindings unchanged. Do not rewrite NamedPipe, Windows HTTP, channel, or protocol scenarios merely to accommodate the new native callback API.
+## Cross-platform shared tests
 
-No new production or test source file is expected, so no solution, MSBuild project/filter, or `Test/Linux/vmake` edit should be necessary. Never hand-edit generated `Release`, `Test/Linux/vmake.txt`, or `Test/Linux/makefile` files.
+Add focused coverage in `Test/Source/TestInterProcess_HttpRequest.cpp`. Follow the organization of `TestInterProcess_AsyncSocket.cpp` and `TestInterProcess.cpp`: define the HTTP scenarios once in platform-neutral helpers and bind only the concrete socket types under the existing platform guards.
+
+| Guard | Native server/client |
+| --- | --- |
+| `VCZH_MSVC` | `windows_socket::AsyncSocketServer` / `windows_socket::AsyncSocketClient` |
+| `VCZH_GCC && VCZH_APPLE` | `macos_socket::AsyncSocketServer` / `macos_socket::AsyncSocketClient` |
+| `VCZH_GCC && !VCZH_APPLE` | `linux_socket::AsyncSocketServer` / `linux_socket::AsyncSocketClient` |
+
+This is one shared scenario instantiated against the three supported platform implementations, not three copied test bodies. Use dedicated non-overlapping loopback ports above the ranges already occupied by `TestInterProcess.cpp` and `TestInterProcess_AsyncSocket.cpp`. Start the listener deterministically before the client waits; use bounded events/barriers and callback-thread failure recording instead of sleeps.
+
+At minimum, cover:
+
+1. `ParseHttpRequestBodyToChunks` directly with:
+   - `7\r\nHello, \r\n6;ext=ok\r\nworld!\r\n0\r\nDigest: value\r\n\r\nNEXT`;
+   - two chunks, a lowercase `digest` trailer, and `consumedBytes` stopping before `NEXT`;
+   - representative truncations at the size line, chunk data, terminating CRLF, and trailer section returning `Incomplete`;
+   - binary data containing CR/LF/NUL/`0xFF`;
+   - representative invalid hexadecimal, overflow, malformed chunk terminator, and malformed trailer cases.
+2. A shared `HttpRequestClient` to `HttpRequestServer` integration scenario with at least two sequential exchanges on the same connection:
+   - a fixed-length `POST` with an exact encoded target such as `/echo/%2F?q=a%20b`, ordered repeated custom fields, and a binary body;
+   - a non-default response such as `201 Created` with multiple chunked binary chunks and a trailer;
+   - a second empty request/response using `Content-Length: 0` to prove state reset and persistent sequential use;
+   - assertions for version, method/target, status/reason, lowercase names, repeated-field order, exact bytes, chunk boundaries, trailer separation, and whole-message write completion.
+
+Do not rely only on native TCP segmentation to provide parser fragmentation coverage. Use a small test implementation or another deterministic seam for representative split and coalesced reads across a start line or header terminator, a chunk boundary, and a message suffix. Exhaustively trying every byte offset is not required.
+
+## Mandatory Windows HTTP interoperability
+
+Testing `HttpRequestServer` only against `HttpRequestClient` proves that the two new implementations agree with each other; it does not prove that either speaks HTTP/1.1 correctly. Add both Windows-only cross-tests under `VCZH_MSVC`:
+
+### `windows_http::HttpClientApi` to `HttpRequestServer`
+
+- Wrap `windows_socket::AsyncSocketServer` in the new `HttpRequestServer` and start it first.
+- Construct `windows_http::HttpClientApi(L"127.0.0.1", port)` so WinHTTP targets the IPv4 loopback listener, then send an explicit request with a method, target, content type, custom mixed-case field, and nonempty body.
+- Assert on the new server that the native client produced a valid HTTP/1.1 request, including the exact target, normalized custom field, generated body framing, and exact body bytes. Do not assert the complete header list or global order because WinHTTP adds fields.
+- Send a non-default response from `HttpRequestServer`, preferably chunked with two chunks. Assert through the fields exposed by `windows_http::HttpClientApi`: status, flattened body, content type, and cookie when supplied.
+
+### `HttpRequestClient` to `windows_http::HttpServerApi`
+
+- Derive a small test server from `windows_http::HttpServerApi`, register a URL prefix such as `http://localhost:<port>/<prefix>/`, and start HTTP.sys before connecting the async-socket client.
+- Wrap `windows_socket::AsyncSocketClient` in `HttpRequestClient` and send a target under that exact prefix. Set `Host` to exactly `localhost:<port>` so HTTP.sys matches the registered host, and include a nonempty fixed-length body; the test server may use `GetUtf8Body` when the body and content type are chosen accordingly.
+- Inspect the HTTP version, verb, raw target, custom field, and body in `OnHttpRequestReceived`, then answer with `HttpServerApi::SendResponse` using a non-default status/reason and UTF-8 body.
+- Assert that `HttpRequestClient` parses the native response's status, reason, normalized fields, and exact flattened body. Accept whichever valid explicit `Content-Length` or chunked framing HTTP.sys emits; do not require one particular choice when the API does not guarantee it.
+- Signal completion from the HTTP.sys callback and call `HttpServerApi::Stop` from the test thread, not from inside `OnHttpRequestReceived`, because stop waits for pending callbacks.
+
+Fully qualify `async_tcp_socket::HttpRequest` / `HttpResponse` and `windows_http::HttpRequest` / `HttpResponse` in these tests because the namespaces contain colliding type names.
+
+## Source and project integration
+
+- Register the four product headers (`HttpRequest.h` and the three `AsyncSocket_HttpRequest*.h` files) as `ClInclude`, the three `AsyncSocket_HttpRequest*.cpp` files as `ClCompile`, and `TestInterProcess_HttpRequest.cpp` as `ClCompile` explicitly in `Test/UnitTest/UnitTest/UnitTest.vcxproj`; wildcard entries are not allowed.
+- Place product files under the existing `Common\InterProcess\AsyncSocket` filter and the new test under `Source Files\TestInterProcess` in `UnitTest.vcxproj.filters`.
+- No solution change is expected. Common sources should flow into the Unix build from the MSBuild project; no `Test/Linux/vmake` change is expected unless inspection proves one necessary.
+- Never edit generated `Test/Linux/vmake.txt`, `Test/Linux/makefile`, generated `Release` outputs, or `Import` dependencies by hand.
+- Preserve unrelated working-tree changes and avoid refactoring the existing Windows `HttpServer` / `HttpClient` transport beyond using their API classes in tests.
 
 ## Explicitly out of scope
 
-- HTTP request/response parsing, `HttpRequestServer`, `HttpRequestClient`, or any MiniHttp behavior.
-- Changes to `IAsyncSocketClient`, `IAsyncSocketConnection`, or their callback contracts.
-- Native connect, read, write, retry, socket-option, and runtime-performance refactoring.
-- Running or claiming Linux or macOS builds/tests in this task.
+- Routing, REST dispatch, method allowlists, `Host` policy, CORS, browser behavior, static files, media-type policy, cookies/authentication semantics, content decoding/compression, redirects, multipart forms, and application-generated HTTP error pages.
+- TLS/HTTPS, HTTP/2, HTTP/3, proxies, WebSocket, Server-Sent Events, and pipelining.
+- The `SocketHttpServer` / `SocketHttpClient` layer and every behavior in `TODO_SocketHttp_MiniHttpApi.md`.
+- Reusing or redesigning `NetworkProtocolConnection` and the channel layer.
+- Hand-editing generated release or Unix build artifacts.
 
-## Windows-only verification
+## Verification and acceptance
 
-Follow `.github/copilot-instructions.md`, `Project.md`, and the referenced coding, source-file, build, execution, and native-dialog guidance. Use only the repository-provided Windows scripts.
+Follow `.github/copilot-instructions.md`, `Project.md`, and all referenced coding, source-file, build, execution, and native-dialog guidance.
 
 - Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64.
-- Run the complete `TestInterProcess_AsyncSocket.cpp` file in Debug x64, including full-duplex, rejection, stop-from-callback, retry-then-connect, stop-during-retry, and the new callback lifetime cases.
-- Run the complete `TestInterProcess.cpp` file in Debug x64 so both async-socket NetworkProtocol and Channel cases execute with all repetitions.
+- Run `TestInterProcess_HttpRequest.cpp` through `.github/Scripts/copilotExecute.ps1` in Debug x64, ensuring it is included by the `.vcxproj.user` filter.
 - Run the complete Debug x64 UnitTest suite.
-- Inspect the ends of `.github/Scripts/Build.log` and `.github/Scripts/Execute.log`; require zero build errors, all selected tests passing, and no Debug CRT memory-leak report after the test summary.
-- Record the API migration, per-platform implementation review, callback lifetime evidence, regression results, and the explicit limitation to Windows execution in `.github/TaskLogs/Copilot_Investigate.md`.
+- Inspect the ends of `.github/Scripts/Build.log` and `.github/Scripts/Execute.log`; require zero build errors, all selected tests passing, and no Debug CRT memory-leak report after the summary.
+- Keep the common runner bound to all three platform implementations and, when Linux or macOS execution is available, build and run it from `Test/Linux` using the repository `build.sh` workflow. Do not claim unavailable platform runs.
+- Record how `HttpRequestServer` uses the prerequisite callback API, together with parsing/framing choices, limits, tests, and verification evidence, in `.github/TaskLogs/Copilot_Investigate.md`.
 
-Acceptance requires the common interface and all three native implementations to use `Start(IAsyncSocketServerCallback*)`, with no remaining native acceptance override on `IAsyncSocketServer`. All temporary diagnostics must be removed. Commit only the intentional API, three-platform implementation, documentation, tests, adapter migration, and investigation record, then push the current branch.
+Acceptance requires both Windows native interoperability directions to pass; new client versus new server alone is insufficient. All temporary diagnostics must be removed. Commit only the intentional implementation, tests, project metadata, and investigation record, then push the current branch.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Confirm the requested API and ownership boundary with a structural audit, migrate the existing shared behavioral suite to the callback supplied to `Start`, and add deterministic Windows coverage for callback draining and reentrant server stop.
+Confirm the missing HTTP layer structurally, then implement one focused test file that distinguishes a correct octet-framed HTTP/1.1 transport from two implementations that merely agree with each other.
 
 The structural reproduction is:
 
-- `IAsyncSocketServer` currently owns the virtual `OnClientConnected(IAsyncSocketConnection*)` hook and exposes parameterless `Start()`.
-- All three native `AsyncSocketServer` classes still provide a default accepting override, and their native accept paths dispatch through their owning concrete server.
-- `NetworkProtocolServer<TAsyncSocketServer>` and the shared native async-socket tests depend on subclassing a concrete server to override the removed hook.
+- None of the seven requested product files or `Test/Source/TestInterProcess_HttpRequest.cpp` exists.
+- Repository-wide source and test searches find no `HttpBodyChunk`, `ParseHttpRequestBodyToChunks`, `IHttpRequestConnection`, `HttpRequestServer`, or `HttpRequestClient` implementation outside the design/task documents.
+- `UnitTest.vcxproj` and `UnitTest.vcxproj.filters` contain only the existing async-socket files and no HTTP-request codec, wrapper, or test entry.
+- The prerequisite `IAsyncSocketServerCallback` seam is present, so this task is isolated to the new common HTTP layer, its wrappers, tests, and project metadata.
 
-The problem is confirmed. The public header and every guarded native header/definition expose the old subclass-only acceptance shape, and repository-wide call-site searches find no callback supplied to native `Start`. The clean pre-change Debug x64 build succeeded with zero warnings and zero errors. The complete baseline run selected `TestInterProcess_AsyncSocket.cpp` and `TestInterProcess.cpp`, passed 13/13 test files and 125/125 test cases, and appended no CRT memory-leak report. This establishes that the existing behavioral suite passes before the API migration; the new tests below are required to define and verify the new non-owning callback boundary.
+The problem is confirmed. All requested product/test paths are absent, the public symbols exist only in task/design Markdown, and no project entry can compile or execute the required HTTP behavior. The clean pre-change Debug x64 build reports zero warnings and zero errors. The complete baseline suite passes 13/13 test files and 128/128 test cases with no Debug CRT memory-leak output, establishing that the prerequisite async-socket implementation and existing interprocess tests are green before this layer is added.
 
-The migrated shared scenarios must continue to cover full-duplex long transfers, rejected connections, connection stop from `IAsyncSocketCallback::OnRead`, retry followed by late server startup, and stop during retry on the one platform-neutral registration path. Each scenario will own a small `IAsyncSocketServerCallback` adapter for its existing `AcceptHandler`, pass it to every server `Start`, and retain it until `Stop` returns.
+Use these named internal defaults and exercise their boundaries without adding a public configuration API:
 
-Add the following Windows-only server-callback cases with `EventObject` coordination and the existing bounded-wait helper:
+- request/status line: 8 KiB;
+- header block: 64 KiB;
+- decoded body: 16 MiB;
+- chunk-size line including extensions: 4 KiB;
+- trailer block: 64 KiB;
+- incomplete-message idle timeout: 30 seconds.
 
-1. Block inside `IAsyncSocketServerCallback::OnClientConnected`, start external `IAsyncSocketServer::Stop` on another task, and establish that shutdown has progressed while the stop-return event remains unsignaled and the callback remains entered. Release the callback, require both callback exit and stop return, destroy the callback owner immediately, and assert one callback, zero active callbacks, and no callbacks after stop or destruction.
-2. Call `IAsyncSocketServer::Stop` from `IAsyncSocketServerCallback::OnClientConnected`, require the nested call to return, keep that callback entered while a later client fails to connect, release the callback, then call external `Stop` idempotently to complete deferred finalization before destroying the callback owner. Require exactly one accept callback and no callback after nested stop.
-3. Keep the existing rejected-connection scenario so `WaitForClientResult::Accept` and `WaitForClientResult::Reject` both flow through the new callback interface. Also require `Start(nullptr)` to fail fast without starting the listener.
+`TestInterProcess_HttpRequest.cpp` will contain the following deterministic coverage:
 
-Acceptance requires all four Windows builds of `Test/UnitTest/UnitTest.sln` (Debug/Release and Win32/x64) to report zero errors. The complete Debug x64 run must select and pass `TestInterProcess_AsyncSocket.cpp` and `TestInterProcess.cpp`, including every repeated async-socket-backed NetworkProtocol and Channel case, and must pass the complete suite. The final `Build.log` and `Execute.log` tails must contain zero errors, complete passing summaries, and no Debug CRT memory-leak report. Linux and macOS declarations, guarded definitions, call sites, and synchronization paths will be reviewed only; they will not be built or executed in this task.
+1. Call `ParseHttpRequestBodyToChunks` directly with the specified two-chunk/trailer/suffix input and require two exact chunks, lowercase `digest`, the exact opaque trailer value, and `consumedBytes` immediately before `NEXT`. Check truncations of the size line, chunk data, data terminator, and trailer terminator as `Incomplete`; binary CR/LF/NUL/`0xFF` data as `Succeeded`; and invalid hex, overflow, malformed extensions/terminators/trailers, declared body-limit overflow, and chunk-line-limit overflow as `Invalid`.
+2. Drive a server-side and client-side HTTP connection through a deterministic fake `IAsyncSocketConnection`. Split start lines, `\r\n\r\n`, chunk-size lines, chunk data terminators, and trailers across arbitrary `OnRead` calls; coalesce a completed message with the next-message suffix; and require exact message boundaries independent of socket reads. Cover malformed start lines/fields, conflicting or invalid `Content-Length`, `Transfer-Encoding` plus `Content-Length`, unsupported final transfer coding, unframed responses, request/header/trailer limits, and fatal error-before-disconnect ordering.
+3. Exercise the 30-second production timeout through an internal test-controlled deadline seam: begin an incomplete header/body, fire the installed deadline deterministically without sleeping, and require one fatal protocol error followed by hard-drained disconnection. Completing or stopping the message must cancel and drain the deadline so it cannot call a destroyed adapter.
+4. Verify outbound serialization with ordered repeated fields, fixed bodies, generated `Content-Length`, explicit compatible framing, generated chunked framing for multiple chunks/trailers, exact binary bytes, and synchronous failure for invalid methods/targets/status lines/fields, ambiguous framing, mismatched lengths, invalid trailers, overflow, and wrong exchange ordering. One socket write completion must produce one whole-message `IHttpRequestCallback::OnWriteCompleted`.
+5. Register one shared native scenario against the Windows, Linux, and macOS async-socket bindings. On one persistent connection, send the specified fixed binary `POST /echo/%2F?q=a%20b` with ordered repeated fields, return `201 Created` with two binary chunks and a trailer, then complete a second empty request/response with `Content-Length: 0`. Require exact request/response models, state reset, whole-message write completion, and deterministic startup/shutdown without sleeps.
+6. On Windows, cross `windows_http::HttpClientApi` into `HttpRequestServer` and require exact target/custom field/body plus a non-default chunked response observed through the native client. Cross `HttpRequestClient` into a small `windows_http::HttpServerApi` subclass and require HTTP.sys to observe the exact host/target/verb/custom field/body, then require the new client to parse the native non-default response. Stop HTTP.sys only from the test thread after its callback signals completion.
+7. Cover `Connection: close`, callback installation, reentrant connection/server stop, server accept/reject, retained accepted adapters, idempotent external stop/destruction, no callback after a hard-drain return, and no write while holding the HTTP state lock.
 
-The implemented tests satisfy these criteria. The Windows-only callback cases prove that `Start(nullptr)` fails before listener startup, external `Stop` remains blocked while an accept callback is entered and permits immediate callback destruction after draining, and callback-reentrant `Stop` returns without allowing the already-connected second client to enter another accept callback. The migrated shared rejection case continues to exercise `Reject`, while the full-duplex and other shared cases exercise `Accept` through the new callback interface.
-
-The repository build wrapper completed Debug and Release for both Win32 and x64 with zero warnings and zero errors. The final Debug x64 execution selected the complete `TestInterProcess_AsyncSocket.cpp` and `TestInterProcess.cpp` files and passed the complete suite: 13/13 test files and 128/128 test cases. The retained `Build.log` ends with zero warnings and zero errors, `Execute.log` ends with the complete passing summary, and `Execute.log.memoryleaks` is empty. Linux and macOS were not built or executed; their guarded declarations, definitions, dispatch paths, startup failures, and native stop/drain paths were reviewed textually.
+Acceptance requires all focused cases above to pass in Debug x64, including both native Windows interoperability directions. Debug/Release Win32/x64 builds must report zero errors, the complete Debug x64 suite must pass, and the final logs must contain no Debug CRT memory-leak report. The shared test registration and common source/project entries must remain available to Linux and macOS, but only platforms actually available in this environment will be claimed as built or executed.
 
 # PROPOSALS
-
-- No.1 Attach the accept callback at the one-shot server start boundary [CONFIRMED]
-
-## No.1 Attach the accept callback at the one-shot server start boundary
-
-Add `IAsyncSocketServerCallback` beside the shared async-socket interfaces and replace `IAsyncSocketServer::OnClientConnected` plus parameterless `Start` with `Start(IAsyncSocketServerCallback*)`. The argument is a required, non-owning pointer. Each native server stores it under the same state lock and in the same successful one-shot transition that makes the listener runnable, before posting or enabling the first accept. Native accept delivery copies the installed pointer while establishing that the server is still running, releases the native lock, invokes the callback behind the existing catch-all exception boundary, and rejects/stops the connection when the callback rejects or throws.
-
-Keep each backend's existing synchronization model:
-
-- Windows replaces the concrete-server owner pointer with the callback pointer in `AsyncSocketServer::Impl`. A normal external stop closes and drains the pending accept, stops retained connections, drains both IOCP workers through `IocpRuntime::Stop`, and then clears the callback. A stop on the server's own callback/completion worker requests runtime exit without joining itself and retains the callback; the existing later external idempotent `Stop` completes the deferred runtime join and clears it. Failures before the start-state commit never store the callback, while failure to post the first `AcceptEx` uses the normal stop/drain path.
-- Linux replaces `ServerState`'s concrete owner with the callback pointer. `Start` installs it with `startCalled`/`starting`; synchronous setup and first-submission failures clear it, while stop racing startup clears it after the existing start-finished boundary. Accept completion increments `activeCallbacks` while copying the pointer under `lockState`, then invokes outside the lock. `Stop` prevents later entries, waits down to the current thread's callback depth, and clears the pointer only when called outside that callback. A nested stop therefore returns without waiting for itself, and a later external stop observes zero callback depth, drains, and clears.
-- macOS replaces `ServerState`'s concrete owner with the callback pointer and installs it with `startCalled` before configuring `nw_listener_t`. Creation failure clears it immediately. New-connection delivery copies it under `lockState` and invokes it on the existing serial listener queue without the lock. A normal external stop waits for the listener cancellation handler and its queued finish boundary, which necessarily follows every already-entered listener callback, then clears the callback. A stop on that queue retains it and defers finalization; a later external stop or destructor finishes cancellation, clears it, and releases native state.
-
-Retain `NetworkProtocolServer<TAsyncSocketServer>::SocketServerBridge`, additionally implement `IAsyncSocketServerCallback` on the bridge, and pass the bridge itself to native `Start`. Its self-reference and existing callback-domain/deferred-stop logic continue to keep the adapter, translated connections, and native server alive through nested stop and hard-drain destruction.
-
-Migrate the shared native tests from a concrete-server subclass to a small callback adapter around `AcceptHandler`, construct native servers directly, and pass a retained adapter to every `Start`, including late retry startup. Add the two Windows event-driven callback-lifetime scenarios and the null-callback fail-fast check defined in `# TEST`. Update the design proposal and lifecycle explanation in `TODO_SocketHttp_AsyncSocket.md`, and audit all three guarded headers, definitions, native dispatch sites, and call sites without changing client/read/write/runtime behavior.
-
-### CODE CHANGE
-
-The shared API now defines `IAsyncSocketServerCallback` and exposes only `IAsyncSocketServer::Start(IAsyncSocketServerCallback*)`, `Stop`, and `IsStopped`. `NetworkProtocolServer<TAsyncSocketServer>::SocketServerBridge` implements the callback interface and passes its retained bridge object to native `Start`, preserving its existing lifecycle and translated-connection behavior.
-
-The Windows, Linux, and macOS native server headers and implementations now store the required callback as synchronized, non-owning server state instead of dispatching through the concrete server object. Each backend installs it before enabling the first accept, captures it while accepting is still permitted, invokes it outside the server lock behind the existing exception-to-rejection boundary, and removes/stops rejected or stop-raced connections. Startup failures clear the pointer. Normal external stop uses that backend's existing completion/callback drain before clearing it, while callback-reentrant stop retains it for a later external idempotent stop or destructor to finalize.
-
-The shared async-socket tests now create native servers directly and retain a small `TestServerCallback` adapter through `Stop`, including late retry startup. Windows adds deterministic event-driven checks for null-callback fail-fast behavior, external stop while an accept callback is blocked, immediate callback destruction after the drain, and reentrant stop with no later accept callback. `TODO_SocketHttp_AsyncSocket.md` now documents the implemented API and lifetime contract. No source file, project metadata, generated output, client API, connection callback contract, framing behavior, or unrelated transport path was added or changed.
-
-### CONFIRMED
-
-The proposal solves the subclass-only API gap: repository-wide source and test audits find the dedicated callback interface on the common API and matching `Start(IAsyncSocketServerCallback*)` declarations and definitions for all three native servers, with no remaining native `IAsyncSocketServer::OnClientConnected` override or parameterless native async-socket server start call. The existing public `INetworkProtocolServer::Start()` remains unchanged and its async-socket NetworkProtocol and Channel regressions pass through the retained bridge adapter.
-
-The Windows callback lifetime behavior is directly exercised. In the blocked-callback case, an event-gated external stop task cannot signal completion while the callback remains entered; after release, both the callback and stop drain, the callback object is destroyed immediately, and an idempotent stop produces no later callback. In the reentrant case, two clients complete native connection before the callback invokes server stop, but only the first callback is delivered; nested stop returns without deadlock, the callback unwinds, and a later external stop completes deferred finalization before callback destruction. The null-start and shared rejection cases confirm fail-fast and rejection behavior, and the existing full-duplex, stop-from-read, retry, and cancellation cases remain green.
-
-All requested Windows builds passed through `copilotBuild.ps1`: Debug Win32, Release Win32, Debug x64, and Release x64 each reported zero warnings and zero errors. The final complete Debug x64 run through `copilotExecute.ps1` passed 13/13 test files and 128/128 test cases, including all eight cases in `TestInterProcess_AsyncSocket.cpp` and the async-socket-backed NetworkProtocol and Channel cases in `TestInterProcess.cpp`. The final logs contain the successful summaries and no Debug CRT memory-leak report. Linux and macOS changes were reviewed for API parity, guarded declaration/definition consistency, callback capture, exception rejection, startup cleanup, cancellation, and deferred drain behavior, but were intentionally not built or executed on Windows.
