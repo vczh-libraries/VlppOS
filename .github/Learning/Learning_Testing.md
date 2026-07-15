@@ -8,6 +8,8 @@
 - Repeat inter-process transport scenarios instead of sleeping after `Stop()` [1]
 - Search project metadata after source file renames [1]
 - `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [1]
+- Test inherited `Thread` completion with a custom subclass [1]
+- Synchronize server startup outside dedicated retry tests [1]
 
 # Refinements
 
@@ -40,3 +42,13 @@ After splitting, renaming, or deleting inter-process source files, search both s
 ## `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms
 
 Keep the async-socket behavioral `TEST_CASE` registrations in one platform-neutral helper. Windows, Linux, and macOS branches should supply only their concrete server/client types, maximum read-block size, and timed-wait binding, then invoke the common registration. Add a new platform by filling its prepared binding and running the existing cases; do not copy the five scenarios.
+
+## Test inherited `Thread` completion with a custom subclass
+
+Keep a focused test whose directly derived `Thread` returns immediately from `Run()`, then require `Wait()` to complete, its work to be visible, and its state to be `Thread::Stopped`. Integration hangs can otherwise be misdiagnosed as transport deadlocks when the worker work has finished and only the generic thread-completion contract is broken.
+
+## Synchronize server startup outside dedicated retry tests
+
+Shared protocol scenarios should deterministically start the listener before clients when their purpose is framing, callback ordering, FIFO sends, channel routing, and shutdown. On Windows, posting `ConnectEx` just before `listen` can leave one pending attempt waiting for the TCP retransmission interval even though the library's retry path never runs; use an explicit startup barrier for that scenario instead of changing socket options or retry timing.
+
+Keep client-before-server behavior in a dedicated native async-socket test that intentionally and deterministically exercises retry. Preserve repeated protocol runs and consecutive sends, but do not make an incidental scheduling race responsible for unrelated coverage.

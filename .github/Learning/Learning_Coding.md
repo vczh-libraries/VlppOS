@@ -19,6 +19,7 @@
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 - `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
 - Async-socket concrete server and client constructors stay port-only across platforms [1]
+- `Thread::Wait` completion belongs to the native thread entry point [1]
 
 # Refinements
 
@@ -103,3 +104,9 @@ Keep concrete named-pipe types from `NamedPipe.Windows.*` in `vl::inter_process:
 ## Async-socket concrete server and client constructors stay port-only across platforms
 
 Keep Windows, Linux, and macOS concrete async-socket server/client constructors shaped around `vint port` as the sole constructor argument where possible. A common constructor contract lets `TestServer<TServerBase>` and platform-neutral factories instantiate every implementation without platform-specific glue.
+
+## `Thread::Wait` completion belongs to the native thread entry point
+
+On GCC platforms, the common native `Thread` entry path must publish `Thread::Stopped` and signal completion for every derived class after `Run()` returns. `ProceduredThread` and `LambdaThread` should invoke only their supplied work; putting completion in those wrappers leaves arbitrary custom subclasses permanently blocked in `Thread::Wait()`.
+
+Publish `Thread::Running` before `pthread_create` and restore `Thread::NotStarted` if creation fails, so a fast thread cannot publish `Stopped` and then have `Thread::Start()` overwrite it. Capture any auto-delete policy before calling virtual `Run()`, publish completion before deletion, and never read the object after waiters can resume.
