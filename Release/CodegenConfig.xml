@@ -9,11 +9,12 @@
     <category name="vlppos" pattern="\Source\">
       <except pattern=".Windows."/>
       <except pattern=".Linux."/>
+      <except pattern=".macOS."/>
     </category>
     <category name="vlppos.windows" pattern=".Windows.">
       <except pattern="Vlpp.Windows."/>
     </category>
-    <category name="vlppos.linux" pattern=".Linux.">
+    <category name="vlppos.linux" pattern=".Linux.;.macOS.">
       <except pattern="Vlpp.Linux."/>
     </category>
   </categories>
