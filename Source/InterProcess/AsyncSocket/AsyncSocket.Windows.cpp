@@ -1341,10 +1341,10 @@ AsyncSocketServer::Impl
 			}
 		};
 
-		AsyncSocketServer*					owner = nullptr;
 		vint								port = 0;
 		Ptr<IocpRuntime>						runtime;
 		CriticalSection					lockState;
+		IAsyncSocketServerCallback*		callback = nullptr;
 		bool							started = false;
 		bool							stopping = false;
 		bool							stopped = false;
@@ -1491,9 +1491,14 @@ AsyncSocketServer::Impl
 			runtime->QueueCallback(Func<void()>([self, connection]()
 			{
 				bool invoke = false;
+				IAsyncSocketServerCallback* installed = nullptr;
 				CS_LOCK(self->lockState)
 				{
 					invoke = self->started && !self->stopping;
+					if (invoke)
+					{
+						installed = self->callback;
+					}
 				}
 				if (!invoke)
 				{
@@ -1504,22 +1509,25 @@ AsyncSocketServer::Impl
 				WaitForClientResult result = WaitForClientResult::Reject;
 				try
 				{
-					result = self->owner->OnClientConnected(connection.Obj());
+					result = installed->OnClientConnected(connection.Obj());
 				}
 				catch (...)
 				{
 				}
 				if (result == WaitForClientResult::Reject)
 				{
+					CS_LOCK(self->lockState)
+					{
+						self->connections.Remove(connection.Obj());
+					}
 					connection->Stop();
 				}
 			}));
 		}
 
 	public:
-		Impl(AsyncSocketServer* _owner, vint _port)
-			: owner(_owner)
-			, port(_port)
+		Impl(vint _port)
+			: port(_port)
 			, runtime(Ptr(new IocpRuntime))
 		{
 			CHECK_ERROR(eventAcceptDrained.CreateManualUnsignal(true), L"AsyncSocketServer failed to create its accept drain event.");
@@ -1531,8 +1539,9 @@ AsyncSocketServer::Impl
 			Stop();
 		}
 
-		void Start()
+		void Start(IAsyncSocketServerCallback* _callback)
 		{
+			CHECK_ERROR(_callback != nullptr, L"AsyncSocketServer::Start requires a callback.");
 			SOCKET createdListener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
 			CHECK_ERROR(createdListener != INVALID_SOCKET, L"AsyncSocketServer failed to create its listener socket.");
 
@@ -1584,6 +1593,7 @@ AsyncSocketServer::Impl
 				{
 					listener = createdListener;
 					acceptEx = loadedAcceptEx;
+					callback = _callback;
 					started = true;
 					canStart = true;
 				}
@@ -1625,6 +1635,10 @@ AsyncSocketServer::Impl
 					// A callback-worker caller requests runtime exit but cannot join itself.
 					// An external repeated Stop completes that deferred finalization here.
 					runtime->Stop();
+					CS_LOCK(lockState)
+					{
+						callback = nullptr;
+					}
 				}
 				return;
 			}
@@ -1651,6 +1665,10 @@ AsyncSocketServer::Impl
 			runtime->Stop();
 			CS_LOCK(lockState)
 			{
+				if (!selfWorker)
+				{
+					callback = nullptr;
+				}
 				stopped = true;
 			}
 			eventStopped.Signal();
@@ -1674,7 +1692,7 @@ AsyncSocketServer
 	AsyncSocketServer::AsyncSocketServer(vint port)
 	{
 		CHECK_ERROR(1 <= port && port <= 65535, L"AsyncSocketServer requires a port in 1..65535.");
-		impl = new Impl(this, port);
+		impl = new Impl(port);
 	}
 
 	AsyncSocketServer::~AsyncSocketServer()
@@ -1682,14 +1700,9 @@ AsyncSocketServer
 		delete impl;
 	}
 
-	WaitForClientResult AsyncSocketServer::OnClientConnected(IAsyncSocketConnection*)
+	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
-		return WaitForClientResult::Accept;
-	}
-
-	void AsyncSocketServer::Start()
-	{
-		impl->Start();
+		impl->Start(callback);
 	}
 
 	void AsyncSocketServer::Stop()

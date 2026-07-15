@@ -21,7 +21,7 @@ namespace async_socket_test
 	constexpr vint RetryMilestoneTimeout = 3000;
 
 	using AcceptHandler = Func<WaitForClientResult(IAsyncSocketConnection*)>;
-	using CreateServer = Func<Ptr<IAsyncSocketServer>(vint, const AcceptHandler&)>;
+	using CreateServer = Func<Ptr<IAsyncSocketServer>(vint)>;
 	using CreateClient = Func<Ptr<IAsyncSocketClient>(vint)>;
 	using WaitForEvent = Func<bool(EventObject&, vint)>;
 
@@ -39,6 +39,23 @@ namespace async_socket_test
 		~SignalOnExit()
 		{
 			eventObject->Signal();
+		}
+	};
+
+	class TestServerCallback : public Object, public virtual IAsyncSocketServerCallback
+	{
+	private:
+		AcceptHandler						acceptHandler;
+
+	public:
+		TestServerCallback(const AcceptHandler& _acceptHandler)
+			: acceptHandler(_acceptHandler)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(IAsyncSocketConnection* connection) override
+		{
+			return acceptHandler(connection);
 		}
 	};
 
@@ -117,13 +134,18 @@ namespace async_socket_test
 		return false;
 	}
 
-	void DrainWaitForServer(TestState& state, const WaitForEvent& waitForEvent, const wchar_t* timeoutMessage)
+	void DrainEvent(TestState& state, EventObject& eventObject, const WaitForEvent& waitForEvent, vint timeout, const wchar_t* timeoutMessage)
 	{
-		if (!waitForEvent(state.eventWaitForServerReturned, ConnectTimeout))
+		if (!waitForEvent(eventObject, timeout))
 		{
 			state.Fail(timeoutMessage);
-			state.eventWaitForServerReturned.Wait();
+			eventObject.Wait();
 		}
+	}
+
+	void DrainWaitForServer(TestState& state, const WaitForEvent& waitForEvent, const wchar_t* timeoutMessage)
+	{
+		DrainEvent(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, timeoutMessage);
 	}
 
 	bool QueueWaitForServer(TestState& state, Ptr<IAsyncSocketClient> client)
@@ -567,7 +589,7 @@ namespace async_socket_test
 		}
 		catch (...)
 		{
-			RecordCurrentException(state, L"IAsyncSocketServer::OnClientConnected");
+			RecordCurrentException(state, L"IAsyncSocketServerCallback::OnClientConnected");
 			state.eventAccepted.Signal();
 			return WaitForClientResult::Reject;
 		}
@@ -661,7 +683,8 @@ namespace async_socket_test
 			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection, &serverCallback);
 		});
 
-		auto server = createServer(port, acceptHandler);
+		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
+		auto server = createServer(port);
 		Ptr<IAsyncSocketClient> client;
 		bool serverRunning = false;
 		bool clientReady = false;
@@ -673,7 +696,7 @@ namespace async_socket_test
 
 		try
 		{
-			server->Start();
+			server->Start(acceptCallback.Obj());
 			serverRunning = !server->IsStopped();
 			client = createClient(port);
 			clientReady = client->GetStatus() == ClientStatus::Ready;
@@ -756,7 +779,8 @@ namespace async_socket_test
 			return WaitForClientResult::Reject;
 		});
 
-		auto server = createServer(port, acceptHandler);
+		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
+		auto server = createServer(port);
 		auto client = createClient(port);
 		bool serverRunningBeforeStop = false;
 		bool waitQueued = false;
@@ -764,7 +788,7 @@ namespace async_socket_test
 
 		try
 		{
-			server->Start();
+			server->Start(acceptCallback.Obj());
 			client->GetConnection()->InstallCallback(&clientCallback);
 			waitQueued = QueueWaitForServer(state, client);
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return for the rejected connection.");
@@ -823,7 +847,8 @@ namespace async_socket_test
 			return InstallAcceptedConnection(state, acceptedCount, serverConnection, connection, &serverCallback);
 		});
 
-		auto server = createServer(port, acceptHandler);
+		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
+		auto server = createServer(port);
 		auto client = createClient(port);
 		bool waitQueued = false;
 		bool waitReturned = false;
@@ -831,7 +856,7 @@ namespace async_socket_test
 
 		try
 		{
-			server->Start();
+			server->Start(acceptCallback.Obj());
 			client->GetConnection()->InstallCallback(&clientCallback);
 			waitQueued = QueueWaitForServer(state, client);
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return for the stop-from-callback test.");
@@ -913,6 +938,7 @@ namespace async_socket_test
 			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection, &serverCallback);
 		});
 
+		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
 		auto client = createClient(port);
 		Ptr<IAsyncSocketServer> server;
 		bool clientReady = client->GetStatus() == ClientStatus::Ready;
@@ -929,8 +955,8 @@ namespace async_socket_test
 			firstFailureObserved = WaitBounded(state, state.eventFirstNonfatalError, waitForEvent, RetryMilestoneTimeout, L"The async socket client did not report the first retryable connection failure.");
 			if (firstFailureObserved && clientCallback.nonfatalErrorCount > 0 && clientCallback.fatalErrorCount == 0)
 			{
-				server = createServer(port, acceptHandler);
-				server->Start();
+				server = createServer(port);
+				server->Start(acceptCallback.Obj());
 			}
 			waitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"WaitForServer did not return after starting the retry server.");
 			accepted = WaitBounded(state, state.eventAccepted, waitForEvent, ConnectTimeout, L"The retry server did not accept the client.");
@@ -1030,29 +1056,358 @@ namespace async_socket_test
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
 	}
 
-	template<typename TServerBase>
-	class TestServer : public TServerBase
+#if defined VCZH_MSVC
+
+	constexpr vint CallbackDrainProbeTimeout = 250;
+
+	struct BlockingAcceptState : TestState
 	{
-	private:
-		AcceptHandler						acceptHandler;
+		EventObject						eventCallbackEntered;
+		EventObject						eventCallbackSawStopCalling;
+		EventObject						eventReleaseCallback;
+		EventObject						eventCallbackReturned;
+		EventObject						eventStopCalling;
+		EventObject						eventStopReturned;
+		EventObject						eventCallbackDestroyed;
+		atomic_vint						callbackCount = 0;
+		atomic_vint						callbackReturnedCount = 0;
+		atomic_vint						callbacksAfterStop = 0;
+		atomic_vint						stopReturned = 0;
+		atomic_vint						callbackDestroyed = 0;
 
-	public:
-		TestServer(vint port, const AcceptHandler& _acceptHandler)
-			: TServerBase(port)
-			, acceptHandler(_acceptHandler)
+		BlockingAcceptState()
 		{
-		}
-
-		WaitForClientResult OnClientConnected(IAsyncSocketConnection* connection) override
-		{
-			return acceptHandler(connection);
+			CHECK_ERROR(eventCallbackEntered.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackEntered.");
+			CHECK_ERROR(eventCallbackSawStopCalling.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackSawStopCalling.");
+			CHECK_ERROR(eventReleaseCallback.CreateManualUnsignal(false), L"Async socket test failed to create eventReleaseCallback.");
+			CHECK_ERROR(eventCallbackReturned.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackReturned.");
+			CHECK_ERROR(eventStopCalling.CreateManualUnsignal(false), L"Async socket test failed to create eventStopCalling.");
+			CHECK_ERROR(eventStopReturned.CreateManualUnsignal(false), L"Async socket test failed to create eventStopReturned.");
+			CHECK_ERROR(eventCallbackDestroyed.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackDestroyed.");
 		}
 	};
 
-	template<typename TServerBase>
-	Ptr<IAsyncSocketServer> CreateTestServer(vint port, const AcceptHandler& acceptHandler)
+	class BlockingAcceptCallback : public Object, public virtual IAsyncSocketServerCallback
 	{
-		return Ptr<IAsyncSocketServer>(new TestServer<TServerBase>(port, acceptHandler));
+	private:
+		BlockingAcceptState*					state = nullptr;
+
+	public:
+		BlockingAcceptCallback(BlockingAcceptState& _state)
+			: state(&_state)
+		{
+		}
+
+		~BlockingAcceptCallback()
+		{
+			state->callbackDestroyed++;
+			state->eventCallbackDestroyed.Signal();
+		}
+
+		WaitForClientResult OnClientConnected(IAsyncSocketConnection*) override
+		{
+			SignalOnExit signalCallbackReturned(state->eventCallbackReturned);
+			state->callbackCount++;
+			if (state->stopReturned)
+			{
+				state->callbacksAfterStop++;
+			}
+			state->eventCallbackEntered.Signal();
+			if (!state->eventStopCalling.Wait())
+			{
+				state->Fail(L"The blocked accept callback failed to wait for Stop to begin.");
+			}
+			state->eventCallbackSawStopCalling.Signal();
+			if (!state->eventReleaseCallback.Wait())
+			{
+				state->Fail(L"The blocked accept callback failed to wait for its release event.");
+			}
+			if (state->stopReturned)
+			{
+				state->callbacksAfterStop++;
+			}
+			state->callbackReturnedCount++;
+			return WaitForClientResult::Reject;
+		}
+	};
+
+	void RunExternalStopDrainsAcceptCallback(
+		vint port,
+		const CreateServer& createServer,
+		const CreateClient& createClient,
+		const WaitForEvent& waitForEvent
+	)
+	{
+		BlockingAcceptState state;
+		NoDataCallback clientCallback(state, true, true);
+		auto acceptCallback = Ptr(new BlockingAcceptCallback(state));
+		auto server = createServer(port);
+		Ptr<IAsyncSocketClient> client;
+		bool waitQueued = false;
+		bool callbackEntered = false;
+		bool stopQueued = false;
+
+		try
+		{
+			server->Start(acceptCallback.Obj());
+			client = createClient(port);
+			client->GetConnection()->InstallCallback(&clientCallback);
+			waitQueued = QueueWaitForServer(state, client);
+			if (waitQueued)
+			{
+				callbackEntered = WaitBounded(state, state.eventCallbackEntered, waitForEvent, ConnectTimeout, L"The blocked accept callback did not begin.");
+			}
+			if (callbackEntered)
+			{
+				stopQueued = ThreadPoolLite::Queue(Func<void()>([&state, server]()
+				{
+					SignalOnExit signalStopReturned(state.eventStopReturned);
+					state.eventStopCalling.Signal();
+					try
+					{
+						server->Stop();
+						state.stopReturned = 1;
+					}
+					catch (...)
+					{
+						RecordCurrentException(state, L"IAsyncSocketServer::Stop while an accept callback is blocked");
+					}
+				}));
+				if (!stopQueued)
+				{
+					state.Fail(L"ThreadPoolLite failed to queue IAsyncSocketServer::Stop.");
+				}
+				else
+				{
+					auto stopCalling = WaitBounded(state, state.eventStopCalling, waitForEvent, ConnectTimeout, L"The external server Stop task did not begin.");
+					auto callbackSawStopCalling = stopCalling && WaitBounded(state, state.eventCallbackSawStopCalling, waitForEvent, ConnectTimeout, L"The blocked accept callback did not observe the external Stop task.");
+					if (callbackSawStopCalling && waitForEvent(state.eventStopReturned, CallbackDrainProbeTimeout))
+					{
+						state.Fail(L"IAsyncSocketServer::Stop returned while its accept callback was still blocked.");
+					}
+				}
+			}
+		}
+		catch (...)
+		{
+			RecordCurrentException(state, L"Running the blocked accept callback test");
+		}
+
+		state.eventStopCalling.Signal();
+		state.eventReleaseCallback.Signal();
+		if (callbackEntered)
+		{
+			DrainEvent(state, state.eventCallbackReturned, waitForEvent, ConnectTimeout, L"The blocked accept callback did not return after it was released.");
+		}
+		if (stopQueued)
+		{
+			DrainEvent(state, state.eventStopReturned, waitForEvent, ConnectTimeout, L"The external server Stop task did not drain.");
+		}
+		if (!state.stopReturned)
+		{
+			StopServer(state, server);
+		}
+
+		acceptCallback = nullptr;
+		WaitBounded(state, state.eventCallbackDestroyed, waitForEvent, ConnectTimeout, L"The accept callback was not destroyed immediately after Stop.");
+		StopServer(state, server);
+		StopClient(state, client, clientCallback);
+		if (waitQueued)
+		{
+			DrainWaitForServer(state, waitForEvent, L"WaitForServer did not drain in the blocked accept callback test.");
+		}
+
+		AssertState(state);
+		TEST_ASSERT(state.callbackCount == 1);
+		TEST_ASSERT(state.callbackReturnedCount == 1);
+		TEST_ASSERT(state.callbacksAfterStop == 0);
+		TEST_ASSERT(state.stopReturned == 1);
+		TEST_ASSERT(state.callbackDestroyed == 1);
+		TEST_ASSERT(server->IsStopped());
+	}
+
+	struct ReentrantAcceptState : TestState
+	{
+		EventObject						eventCallbackEntered;
+		EventObject						eventAllowNestedStop;
+		EventObject						eventCallbackReturned;
+		EventObject						eventCallbackDestroyed;
+		atomic_vint						callbackCount = 0;
+		atomic_vint						callbackReturnedCount = 0;
+		atomic_vint						nestedStopStarted = 0;
+		atomic_vint						nestedStopReturned = 0;
+		atomic_vint						callbacksAfterNestedStop = 0;
+		atomic_vint						callbackDestroyed = 0;
+
+		ReentrantAcceptState()
+		{
+			CHECK_ERROR(eventCallbackEntered.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackEntered.");
+			CHECK_ERROR(eventAllowNestedStop.CreateManualUnsignal(false), L"Async socket test failed to create eventAllowNestedStop.");
+			CHECK_ERROR(eventCallbackReturned.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackReturned.");
+			CHECK_ERROR(eventCallbackDestroyed.CreateManualUnsignal(false), L"Async socket test failed to create eventCallbackDestroyed.");
+		}
+	};
+
+	class ReentrantStopAcceptCallback : public Object, public virtual IAsyncSocketServerCallback
+	{
+	private:
+		ReentrantAcceptState*					state = nullptr;
+		IAsyncSocketServer*					server = nullptr;
+
+	public:
+		ReentrantStopAcceptCallback(ReentrantAcceptState& _state)
+			: state(&_state)
+		{
+		}
+
+		~ReentrantStopAcceptCallback()
+		{
+			state->callbackDestroyed++;
+			state->eventCallbackDestroyed.Signal();
+		}
+
+		void SetServer(IAsyncSocketServer* _server)
+		{
+			server = _server;
+		}
+
+		WaitForClientResult OnClientConnected(IAsyncSocketConnection*) override
+		{
+			SignalOnExit signalCallbackReturned(state->eventCallbackReturned);
+			auto count = ++state->callbackCount;
+			if (state->nestedStopStarted)
+			{
+				state->callbacksAfterNestedStop++;
+			}
+			if (count != 1)
+			{
+				state->Fail(L"An accept callback began after reentrant Stop started.");
+				state->callbackReturnedCount++;
+				return WaitForClientResult::Reject;
+			}
+
+			state->eventCallbackEntered.Signal();
+			if (!state->eventAllowNestedStop.Wait())
+			{
+				state->Fail(L"The reentrant accept callback failed to wait for its Stop gate.");
+			}
+			state->nestedStopStarted = 1;
+			SignalOnExit signalNestedStopReturned(state->eventNestedStopReturned);
+			try
+			{
+				server->Stop();
+				state->nestedStopReturned = 1;
+			}
+			catch (...)
+			{
+				RecordCurrentException(*state, L"IAsyncSocketServer::Stop from IAsyncSocketServerCallback::OnClientConnected");
+			}
+			state->callbackReturnedCount++;
+			return WaitForClientResult::Reject;
+		}
+	};
+
+	void RunReentrantStopFromAcceptCallback(
+		vint port,
+		const CreateServer& createServer,
+		const CreateClient& createClient,
+		const WaitForEvent& waitForEvent
+	)
+	{
+		ReentrantAcceptState state;
+		TestState secondClientState;
+		NoDataCallback firstClientCallback(state, true, true);
+		NoDataCallback secondClientCallback(secondClientState, true, true);
+		auto acceptCallback = Ptr(new ReentrantStopAcceptCallback(state));
+		auto server = createServer(port);
+		acceptCallback->SetServer(server.Obj());
+		Ptr<IAsyncSocketClient> firstClient;
+		Ptr<IAsyncSocketClient> secondClient;
+		bool firstWaitQueued = false;
+		bool secondWaitQueued = false;
+		bool callbackEntered = false;
+		bool firstConnectedBeforeStop = false;
+		bool secondConnectedBeforeStop = false;
+
+		try
+		{
+			server->Start(acceptCallback.Obj());
+			firstClient = createClient(port);
+			firstClient->GetConnection()->InstallCallback(&firstClientCallback);
+			firstWaitQueued = QueueWaitForServer(state, firstClient);
+			if (firstWaitQueued)
+			{
+				callbackEntered = WaitBounded(state, state.eventCallbackEntered, waitForEvent, ConnectTimeout, L"The reentrant accept callback did not begin.");
+			}
+			if (callbackEntered)
+			{
+				auto firstWaitReturned = WaitBounded(state, state.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"The first WaitForServer did not return before reentrant Stop.");
+				firstConnectedBeforeStop = firstWaitReturned && firstClient->GetStatus() == ClientStatus::Connected;
+				if (!firstConnectedBeforeStop)
+				{
+					state.Fail(L"The first client was not connected before reentrant Stop.");
+				}
+
+				secondClient = createClient(port);
+				secondClient->GetConnection()->InstallCallback(&secondClientCallback);
+				secondWaitQueued = QueueWaitForServer(secondClientState, secondClient);
+				if (secondWaitQueued)
+				{
+					auto secondWaitReturned = WaitBounded(secondClientState, secondClientState.eventWaitForServerReturned, waitForEvent, ConnectTimeout, L"The second WaitForServer did not return before reentrant Stop.");
+					secondConnectedBeforeStop = secondWaitReturned && secondClient->GetStatus() == ClientStatus::Connected;
+					if (!secondConnectedBeforeStop)
+					{
+						secondClientState.Fail(L"The second client was not connected before reentrant Stop.");
+					}
+				}
+			}
+		}
+		catch (...)
+		{
+			RecordCurrentException(state, L"Running the reentrant accept callback test");
+		}
+
+		state.eventAllowNestedStop.Signal();
+		if (callbackEntered)
+		{
+			DrainEvent(state, state.eventNestedStopReturned, waitForEvent, ConnectTimeout, L"Stop called from the accept callback did not return.");
+			DrainEvent(state, state.eventCallbackReturned, waitForEvent, ConnectTimeout, L"The reentrant accept callback did not unwind.");
+		}
+		StopServer(state, server);
+		acceptCallback = nullptr;
+		WaitBounded(state, state.eventCallbackDestroyed, waitForEvent, ConnectTimeout, L"The reentrant accept callback was not destroyed after external Stop.");
+		StopServer(state, server);
+		StopClient(state, firstClient, firstClientCallback);
+		StopClient(secondClientState, secondClient, secondClientCallback);
+		if (firstWaitQueued)
+		{
+			DrainWaitForServer(state, waitForEvent, L"The first WaitForServer did not drain after reentrant Stop.");
+		}
+		if (secondWaitQueued)
+		{
+			DrainWaitForServer(secondClientState, waitForEvent, L"The second WaitForServer did not drain after reentrant Stop.");
+		}
+
+		AssertState(state);
+		AssertState(secondClientState);
+		TEST_ASSERT(callbackEntered);
+		TEST_ASSERT(firstConnectedBeforeStop);
+		TEST_ASSERT(secondConnectedBeforeStop);
+		TEST_ASSERT(state.callbackCount == 1);
+		TEST_ASSERT(state.callbackReturnedCount == 1);
+		TEST_ASSERT(state.nestedStopStarted == 1);
+		TEST_ASSERT(state.nestedStopReturned == 1);
+		TEST_ASSERT(state.callbacksAfterNestedStop == 0);
+		TEST_ASSERT(state.callbackDestroyed == 1);
+		TEST_ASSERT(server->IsStopped());
+	}
+
+#endif
+
+	template<typename TServerBase>
+	Ptr<IAsyncSocketServer> CreateTestServer(vint port)
+	{
+		return Ptr<IAsyncSocketServer>(new TServerBase(port));
 	}
 
 	template<typename TClient>
@@ -1098,6 +1453,35 @@ namespace async_socket_test
 			RunStopDuringRetry(38400, createClient, waitForEvent);
 		});
 	}
+
+#if defined VCZH_MSVC
+
+	template<typename TServerBase, typename TClient>
+	void RunWindowsAsyncSocketServerCallbackTestCases(const WaitForEvent& waitForEvent)
+	{
+		CreateServer createServer(&CreateTestServer<TServerBase>);
+		CreateClient createClient(&CreateTestClient<TClient>);
+
+		TEST_CASE(L"AsyncSocket Start rejects a null server callback")
+		{
+			auto server = createServer(38700);
+			TEST_ERROR(server->Start(nullptr));
+			server->Stop();
+			TEST_ASSERT(server->IsStopped());
+		});
+
+		TEST_CASE(L"AsyncSocket external Stop drains a blocked accept callback")
+		{
+			RunExternalStopDrainsAcceptCallback(38701, createServer, createClient, waitForEvent);
+		});
+
+		TEST_CASE(L"AsyncSocket Stop from accept callback is reentrant")
+		{
+			RunReentrantStopFromAcceptCallback(38702, createServer, createClient, waitForEvent);
+		});
+	}
+
+#endif
 }
 
 #if defined VCZH_MSVC
@@ -1137,6 +1521,7 @@ TEST_FILE
 #if defined VCZH_MSVC
 	using namespace vl::inter_process::async_tcp_socket::windows_socket;
 	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForWindowsEvent));
+	RunWindowsAsyncSocketServerCallbackTestCases<AsyncSocketServer, AsyncSocketClient>(WaitForEvent(&WaitForWindowsEvent));
 #elif defined VCZH_GCC && defined VCZH_APPLE
 	using namespace vl::inter_process::async_tcp_socket::macos_socket;
 	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForGccEvent));

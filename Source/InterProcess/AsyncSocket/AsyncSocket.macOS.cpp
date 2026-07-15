@@ -1259,7 +1259,7 @@ ServerState
 		CriticalSection					lockState;
 		ConditionVariable				cvState;
 		dispatch_queue_t				queue = nullptr;
-		AsyncSocketServer*				owner = nullptr;
+		IAsyncSocketServerCallback*		callback = nullptr;
 		vint							port = 0;
 		bool							startCalled = false;
 		bool							started = false;
@@ -1350,20 +1350,21 @@ ServerState
 		void OnNewConnection(nw_connection_t connection)
 		{
 			auto wrapper = CreateConnection(connection);
-			bool offer = false;
-			AsyncSocketServer* installedOwner = nullptr;
+			IAsyncSocketServerCallback* installedCallback = nullptr;
 			CS_LOCK(lockState)
 			{
-				offer = started && !stopping && owner;
-				installedOwner = owner;
+				if (started && !stopping)
+				{
+					installedCallback = callback;
+				}
 			}
 
 			WaitForClientResult result = WaitForClientResult::Reject;
-			if (offer)
+			if (installedCallback)
 			{
 				try
 				{
-					result = installedOwner->OnClientConnected(wrapper.Obj());
+					result = installedCallback->OnClientConnected(wrapper.Obj());
 				}
 				catch (...)
 				{
@@ -1390,9 +1391,8 @@ ServerState
 		}
 
 	public:
-		ServerState(AsyncSocketServer* _owner, vint _port)
-			: owner(_owner)
-			, port(_port)
+		ServerState(vint _port)
+			: port(_port)
 		{
 			queue = dispatch_queue_create("vlppos.async-socket.listener", DISPATCH_QUEUE_SERIAL);
 			CHECK_ERROR(queue != nullptr, L"AsyncSocketServer failed to create its dispatch queue.");
@@ -1405,26 +1405,21 @@ ServerState
 			dispatch_release(queue);
 		}
 
-		void DetachOwner()
+		void Start(Ptr<ServerState> retainedState, IAsyncSocketServerCallback* value)
 		{
-			CS_LOCK(lockState)
-			{
-				owner = nullptr;
-			}
-		}
-
-		void Start(Ptr<ServerState> retainedState)
-		{
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::macos_socket::ServerState::Start(Ptr<ServerState>, IAsyncSocketServerCallback*)#"
+			CHECK_ERROR(value != nullptr, ERROR_MESSAGE_PREFIX L"Requires a callback.");
 			bool begin = false;
 			CS_LOCK(lockState)
 			{
 				if (!startCalled && !stopping)
 				{
 					startCalled = true;
+					callback = value;
 					begin = true;
 				}
 			}
-			CHECK_ERROR(begin, L"AsyncSocketServer::Start can only be called once.");
+			CHECK_ERROR(begin, ERROR_MESSAGE_PREFIX L"Can only be called once before stopping.");
 
 			auto portText = itoa(port);
 			auto endpoint = nw_endpoint_create_host("127.0.0.1", portText.Buffer());
@@ -1453,8 +1448,9 @@ ServerState
 				{
 					stopping = true;
 					stopped = true;
+					callback = nullptr;
 				}
-				CHECK_ERROR(false, L"AsyncSocketServer failed to create its Network.framework listener.");
+				CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to create the Network.framework listener.");
 			}
 
 			bool installed = false;
@@ -1485,6 +1481,7 @@ ServerState
 			{
 				nw_release(createdListener);
 			}
+#undef ERROR_MESSAGE_PREFIX
 		}
 
 		void Stop()
@@ -1558,6 +1555,7 @@ ServerState
 			CS_LOCK(lockState)
 			{
 				connections.Clear();
+				callback = nullptr;
 				stopFinalizing = false;
 				stopCompleted = true;
 				cvState.WakeAllPendings();
@@ -1585,20 +1583,19 @@ AsyncSocketServer::Impl
 		Ptr<ServerState>					state;
 
 	public:
-		Impl(AsyncSocketServer* owner, vint port)
-			: state(Ptr(new ServerState(owner, port)))
+		Impl(vint port)
+			: state(Ptr(new ServerState(port)))
 		{
 		}
 
 		~Impl()
 		{
 			state->Stop();
-			state->DetachOwner();
 		}
 
-		void Start()
+		void Start(IAsyncSocketServerCallback* callback)
 		{
-			state->Start(state);
+			state->Start(state, callback);
 		}
 
 		void Stop()
@@ -1619,7 +1616,7 @@ AsyncSocketServer
 	AsyncSocketServer::AsyncSocketServer(vint port)
 	{
 		CHECK_ERROR(1 <= port && port <= 65535, L"AsyncSocketServer requires a port in 1..65535.");
-		impl = new Impl(this, port);
+		impl = new Impl(port);
 	}
 
 	AsyncSocketServer::~AsyncSocketServer()
@@ -1627,14 +1624,9 @@ AsyncSocketServer
 		delete impl;
 	}
 
-	WaitForClientResult AsyncSocketServer::OnClientConnected(IAsyncSocketConnection*)
+	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
-		return WaitForClientResult::Accept;
-	}
-
-	void AsyncSocketServer::Start()
-	{
-		impl->Start();
+		impl->Start(callback);
 	}
 
 	void AsyncSocketServer::Stop()

@@ -33,8 +33,7 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		AsyncSocketServer(vint port);
 		~AsyncSocketServer();
 
-		WaitForClientResult					OnClientConnected(IAsyncSocketConnection* connection) override;
-		void								Start() override;
+		void								Start(IAsyncSocketServerCallback* callback) override;
 		void								Stop() override;
 		bool								IsStopped() override;
 	};

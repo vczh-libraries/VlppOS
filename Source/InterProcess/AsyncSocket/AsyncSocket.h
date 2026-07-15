@@ -64,12 +64,18 @@ namespace vl::inter_process::async_tcp_socket
 		virtual ClientStatus					GetStatus() = 0;
 	};
 
+	/// <summary>Callbacks for accepting asynchronous TCP connections.</summary>
+	class IAsyncSocketServerCallback : public virtual Interface
+	{
+	public:
+		virtual WaitForClientResult			OnClientConnected(IAsyncSocketConnection* connection) = 0;
+	};
+
 	/// <summary>An asynchronous TCP server for the local machine.</summary>
 	class IAsyncSocketServer : public virtual Interface
 	{
 	public:
-		virtual WaitForClientResult			OnClientConnected(IAsyncSocketConnection* connection) = 0;
-		virtual void							Start() = 0;
+		virtual void							Start(IAsyncSocketServerCallback* callback) = 0;
 		virtual void							Stop() = 0;
 		virtual bool							IsStopped() = 0;
 	};
@@ -251,7 +257,9 @@ NetworkProtocolServer
 			}
 		};
 
-		class SocketServerBridge : public TAsyncSocketServer
+		class SocketServerBridge
+			: public TAsyncSocketServer
+			, public virtual IAsyncSocketServerCallback
 		{
 		private:
 			Ptr<Lifecycle>					lifecycle;
@@ -407,7 +415,7 @@ NetworkProtocolServer
 
 		void Start() override
 		{
-			asyncSocketServer->Start();
+			asyncSocketServer->Start(asyncSocketServer.Obj());
 		}
 
 		void Stop() override

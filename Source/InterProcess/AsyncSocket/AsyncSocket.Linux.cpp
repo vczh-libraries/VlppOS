@@ -1651,12 +1651,12 @@ ServerState
 		class CancelOperation;
 
 		Ptr<RingRuntime>					runtime;
-		AsyncSocketServer*					owner = nullptr;
 		vint								port = 0;
 
 		// covers all fields below, callback counts, and target operation counts
 		CriticalSection					lockState;
 		ConditionVariable				cvCallbacks;
+		IAsyncSocketServerCallback*		callback = nullptr;
 		vint								listener = -1;
 		bool								startCalled = false;
 		bool								starting = false;
@@ -1773,17 +1773,16 @@ ServerState
 		bool PostAccept(Ptr<ServerState> retainedState);
 
 	public:
-		ServerState(Ptr<RingRuntime> _runtime, AsyncSocketServer* _owner, vint _port)
+		ServerState(Ptr<RingRuntime> _runtime, vint _port)
 			: runtime(_runtime)
-			, owner(_owner)
 			, port(_port)
 		{
-#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::ServerState::ServerState(Ptr<RingRuntime>, AsyncSocketServer*, vint)#"
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::ServerState::ServerState(Ptr<RingRuntime>, vint)#"
 			CHECK_ERROR(eventStartFinished.CreateManualUnsignal(true), ERROR_MESSAGE_PREFIX L"Failed to create the server startup drain event.");
 #undef ERROR_MESSAGE_PREFIX
 		}
 
-		void Start(Ptr<ServerState> retainedState);
+		void Start(Ptr<ServerState> retainedState, IAsyncSocketServerCallback* value);
 		void Stop(Ptr<ServerState> retainedState);
 		bool IsStopped();
 	};
@@ -1902,17 +1901,17 @@ ServerState::AcceptOperation
 			auto connectionState = Ptr(new ConnectionState(server->runtime, acceptedSocket.Get()));
 			auto connection = Ptr(new AsyncSocketConnection(connectionState));
 			acceptedSocket.Detach();
-			bool invoke = false;
+			IAsyncSocketServerCallback* installedCallback = nullptr;
 			CS_LOCK(server->lockState)
 			{
-				if (server->started && !server->stopping && server->owner)
+				if (server->started && !server->stopping && server->callback)
 				{
 					server->connections.Add(connection);
+					installedCallback = server->callback;
 					server->activeCallbacks++;
-					invoke = true;
 				}
 			}
-			if (!invoke)
+			if (!installedCallback)
 			{
 				connection->Stop();
 				return;
@@ -1923,20 +1922,23 @@ ServerState::AcceptOperation
 			currentServerCallbackFrame = &frame;
 			try
 			{
-				acceptResult = server->owner->OnClientConnected(connection.Obj());
+				acceptResult = installedCallback->OnClientConnected(connection.Obj());
 			}
 			catch (...)
 			{
 			}
 			currentServerCallbackFrame = frame.previous;
-			server->EndCallback();
-
-			bool stillRunning = false;
+			bool accepted = false;
 			CS_LOCK(server->lockState)
 			{
-				stillRunning = server->started && !server->stopping;
+				accepted = acceptResult == WaitForClientResult::Accept && server->started && !server->stopping;
+				if (!accepted)
+				{
+					server->connections.Remove(connection.Obj());
+				}
 			}
-			if (acceptResult == WaitForClientResult::Reject || !stillRunning)
+			server->EndCallback();
+			if (!accepted)
 			{
 				connection->Stop();
 			}
@@ -1977,14 +1979,16 @@ ServerState
 		return !submissionFailed;
 	}
 
-	void ServerState::Start(Ptr<ServerState> retainedState)
+	void ServerState::Start(Ptr<ServerState> retainedState, IAsyncSocketServerCallback* value)
 	{
-#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::ServerState::Start(Ptr<ServerState>)#"
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::ServerState::Start(Ptr<ServerState>, IAsyncSocketServerCallback*)#"
+		CHECK_ERROR(value != nullptr, ERROR_MESSAGE_PREFIX L"Requires a callback.");
 		CS_LOCK(lockState)
 		{
 			CHECK_ERROR(!startCalled && !stopping, ERROR_MESSAGE_PREFIX L"Can only be called once before stopping.");
 			startCalled = true;
 			starting = true;
+			callback = value;
 			eventStartFinished.Unsignal();
 		}
 		StartScope startScope(this);
@@ -2018,6 +2022,7 @@ ServerState
 			{
 				stopping = true;
 				stopped = true;
+				callback = nullptr;
 			}
 			runtime->Stop();
 			CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to create the loopback listener.");
@@ -2044,24 +2049,40 @@ ServerState
 				started = false;
 				stopping = true;
 				stopped = true;
+				callback = nullptr;
 			}
 			runtime->Stop();
 			throw;
 		}
 		if (committed)
 		{
-			if (!PostAccept(retainedState))
+			try
+			{
+				if (!PostAccept(retainedState))
+				{
+					CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to submit the first accept operation.");
+				}
+			}
+			catch (...)
 			{
 				CS_LOCK(lockState)
 				{
 					started = false;
 					stopping = true;
 					stopped = true;
-					CloseFileDescriptor(listener);
-					listener = -1;
+					callback = nullptr;
+					if (listener >= 0)
+					{
+						shutdown((int)listener, SHUT_RDWR);
+						if (targetOperations == 0)
+						{
+							CloseFileDescriptor(listener);
+							listener = -1;
+						}
+					}
 				}
 				runtime->Stop();
-				CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to submit the first accept operation.");
+				throw;
 			}
 		}
 #undef ERROR_MESSAGE_PREFIX
@@ -2145,6 +2166,13 @@ ServerState
 			connection->Stop();
 		}
 		runtime->Stop();
+		if (callbackDepth == 0)
+		{
+			CS_LOCK(lockState)
+			{
+				callback = nullptr;
+			}
+		}
 	}
 
 	bool ServerState::IsStopped()
@@ -2168,9 +2196,9 @@ AsyncSocketServer::Impl
 		Ptr<ServerState>					state;
 
 	public:
-		Impl(AsyncSocketServer* owner, vint port)
+		Impl(vint port)
 			: runtime(RingRuntime::Create(false))
-			, state(Ptr(new ServerState(runtime, owner, port)))
+			, state(Ptr(new ServerState(runtime, port)))
 		{
 		}
 
@@ -2179,9 +2207,9 @@ AsyncSocketServer::Impl
 			Stop();
 		}
 
-		void Start()
+		void Start(IAsyncSocketServerCallback* callback)
 		{
-			state->Start(state);
+			state->Start(state, callback);
 		}
 
 		void Stop()
@@ -2204,7 +2232,7 @@ AsyncSocketServer
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::AsyncSocketServer::AsyncSocketServer(vint)#"
 		CHECK_ERROR(1 <= port && port <= 65535, ERROR_MESSAGE_PREFIX L"The port must be in 1..65535.");
 #undef ERROR_MESSAGE_PREFIX
-		impl = new Impl(this, port);
+		impl = new Impl(port);
 	}
 
 	AsyncSocketServer::~AsyncSocketServer()
@@ -2212,14 +2240,9 @@ AsyncSocketServer
 		delete impl;
 	}
 
-	WaitForClientResult AsyncSocketServer::OnClientConnected(IAsyncSocketConnection*)
+	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
-		return WaitForClientResult::Accept;
-	}
-
-	void AsyncSocketServer::Start()
-	{
-		impl->Start();
+		impl->Start(callback);
 	}
 
 	void AsyncSocketServer::Stop()
