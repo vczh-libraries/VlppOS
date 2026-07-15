@@ -2,7 +2,7 @@
 
 Cross platform request parser/constructor
 Interface in `AsyncSocket/HttpRequest.h`
-Implementations in `AsyncSocket/AsyncSocket_HttpRequest(Server|Client).(h|cpp)`
+Implementations in `AsyncSocket/AsyncSocket_HttpRequest(Server|Client)?.(h|cpp)`
 Using namespace `vl::inter_process::async_tcp_socket`
 
 ## HTTP Request Data Structure:
