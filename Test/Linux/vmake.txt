@@ -9,6 +9,7 @@
 ../../Source/FileSystem.Injectable.cpp
 ../../Source/FileSystem.Linux.cpp
 ../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp
+../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.cpp
 ../../Source/InterProcess/ChannelImpls/ChannelPackage.cpp
 ../../Source/Locale.cpp
 ../../Source/Locale.Linux.cpp
