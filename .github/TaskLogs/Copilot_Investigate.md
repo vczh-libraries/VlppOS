@@ -2,52 +2,45 @@
 
 # PROBLEM DESCRIPTION
 
-I would like you to do the follow things:
-- Fix Tools again. The .d idea is actuall good, but I don't like .o depending on makefile-cpp, as VCPROOT could change according to environment, and build.sh -f actually offer a rebuild feature meanwhile makefile-cpp is not subject to change frequently anyway. And since vutil_CppDependencies is no longer useful, I would like you to delete that file and remove all references to it.
-- Run `vgo uci` to propogate this change to all other repos. Make sure vutil_CppDependencies do not exist in all these repos. It should affect every cloned repos except iGac, these repos are sibling of the current VlppOS.
-- Run `build.sh` in each repo's Test/Linux folder, or Test/Linux/<PROJECT-NAME> folders in its alphabetical order, the details is in <mono-repo>/Tools/Jobs/job.release.prompt.md, but do not follow exactly that instruction file as I don't want you to do the release and import thing. You should limit your goal to updating all makefiles and makesure they work.
-- commit all local changes to origin master in all repos, rebase if conflict. Another you is updating knowledge base documents across the whole monorepo but that work should not affect your current one.
+[AsyncSocket.h](Source/InterProcess/AsyncSocket/AsyncSocket.h) has some classes that are not template. I would like you to create a AsyncSocket.cpp in the same folder, storing all method bodies of them. Leave template classes untouched. You need to check out some other cpp files to find out how I would like to use block comment to separate different classes in cpp files. By the way, AsyncSocket.(Windows|Linux|macOS).cpp do not have these block comment separators, you need to also add them. A block comment not only separate methods, but also separate a complete class definition if it is completely in a cpp files. Things belong to the same class should stay grouped together. If there are any forward declarations, variables, structs or anything that is not a class/method, move them to the top of the namespace. commit and push all local changes.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Confirm the current live-tool state before changing it, then validate the migration across every cloned C++ repository except iGac.
+Confirm the requested source-layout problem with a structural audit, then verify the refactor with the existing async-socket coverage and the complete unit-test project.
 
-The problem is confirmed. `vutil_CppDependencies` has nine tracked copies: the canonical Tools file plus copies in GacUI, Release, Vlpp, VlppOS, VlppParser2, VlppReflection, VlppRegex, and Workflow. Its only functional caller is `vmake-cpp`, where `clang++ -MM` output is discarded. It neither creates nor supplies the compiler-generated `Obj/*.d` files. The canonical generator also emits `$(VCPROOT)/vl/makefile-cpp` as a normal prerequisite of every object, making an environment-selected shared include path part of the generated dependency graph.
+The problem is confirmed. `Source/InterProcess/AsyncSocket/AsyncSocket.cpp` does not exist. `AsyncSocket.h` contains method bodies for the non-template `IAsyncSocketCallback`, `NetworkProtocolCallbackDomain`, `NetworkProtocolConnectionLifecycle`, and `NetworkProtocolConnection` classes, while its two template adapter classes must remain header-defined. `AsyncSocket.Windows.cpp`, `AsyncSocket.Linux.cpp`, and `AsyncSocket.macOS.cpp` contain multiple complete implementation classes and class-method groups without the repository's `/*********************************************************************** ... ***********************************************************************/` class separators.
 
 Acceptance requires:
 
-- Delete the canonical utility and every propagated copy, and remove all live code/documentation references while preserving historical investigation archives.
-- Keep `-MMD -MP -MF $(@:.o=.d) -MT $@` compilation and `Obj/*.d` inclusion unchanged.
-- Generate object rules containing only the selected source prerequisite, with no object depending on `$(VCPROOT)/vl/makefile-cpp`.
-- Run canonical `vgo uci` propagation for all configured repositories; update all eight cloned targets and leave iGac untouched.
-- In the job-release dependency order, and alphabetically within each repository, run a clean `build.sh -f` followed by a plain incremental `build.sh` in all 25 requested `Test/Linux` project folders. Every clean build must create dependency files, every incremental build must succeed without recompiling, and every tracked makefile must be regenerated.
-- Re-scan live Tools and propagated Ubuntu CI folders for the removed utility and its name, and scan all generated Test/Linux makefiles for the removed object prerequisite.
-- Commit and push only build-tool, generated-makefile, and main investigation-record changes in each affected repository. Rebase onto current `origin/master` as needed without absorbing concurrent knowledge-base work.
+- Add `AsyncSocket.cpp` to the same folder and to all owning MSBuild/filter metadata so Windows and generated Linux builds compile it.
+- Move every method body belonging to a non-template class out of `AsyncSocket.h` and into class-grouped sections in `AsyncSocket.cpp`; keep `NetworkProtocolServer<TAsyncSocketServer>` and `NetworkProtocolClient<TAsyncSocketClient>` unchanged.
+- Keep namespace-level forward declarations, variables, structs, and free functions before the first class separator in each affected `.cpp`.
+- Add one class separator for every complete implementation class or class method group in the common and Windows/Linux/macOS `.cpp` files, preserving contiguous ownership groups as dependencies allow.
+- Build `Test/UnitTest/UnitTest.sln`, run the complete configured unit-test suite, and confirm `TestInterProcess_AsyncSocket.cpp` is selected. The final Debug log must have no memory-leak report.
+- Confirm the authoritative project source list selects the new common translation unit for Linux and that `Test/Linux/vmake` does not remove it. Run the Linux build wrapper when a Linux distribution is available; do not hand-edit its generated source list.
 
 # PROPOSALS
 
-- No.1 Remove the obsolete dependency preflight and make object rules source-only [CONFIRMED]
+- No.1 Split non-template async-socket implementation and normalize class sections [CONFIRMED]
 
-## No.1 Remove the obsolete dependency preflight and make object rules source-only
+## No.1 Split non-template async-socket implementation and normalize class sections
 
-Delete `Tools/Ubuntu/vl/cmd/vutil_CppDependencies`. Remove its call from `vmake-cpp`, its propagation and permission entries from `vgo`, and every related section in the vmake maintenance README. Keep dependency discovery entirely in the selected real compiler invocation, which already writes the host-correct ignored `Obj/*.d` files while compiling.
+Turn the non-template classes in `AsyncSocket.h` into declarations while keeping their data layout, nested type declarations, and public signatures intact. Move the private templated protocol-callback dispatcher definition too: all of its instantiation sites move into `AsyncSocket.cpp`, so the template remains valid without changing its signature or type-erasure behavior. Do not change either template adapter class.
 
-Change the generated object rule from `<object>: <source> $(VCPROOT)/vl/makefile-cpp` to `<object>: <source>`. The shared file remains included to define compiler and linker commands, but it is no longer a normal object prerequisite. A clean `build.sh -f` is the explicit rebuild and dependency-file seeding mechanism after this migration or whenever users require one.
-
-Run `vgo uci` from the canonical Tools working tree. Because the refresh command copies an explicit file list and does not delete files removed from that list, delete the eight already-tracked downstream utility copies as part of each propagated repository change. Regenerate and validate every requested Test/Linux makefile through its repository-local `build.sh`; do not run release generation, imports, non-Test tool builds, or iGac work.
+Define namespace-scope static members and all moved methods in the new common translation unit. Organize that file and all platform translation units with the repository's class-name block separators. Put namespace-level declarations, callback-frame structs, thread-local variables, and free error helpers before the first separator, and reorder implementation class groups only where needed to keep one class's definitions and methods contiguous without changing behavior.
 
 ### CODE CHANGE
 
-In Tools, deleted `Ubuntu/vl/cmd/vutil_CppDependencies`; removed its invocation from `Ubuntu/vl/vmake-cpp`; removed its copy and permission entries from `Ubuntu/vl/cmd/vgo`; and removed its maintenance documentation. The generated object template now emits `<object>: <source>` while `Ubuntu/vl/makefile-cpp` retains compiler-generated dependency options and inclusion of existing `Obj/*.d` files unchanged. The canonical change was rebased over the concurrent knowledge-base-only update, committed, and pushed as `9f77e5f`.
+Added `Source/InterProcess/AsyncSocket/AsyncSocket.cpp` and moved all method bodies for `IAsyncSocketCallback`, `NetworkProtocolCallbackDomain`, `NetworkProtocolConnectionLifecycle`, and `NetworkProtocolConnection` into it. The new translation unit also owns the three thread-local static-member definitions and the private `InvokeProtocolCallback<TCallback>` definition; every instantiation remains in that translation unit. `AsyncSocket.h` now contains declarations for those non-template classes, while the complete `NetworkProtocolServer<TAsyncSocketServer>` and `NetworkProtocolClient<TAsyncSocketClient>` template regions are unchanged.
 
-Ran the canonical no-argument `vgo uci`. It refreshed Vlpp, VlppOS, VlppRegex, VlppReflection, VlppParser2, Workflow, GacUI, and Release; reported the configured but uncloned VlppParser; and did not target iGac. Deleted the obsolete tracked utility copy from each of the eight refreshed repositories because `vgo uci` intentionally copies its current file list but cannot infer deletions. Regenerated all 25 requested Test/Linux makefiles through their repository-local build wrappers. No release generation, import, non-Test tool build, or iGac file was touched.
+Registered the new common source once in `UnitTest.vcxproj` and its `Common\InterProcess\AsyncSocket` filter. The Linux project generator reads that project entry and removes only `AsyncSocket.Windows.cpp`, so it selects the new common source without hand-editing generated `vmake.txt` or `makefile` files. `Release/CodegenConfig.xml` discovers common `Source` files automatically, so no generated Release source needed modification.
+
+Organized `AsyncSocket.cpp`, `AsyncSocket.Windows.cpp`, `AsyncSocket.Linux.cpp`, and `AsyncSocket.macOS.cpp` with the repository's 72-character class block separators. Namespace-level forward declarations, helper structs, thread-local variables, and free helper functions precede the first class section. Complete implementation classes and their out-of-class methods are grouped together, with only dependency-safe code movement and no behavioral changes.
 
 ### CONFIRMED
 
-The eight propagated `makefile-cpp` and `vmake-cpp` files match canonical Tools byte-for-byte. A live-tree scan across Tools and every propagated `.github/Ubuntu` folder finds zero `vutil_CppDependencies` files and zero references; historical investigation archives remain unchanged. All 25 generated Test/Linux makefiles contain source-only object rules, totaling 3,615 object rules, with no object prerequisite containing `makefile-cpp`.
+Independent structural reviews compared all 35 moved non-template method bodies and four constructor initializer lists with the original header and found them equivalent. The two header-defined template adapter classes are byte-identical to their original regions. Platform code-line audits likewise found the Windows, Linux, and macOS implementation changes limited to separators and dependency-safe reordering. All separators match the existing format, project metadata contains one common-source entry, and `git diff --check` passes.
 
-Clean `build.sh -f` and subsequent plain `build.sh` runs succeeded in all 25 folders in repository dependency order and lexical project order: one each in Vlpp, VlppOS, and VlppRegex; three in VlppReflection; five in VlppParser2; seven in Workflow; and seven in GacUI. Every clean build produced `Obj/*.d` files, with per-project counts from 18 to 431, and every incremental build compiled zero sources. The complete VlppOS UnitTest run also passes 11/11 test files and 118/118 test cases. Tools is clean and synchronized with its remote after publishing, and iGac remains clean and untouched.
-
-Before downstream publication, every repository was rebased over the concurrent documentation-only `Sync copilot context` work. VlppOS's task-log overlap was resolved by retaining the upstream knowledge-base consolidation and restoring only this current investigation; the redundant pre-rebase archive was not reintroduced. Published downstream commits are Vlpp `7e1a9d9`, VlppRegex `b69c9cf`, VlppReflection `8666343`, VlppParser2 `5dbc272b`, Workflow `f942e81f5`, GacUI `5acf3f23f`, and Release `c400b303`.
+The prescribed Debug x64 build of `Test/UnitTest/UnitTest.sln` succeeded with zero warnings and zero errors and explicitly compiled `AsyncSocket.cpp`. The complete configured unit-test run selected `TestInterProcess_AsyncSocket.cpp`, passed 13/13 test files and 125/125 test cases, including all five async-socket scenarios, and appended no Debug memory-leak report. A Linux distribution is not installed in the available WSL environment, so the Linux wrapper could not be run; its authoritative project-selection path was inspected instead and confirms that the new common translation unit is included while the Windows translation unit is intentionally excluded.

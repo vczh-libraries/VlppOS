@@ -28,6 +28,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 	static char connectionQueueKey;
 	static char serverQueueKey;
 
+/***********************************************************************
+NativeConnectionContext
+***********************************************************************/
+
 	class NativeConnectionContext : public Object
 	{
 		friend class ConnectionState;
@@ -44,6 +48,24 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		NativeConnectionContext(Ptr<ConnectionState> _state, nw_connection_t _connection);
 		~NativeConnectionContext();
 	};
+
+	NativeConnectionContext::NativeConnectionContext(Ptr<ConnectionState> _state, nw_connection_t _connection)
+		: state(_state)
+		, connection(_connection)
+	{
+	}
+
+	NativeConnectionContext::~NativeConnectionContext()
+	{
+		if (connection)
+		{
+			nw_release(connection);
+		}
+	}
+
+/***********************************************************************
+ConnectionState
+***********************************************************************/
 
 	class ConnectionState : public Object
 	{
@@ -1168,19 +1190,9 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		}
 	};
 
-	NativeConnectionContext::NativeConnectionContext(Ptr<ConnectionState> _state, nw_connection_t _connection)
-		: state(_state)
-		, connection(_connection)
-	{
-	}
-
-	NativeConnectionContext::~NativeConnectionContext()
-	{
-		if (connection)
-		{
-			nw_release(connection);
-		}
-	}
+/***********************************************************************
+AsyncSocketConnection
+***********************************************************************/
 
 	class AsyncSocketConnection : public Object, public virtual IAsyncSocketConnection
 	{
@@ -1235,6 +1247,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 			state->Stop();
 		}
 	};
+
+/***********************************************************************
+ServerState
+***********************************************************************/
 
 	class ServerState : public Object
 	{
@@ -1559,6 +1575,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		}
 	};
 
+/***********************************************************************
+AsyncSocketServer::Impl
+***********************************************************************/
+
 	class AsyncSocketServer::Impl : public Object
 	{
 	private:
@@ -1592,6 +1612,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 		}
 	};
 
+/***********************************************************************
+AsyncSocketServer
+***********************************************************************/
+
 	AsyncSocketServer::AsyncSocketServer(vint port)
 	{
 		CHECK_ERROR(1 <= port && port <= 65535, L"AsyncSocketServer requires a port in 1..65535.");
@@ -1622,6 +1646,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 	{
 		return impl->IsStopped();
 	}
+
+/***********************************************************************
+AsyncSocketClient::Impl
+***********************************************************************/
 
 	class AsyncSocketClient::Impl : public Object
 	{
@@ -1656,6 +1684,10 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 			return state->GetStatus();
 		}
 	};
+
+/***********************************************************************
+AsyncSocketClient
+***********************************************************************/
 
 	AsyncSocketClient::AsyncSocketClient(vint port)
 	{

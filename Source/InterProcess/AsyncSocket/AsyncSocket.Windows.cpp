@@ -8,14 +8,33 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 
 	class IocpOperation;
 	class IocpRuntime;
-	static thread_local IocpRuntime* currentCompletionRuntime = nullptr;
-	static thread_local IocpRuntime* currentCallbackRuntime = nullptr;
+	class ConnectionState;
+	class AsyncSocketConnection;
 
 	struct NativeOverlapped
 	{
 		OVERLAPPED							overlapped;
 		IocpOperation*					operation = nullptr;
 	};
+
+	struct CallbackFrame
+	{
+		ConnectionState*					connection = nullptr;
+		CallbackFrame*						previous = nullptr;
+	};
+
+	static thread_local IocpRuntime* currentCompletionRuntime = nullptr;
+	static thread_local IocpRuntime* currentCallbackRuntime = nullptr;
+	static thread_local CallbackFrame* currentCallbackFrame = nullptr;
+
+	WString SocketErrorMessage(const wchar_t* operation, DWORD error)
+	{
+		return WString::Unmanaged(operation) + L" failed with Windows error " + itow((vint)error) + L".";
+	}
+
+/***********************************************************************
+IocpOperation
+***********************************************************************/
 
 	class IocpOperation
 	{
@@ -32,6 +51,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		virtual bool Complete(DWORD bytes, DWORD error) = 0;
 		virtual void EndPending() = 0;
 	};
+
+/***********************************************************************
+IocpRuntime
+***********************************************************************/
 
 	class IocpRuntime : public Object
 	{
@@ -258,15 +281,9 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	};
 
-	class ConnectionState;
-
-	struct CallbackFrame
-	{
-		ConnectionState*					connection = nullptr;
-		CallbackFrame*						previous = nullptr;
-	};
-
-	static thread_local CallbackFrame* currentCallbackFrame = nullptr;
+/***********************************************************************
+ReadBlock
+***********************************************************************/
 
 	class ReadBlock : public Object
 	{
@@ -279,7 +296,9 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	};
 
-	class AsyncSocketConnection;
+/***********************************************************************
+ConnectionState
+***********************************************************************/
 
 	class ConnectionState : public Object
 	{
@@ -485,6 +504,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		ClientStatus GetStatus();
 	};
 
+/***********************************************************************
+AsyncSocketConnection
+***********************************************************************/
+
 	class AsyncSocketConnection : public Object, public virtual IAsyncSocketConnection
 	{
 	private:
@@ -529,16 +552,9 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	};
 
-	Ptr<ConnectionState> ConnectionState::Retain()
-	{
-		CHECK_ERROR(owner != nullptr, L"IAsyncSocketConnection lost its canonical state owner.");
-		return owner->GetState();
-	}
-
-	WString SocketErrorMessage(const wchar_t* operation, DWORD error)
-	{
-		return WString::Unmanaged(operation) + L" failed with Windows error " + itow((vint)error) + L".";
-	}
+/***********************************************************************
+ConnectionState::ReadOperation
+***********************************************************************/
 
 	class ConnectionState::ReadOperation : public IocpOperation
 	{
@@ -589,6 +605,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 			connection->EndPending();
 		}
 	};
+
+/***********************************************************************
+ConnectionState::WriteOperation
+***********************************************************************/
 
 	class ConnectionState::WriteOperation : public IocpOperation
 	{
@@ -670,6 +690,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	};
 
+/***********************************************************************
+ConnectionState::ConnectOperation
+***********************************************************************/
+
 	class ConnectionState::ConnectOperation : public IocpOperation
 	{
 	public:
@@ -695,6 +719,16 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 			connection->EndPending();
 		}
 	};
+
+/***********************************************************************
+ConnectionState
+***********************************************************************/
+
+	Ptr<ConnectionState> ConnectionState::Retain()
+	{
+		CHECK_ERROR(owner != nullptr, L"IAsyncSocketConnection lost its canonical state owner.");
+		return owner->GetState();
+	}
 
 	void ConnectionState::InstallCallback(IAsyncSocketCallback* value)
 	{
@@ -1274,6 +1308,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	}
 
+/***********************************************************************
+AsyncSocketServer::Impl
+***********************************************************************/
+
 	class AsyncSocketServer::Impl : public Object
 	{
 	private:
@@ -1629,6 +1667,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		}
 	};
 
+/***********************************************************************
+AsyncSocketServer
+***********************************************************************/
+
 	AsyncSocketServer::AsyncSocketServer(vint port)
 	{
 		CHECK_ERROR(1 <= port && port <= 65535, L"AsyncSocketServer requires a port in 1..65535.");
@@ -1659,6 +1701,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 	{
 		return impl->IsStopped();
 	}
+
+/***********************************************************************
+AsyncSocketClient::Impl
+***********************************************************************/
 
 	class AsyncSocketClient::Impl : public Object
 	{
@@ -1716,6 +1762,10 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 			return state->GetStatus();
 		}
 	};
+
+/***********************************************************************
+AsyncSocketClient
+***********************************************************************/
 
 	AsyncSocketClient::AsyncSocketClient(vint port)
 	{

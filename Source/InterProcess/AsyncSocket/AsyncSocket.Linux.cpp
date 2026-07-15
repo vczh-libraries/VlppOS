@@ -57,6 +57,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 	}
 
+/***********************************************************************
+OwnedFileDescriptor
+***********************************************************************/
+
 	class OwnedFileDescriptor
 	{
 	private:
@@ -88,6 +92,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			return result;
 		}
 	};
+
+/***********************************************************************
+OperationDrain
+***********************************************************************/
 
 	class OperationDrain : public Object
 	{
@@ -135,6 +143,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 	};
 
+/***********************************************************************
+RingOperationOwner
+***********************************************************************/
+
 	class RingOperationOwner : public Object
 	{
 		friend class RingRuntime;
@@ -149,6 +161,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		virtual void EndTargetOperation() = 0;
 		virtual void HandleOperationFailure(Ptr<RingOperationOwner> retainedOwner) = 0;
 	};
+
+/***********************************************************************
+RingOperation
+***********************************************************************/
 
 	class RingOperation
 	{
@@ -171,6 +187,32 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		virtual void Prepare(io_uring_sqe* sqe) noexcept = 0;
 		virtual void Handle(vint result) = 0;
 	};
+
+/***********************************************************************
+RuntimeWakeOperation
+***********************************************************************/
+
+	class RuntimeWakeOperation : public RingOperation
+	{
+	public:
+		RuntimeWakeOperation(vuint64_t id)
+			: RingOperation(id)
+		{
+		}
+
+		void Prepare(io_uring_sqe* sqe) noexcept override
+		{
+			io_uring_prep_nop(sqe);
+		}
+
+		void Handle(vint) override
+		{
+		}
+	};
+
+/***********************************************************************
+RingRuntime
+***********************************************************************/
 
 	class RingRuntime : public Object
 	{
@@ -493,24 +535,6 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		void Stop();
 	};
 
-	class RuntimeWakeOperation : public RingOperation
-	{
-	public:
-		RuntimeWakeOperation(vuint64_t id)
-			: RingOperation(id)
-		{
-		}
-
-		void Prepare(io_uring_sqe* sqe) noexcept override
-		{
-			io_uring_prep_nop(sqe);
-		}
-
-		void Handle(vint) override
-		{
-		}
-	};
-
 	void RingRuntime::Stop()
 	{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::RingRuntime::Stop()#"
@@ -572,6 +596,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 #undef ERROR_MESSAGE_PREFIX
 	}
+
+/***********************************************************************
+ConnectionState
+***********************************************************************/
 
 	class ConnectionState : public RingOperationOwner
 	{
@@ -768,44 +796,9 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		ClientStatus GetStatus();
 	};
 
-	class AsyncSocketConnection : public Object, public virtual IAsyncSocketConnection
-	{
-	private:
-		Ptr<ConnectionState>					state;
-
-	public:
-		AsyncSocketConnection(Ptr<ConnectionState> _state)
-			: state(_state)
-		{
-			state->owner = this;
-		}
-
-		~AsyncSocketConnection()
-		{
-			state->Stop(state);
-			state->owner = nullptr;
-		}
-
-		void InstallCallback(IAsyncSocketCallback* callback) override
-		{
-			state->InstallCallback(state, callback);
-		}
-
-		void BeginReadingLoopUnsafe() override
-		{
-			state->BeginReading(state);
-		}
-
-		void WriteAsync(Ptr<AsyncSocketBuffer> buffer) override
-		{
-			state->Write(state, buffer);
-		}
-
-		void Stop() override
-		{
-			state->Stop(state);
-		}
-	};
+/***********************************************************************
+ConnectionState::CancelOperation
+***********************************************************************/
 
 	class ConnectionState::CancelOperation : public RingOperation
 	{
@@ -832,6 +825,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			}
 		}
 	};
+
+/***********************************************************************
+ConnectionState::ReceiveOperation
+***********************************************************************/
 
 	class ConnectionState::ReceiveOperation : public RingOperation
 	{
@@ -892,6 +889,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			}
 		}
 	};
+
+/***********************************************************************
+ConnectionState::WriteOperation
+***********************************************************************/
 
 	class ConnectionState::WriteOperation : public RingOperation
 	{
@@ -1046,6 +1047,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 	};
 
+/***********************************************************************
+ConnectionState::ConnectOperation
+***********************************************************************/
+
 	class ConnectionState::ConnectOperation : public RingOperation
 	{
 	public:
@@ -1120,6 +1125,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 	};
 
+/***********************************************************************
+ConnectionState::RetryOperation
+***********************************************************************/
+
 	class ConnectionState::RetryOperation : public RingOperation
 	{
 	public:
@@ -1166,6 +1175,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			}
 		}
 	};
+
+/***********************************************************************
+ConnectionState
+***********************************************************************/
 
 	void ConnectionState::InstallCallback(Ptr<ConnectionState>, IAsyncSocketCallback* value)
 	{
@@ -1584,6 +1597,53 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		return result;
 	}
 
+/***********************************************************************
+AsyncSocketConnection
+***********************************************************************/
+
+	class AsyncSocketConnection : public Object, public virtual IAsyncSocketConnection
+	{
+	private:
+		Ptr<ConnectionState>					state;
+
+	public:
+		AsyncSocketConnection(Ptr<ConnectionState> _state)
+			: state(_state)
+		{
+			state->owner = this;
+		}
+
+		~AsyncSocketConnection()
+		{
+			state->Stop(state);
+			state->owner = nullptr;
+		}
+
+		void InstallCallback(IAsyncSocketCallback* callback) override
+		{
+			state->InstallCallback(state, callback);
+		}
+
+		void BeginReadingLoopUnsafe() override
+		{
+			state->BeginReading(state);
+		}
+
+		void WriteAsync(Ptr<AsyncSocketBuffer> buffer) override
+		{
+			state->Write(state, buffer);
+		}
+
+		void Stop() override
+		{
+			state->Stop(state);
+		}
+	};
+
+/***********************************************************************
+ServerState
+***********************************************************************/
+
 	class ServerState : public RingOperationOwner
 	{
 	private:
@@ -1728,6 +1788,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		bool IsStopped();
 	};
 
+/***********************************************************************
+ServerState::CancelOperation
+***********************************************************************/
+
 	class ServerState::CancelOperation : public RingOperation
 	{
 	public:
@@ -1753,6 +1817,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			}
 		}
 	};
+
+/***********************************************************************
+ServerState::AcceptOperation
+***********************************************************************/
 
 	class ServerState::AcceptOperation : public RingOperation
 	{
@@ -1874,6 +1942,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			}
 		}
 	};
+
+/***********************************************************************
+ServerState
+***********************************************************************/
 
 	bool ServerState::PostAccept(Ptr<ServerState> retainedState)
 	{
@@ -2085,6 +2157,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		return result;
 	}
 
+/***********************************************************************
+AsyncSocketServer::Impl
+***********************************************************************/
+
 	class AsyncSocketServer::Impl : public Object
 	{
 	private:
@@ -2119,6 +2195,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 		}
 	};
 
+/***********************************************************************
+AsyncSocketServer
+***********************************************************************/
+
 	AsyncSocketServer::AsyncSocketServer(vint port)
 	{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::AsyncSocketServer::AsyncSocketServer(vint)#"
@@ -2151,6 +2231,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 	{
 		return impl->IsStopped();
 	}
+
+/***********************************************************************
+AsyncSocketClient::Impl
+***********************************************************************/
 
 	class AsyncSocketClient::Impl : public Object
 	{
@@ -2193,6 +2277,10 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			return state->GetStatus();
 		}
 	};
+
+/***********************************************************************
+AsyncSocketClient
+***********************************************************************/
 
 	AsyncSocketClient::AsyncSocketClient(vint port)
 	{
