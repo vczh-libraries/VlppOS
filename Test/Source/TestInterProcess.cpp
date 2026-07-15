@@ -234,7 +234,8 @@ namespace mynamespace
 
 	void RunTextNetworkProtocol(
 		Func<Ptr<INetworkProtocolServer>(ChatData&)> createServer,
-		Func<Ptr<INetworkProtocolClient>()> createClient
+		Func<Ptr<INetworkProtocolClient>()> createClient,
+		bool synchronizeServerStartup = false
 		)
 	{
 		/*
@@ -249,12 +250,21 @@ namespace mynamespace
 		*/
 		auto timeoutThread = Ptr(new TimeoutThread);
 		ChatData chatData;
+		EventObject eventServerStarted;
+		if (synchronizeServerStartup)
+		{
+			CHECK_ERROR(eventServerStarted.CreateManualUnsignal(false), L"Failed to create the server-started event.");
+		}
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
 				auto server = createServer(chatData);
 				server->Start();
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Signal(), L"Failed to signal the server-started event.");
+				}
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
 				chatData.eventServer.Wait();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before Stop.");
@@ -267,6 +277,10 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Wait(), L"Failed to wait for the server-started event.");
+				}
 				TomCallback callback(chatData);
 				auto client = createClient();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Ready, L"Client should be ready before connecting.");
@@ -286,6 +300,10 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Wait(), L"Failed to wait for the server-started event.");
+				}
 				JerryCallback callback(chatData);
 				auto client = createClient();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Ready, L"Client should be ready before connecting.");
@@ -708,17 +726,27 @@ namespace mynamespace
 
 	void RunNetworkProtocolChannel(
 		Func<Ptr<IChannelServer<WString>>(ChannelChatData&)> createServer,
-		Func<Ptr<INetworkProtocolClient>()> createClient
+		Func<Ptr<INetworkProtocolClient>()> createClient,
+		bool synchronizeServerStartup = false
 		)
 	{
 		auto timeoutThread = Ptr(new TimeoutThread);
 		ChannelChatData chatData;
+		EventObject eventServerStarted;
+		if (synchronizeServerStartup)
+		{
+			CHECK_ERROR(eventServerStarted.CreateManualUnsignal(false), L"Failed to create the server-started event.");
+		}
 
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
 				auto server = createServer(chatData);
 				server->Start();
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Signal(), L"Failed to signal the server-started event.");
+				}
 				chatData.eventClientsConnected.Wait();
 				vint clientId1 = -1;
 				vint clientId2 = -1;
@@ -742,6 +770,10 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Wait(), L"Failed to wait for the server-started event.");
+				}
 				auto client = Ptr(new TomChannelClient(createClient(), chatData));
 				client->WaitForServer();
 				chatData.eventTom.Wait();
@@ -752,6 +784,10 @@ namespace mynamespace
 		ThreadPoolLite::QueueLambda([&]()
 		{
 			{
+				if (synchronizeServerStartup)
+				{
+					CHECK_ERROR(eventServerStarted.Wait(), L"Failed to wait for the server-started event.");
+				}
 				auto client = Ptr(new JerryChannelClient(createClient(), chatData));
 				client->WaitForServer();
 				chatData.eventJerry.Wait();
@@ -863,7 +899,7 @@ namespace mynamespace
 }
 
 template<typename TAsyncSocketServer, typename TAsyncSocketClient>
-void RunAsyncSocketNetworkProtocolTestCases()
+void RunAsyncSocketNetworkProtocolTestCases(bool synchronizeServerStartup)
 {
 	TEST_CASE(L"AsyncSocket (NetworkProtocol)")
 	{
@@ -872,7 +908,8 @@ void RunAsyncSocketNetworkProtocolTestCases()
 			const vint port = 38500 + i;
 			RunTextNetworkProtocol(
 				[port](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new AsyncSocketTextServer<TAsyncSocketServer>(chatData, port)); },
-				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); },
+				synchronizeServerStartup
 			);
 		}
 	});
@@ -884,7 +921,8 @@ void RunAsyncSocketNetworkProtocolTestCases()
 			const vint port = 38600 + i;
 			RunNetworkProtocolChannel(
 				[port](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new AsyncSocketChannelServer<TAsyncSocketServer>(chatData, port)); },
-				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); }
+				[port]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>(port)); },
+				synchronizeServerStartup
 			);
 		}
 	});
@@ -937,7 +975,7 @@ TEST_FILE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::windows_socket::AsyncSocketServer,
 		async_tcp_socket::windows_socket::AsyncSocketClient
-	>();
+	>(true);
 
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
@@ -986,11 +1024,11 @@ TEST_FILE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::macos_socket::AsyncSocketServer,
 		async_tcp_socket::macos_socket::AsyncSocketClient
-	>();
+	>(false);
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::linux_socket::AsyncSocketServer,
 		async_tcp_socket::linux_socket::AsyncSocketClient
-	>();
+	>(false);
 #endif
 }
