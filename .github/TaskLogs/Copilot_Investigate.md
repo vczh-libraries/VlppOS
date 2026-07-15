@@ -159,3 +159,22 @@ The slow interval was directly identified with temporary instrumentation:
 The problem and root cause are confirmed: the shared protocol scenarios intentionally queue server and client work together, but on Windows the async clients consistently post `ConnectEx` just before the listener is ready. The connect remains one pending attempt and succeeds only after the approximately 500 ms TCP retransmission, accumulating about ten seconds over 20 repetitions. The existing dedicated `TestInterProcess_AsyncSocket.cpp` suite separately and deterministically covers the client-before-server retry behavior, so the protocol tests do not need this accidental startup race in order to preserve retry coverage.
 
 # PROPOSALS
+
+- No.1 Synchronize Windows protocol clients with listener startup
+
+## No.1 Synchronize Windows protocol clients with listener startup
+
+The shared protocol scenarios are intended to verify framing, callbacks, channel routing, consecutive sends, and shutdown behavior. They should not also depend on the nondeterministic order in which three thread-pool tasks first run. On Windows that incidental ordering posts both clients just before `listen`, causing the measured half-second pending connection without exercising the library's explicit retry path.
+
+Add an opt-in startup barrier to the two shared scenario runners. Each invocation will own a manual-reset event. The server task will signal it immediately after `server->Start()` returns, and client tasks will wait for it before constructing their clients when synchronization is requested. `RunAsyncSocketNetworkProtocolTestCases` will forward the option, and only the Windows async-socket registration will enable it. NamedPipe, HTTP, Linux, and macOS behavior will remain unchanged.
+
+This is deliberately a test-scenario correction rather than a production socket change. Enabling `TCP_NODELAY` cannot improve the measured pre-connection wait, and changing retry timing would hide the operating-system retransmission delay instead of removing the accidental race. The native async-socket suite's deterministic `RunRetryThenConnect` coverage will continue to create the client before the server and therefore remains responsible for startup-retry behavior.
+
+The synchronization leaves `InterProcessTestRepeatCount == 20`, all consecutive sends, the one-outstanding-write contract, framing, callback ordering, and drain/shutdown checks intact. It adds no sleep, timeout increase, wall-clock assertion, or skipped case.
+
+### CODE CHANGE
+
+- Extend `RunTextNetworkProtocol` and `RunNetworkProtocolChannel` with an optional `synchronizeServerStartup` argument.
+- Create a per-scenario manual-reset event, signal it immediately after the server has started, and conditionally wait in both client tasks before client construction.
+- Forward the option through `RunAsyncSocketNetworkProtocolTestCases`; pass `true` only for the MSVC/Windows async-socket test registration and `false` for macOS and Linux.
+- Do not change production async-socket code or the dedicated native retry test.
