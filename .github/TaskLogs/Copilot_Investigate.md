@@ -160,7 +160,7 @@ The problem and root cause are confirmed: the shared protocol scenarios intentio
 
 # PROPOSALS
 
-- No.1 Synchronize Windows protocol clients with listener startup
+- No.1 Synchronize Windows protocol clients with listener startup [CONFIRMED]
 
 ## No.1 Synchronize Windows protocol clients with listener startup
 
@@ -175,6 +175,26 @@ The synchronization leaves `InterProcessTestRepeatCount == 20`, all consecutive 
 ### CODE CHANGE
 
 - Extend `RunTextNetworkProtocol` and `RunNetworkProtocolChannel` with an optional `synchronizeServerStartup` argument.
-- Create a per-scenario manual-reset event, signal it immediately after the server has started, and conditionally wait in both client tasks before client construction.
+- When synchronization is enabled, create a per-scenario manual-reset event, check its creation, signal it immediately after the server has started, and conditionally wait in both client tasks before client construction. Check every signal and wait so a barrier failure cannot silently restore the race.
 - Forward the option through `RunAsyncSocketNetworkProtocolTestCases`; pass `true` only for the MSVC/Windows async-socket test registration and `false` for macOS and Linux.
 - Do not change production async-socket code or the dedicated native retry test.
+
+### CONFIRMED
+
+The proposal removes the exact measured wait without changing socket behavior. With temporary case timers under the same Debug x64 build, file filter, machine, and 20 repetitions, three consecutive focused runs measured:
+
+- `AsyncSocket (NetworkProtocol)`: 50 ms, 51 ms, and 47 ms, down from 10,259 ms.
+- `AsyncSocket (Channel)`: 63 ms, 57 ms, and 56 ms, down from 10,313 ms.
+
+Both cases improved by more than 99.4%. Each entire 20-repetition case now finishes in less than 100 ms, which also proves the corrected path does not contain even one unnecessary 100 ms library retry or one-second write-drain timeout. The temporary timing output was removed, while the deterministic startup barrier remains as behavior-based coverage.
+
+The server's `Start()` call establishes the listener synchronously before the event is signaled, and both clients wait before their constructors can post `ConnectEx`. A manual-reset event releases both clients. The option is enabled only by the Windows async-socket registration; NamedPipe and HTTP keep the shared runner's default behavior, while the Linux and macOS registrations explicitly pass `false`. The dedicated native `AsyncSocket retry then connect` case still starts its client before the server and therefore continues to cover retry behavior.
+
+Verification through the repository scripts succeeded:
+
+- The lasting focused Debug x64 `TestInterProcess.cpp` run passed 7/7 cases with no CRT leak report.
+- The Debug x64 native async-socket run passed 5/5 cases, including retry-then-connect and stop-during-retry.
+- The complete Debug x64 suite passed 125/125 cases across 13/13 files with no CRT leak report.
+- Debug x64, Release x64, Debug Win32, and Release Win32 all built successfully. The final result for every configuration was zero warnings and zero errors. Release x64 first encountered a Visual C++ incremental-LTCG/PDB internal linker failure after earlier `LNK4209` corrupt-debug-information warnings; a clean rebuild through the same repository script succeeded with zero warnings and zero errors, confirming this was stale toolchain state rather than a source failure.
+
+Code review confirmed that `AsyncSocketServer::Start()` reaches `listen` and posts the initial accept synchronously, that the event and forwarded boolean lifetimes cover all queued tasks, and that the manual-reset event is appropriate for two waiters. The review's only hardening request—checking signal and wait results—was applied and followed by another complete suite run and all four configuration builds.
