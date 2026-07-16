@@ -18,7 +18,7 @@ The clean Ubuntu build at source commit `aff9572` succeeded. The first focused `
 
 # PROPOSALS
 
-- No.1 Synchronize Linux shared protocol startup
+- No.1 Synchronize Linux shared protocol startup [DENIED]
 
 ## No.1 Synchronize Linux shared protocol startup
 
@@ -31,3 +31,9 @@ The captured deadlock proves that failure unwinding destroys conversation events
 ### CODE CHANGE
 
 Change only the argument in the `VCZH_GCC && !VCZH_APPLE` registration in `Test/Source/TestInterProcess.cpp` from `false` to `true`. This changes Ubuntu behavior only: the existing barrier becomes active for `AsyncSocket (NetworkProtocol)` and `AsyncSocket (Channel)`, while Windows, macOS, all scenario repetitions and assertions, and the dedicated Linux retry and cancellation tests remain unchanged.
+
+### DENIED
+
+The incremental build succeeded and the first focused `TestInterProcess.cpp` run passed 1/1 file and 3/3 cases. The second focused run exceeded the 60-second boundary with its last flushed case at `AsyncSocket (NetworkProtocol)`, exactly as the original hard failure did. The listener-start barrier removes a real incidental retry but does not remove the frequent Linux failure, so it is insufficient as the fix and the source experiment was reverted.
+
+The captured Channel trace also proves an independent post-connect ordering defect: Tom can receive the client-id announcement and send `Hello` before the server has submitted Jerry's client-id announcement. Jerry then treats the early `Hello` as the id package, throws, loses the message, and leaves all three tasks waiting. This occurs after both clients connected, so listener startup synchronization cannot fix it.
