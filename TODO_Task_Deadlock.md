@@ -60,3 +60,63 @@ If a future run times out:
 - Nested callback `Stop` remains non-self-waiting, while external `Stop` remains a hard drain boundary.
 - No callback, Network.framework completion, retry timer, local dispatch task, HTTP timeout, or shared-server finalizer can touch released state after `Stop` returns.
 - Thirty complete macOS runs finish with all 13 files and 167 cases passing and with no timeout during `FinalizeGlobalStorage()`.
+
+## Windows
+
+### Reproduction method
+
+Build `Test/UnitTest/UnitTest.sln` as Debug x64 with `.github/Scripts/copilotBuild.ps1`, then run the complete UnitTest suite as 30 independent sequential processes:
+
+- execute `.github/Scripts/copilotExecute.ps1 -Mode UnitTest -Executable UnitTest` from `Test/UnitTest`;
+- leave `Test/UnitTest/UnitTest/UnitTest.vcxproj.user` without a file filter so all registered test files run;
+- allow 45 seconds per process because the observed complete-suite duration is 20.6 to 21.3 seconds;
+- treat a process that exceeds 45 seconds as a deadlock candidate, preserve `Execute.log.unfinished`, and terminate only the UnitTest process from this workspace;
+- distinguish a timeout from a test failure, an incomplete test summary, a crash, and a Debug memory-leak dump appended after the pass summaries.
+
+The wrapper runs the test executable with `/C` and a dedicated `/DebugOutput` file. The unit-test framework prints each file and case before invoking it, so the last line of an unfinished log would identify the test active at the last output. This is a localization clue rather than proof of causation; blocked thread stacks are still required. A completed run must contain both pass summaries and no appended `Detected memory leaks!` report.
+
+### Result: not reproduced
+
+All 30 runs exited successfully. Every run reported:
+
+- `Passed test files: 15/15`
+- `Passed test cases: 181/181`
+- no Debug memory-leak dump
+
+There were zero timeouts, zero incomplete summaries, zero crashes, and therefore zero captured deadlocks. Every one of the 181 test cases completed 30 times, so no individual Windows test caused a deadlock in this sample. The count is 30 runs with no deadlock and 0 runs attributed to any test.
+
+This result does not prove that a lower-probability race is impossible, but it provides no evidence for assigning a Windows root cause or changing production synchronization.
+
+### Analysis
+
+No wait cycle was captured, so there is no confirmed Windows deadlock to analyze. The 45-second boundary is more than twice the slowest observed successful run, and all runs stayed in the narrow 20.6-to-21.3-second range; none was merely slow or close to the boundary.
+
+A future timeout must be classified from the unfinished log and blocked thread stacks before changing code:
+
+- for a timeout before the pass summaries, begin investigation at the last flushed test case, but do not attribute causation from its name alone;
+- a timeout after both pass summaries belongs to final cleanup such as `FinalizeGlobalStorage()` or memory-leak reporting;
+- a thread waiting for callback drain is not sufficient evidence by itself; the captured stacks must also identify the callback, stop owner, lock, event, or completion transition that prevents the drain from finishing;
+- a bounded wait or retry that eventually completes is not a deadlock.
+
+Without the two sides of a stable wait cycle, adding sleeps or timeouts, skipping callback drains, or weakening `Stop()` could hide a use-after-free instead of fixing a deadlock.
+
+### Proposed action
+
+No Windows production fix is proposed from this 30-run result. Keep the current shutdown and callback-drain guarantees unchanged.
+
+If a future Windows run exceeds the boundary:
+
+1. Preserve `Execute.log.unfinished` and determine whether the last flushed test began but did not return, or whether all tests returned and final cleanup hung.
+2. Attach the debugger before terminating the process and capture every thread's stack, including callback and stop-owner threads.
+3. Record the exact circular wait and the state transition, counter, lock, event, or callback ownership that cannot complete.
+4. Fix the owner of that transition so external `Stop()` remains a hard drain boundary while a callback never waits for itself.
+5. Add a deterministic regression using events or barriers to force the confirmed ordering; do not use a timing-only assertion.
+6. Run the focused regression and then the complete Debug x64 suite 30 times with memory-leak checking enabled.
+
+### Acceptance criteria for any future Windows fix
+
+- Pre-fix debugger stacks demonstrate a specific circular wait rather than ordinary bounded work.
+- A deterministic regression fails on the broken ownership order and passes after the fix.
+- Reentrant callback shutdown does not self-wait, while external shutdown still drains all accepted callbacks before returning.
+- No callback, overlapped operation, socket completion, HTTP timeout, registered wait, or finalizer can touch released state after `Stop()` returns.
+- Thirty complete Windows runs finish with all 15 files and 181 cases passing, no timeout during final cleanup, and no Debug memory-leak dump.
