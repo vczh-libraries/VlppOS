@@ -16,12 +16,27 @@ Success requires fixing the Linux-specific declaration/definition ordering witho
 
 # PROPOSALS
 
-- No.1 Store the Linux callback owner through its interface
+- No.1 Store the Linux callback owner through its interface [CONFIRMED]
 
-## No.1 Store the Linux callback owner through its interface
+## No.1 Store the Linux callback owner through its interface [CONFIRMED]
 
 `ConnectionState` needs the owner only to test whether it is attached and to supply the public `IAsyncSocketConnection*` argument to `IAsyncSocketConnectionCallback::OnInstalled`. Change the Linux-only `owner` field from `AsyncSocketConnection*` to `IAsyncSocketConnection*`, matching the macOS implementation. Assignment from `this` remains at the later concrete wrapper definition, where its inheritance is complete, while the earlier callback-installation definition no longer needs a derived-to-base conversion from an incomplete class.
 
 This fixes the issue at the state that owns the callback contract, without a cast, declaration reordering, common-code change, test change, or modification to another platform.
 
 ### CODE CHANGE
+
+Changed only `Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp`: `ConnectionState::owner` now has type `IAsyncSocketConnection*` instead of `AsyncSocketConnection*`. No shared HTTP code, test code, public header, other platform implementation, or generated Linux build artifact changed.
+
+### CONFIRMED
+
+The change removes the incomplete-class conversion at `IAsyncSocketConnectionCallback::OnInstalled`, and both incremental and clean full Linux builds compile and link successfully through `.github/Ubuntu/build.sh`.
+
+Runtime verification from `Test/Linux` passes:
+
+- `TestInterProcess_AsyncSocket.cpp`: 1/1 file and 5/5 cases;
+- `TestInterProcess_HttpRequest.cpp`: 1/1 file and 29/29 cases;
+- `TestInterProcess.cpp`: 1/1 file and 3/3 cases, including the async-socket NetworkProtocol and Channel regressions;
+- complete unfiltered suite after a clean full rebuild: 12/12 files and 147/147 cases.
+
+Review confirms the interface pointer is sufficient for every use and matches the macOS ownership representation. The new common HTTP sources, Linux platform guards and binding, and generated source registration compile without further changes. The proposal fixes the only reproduced Linux break while preserving the already-passing cross-platform implementation and test code.
