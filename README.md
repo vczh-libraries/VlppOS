@@ -22,4 +22,4 @@ For **VlppOS**: click [here](http://vczh-libraries.github.io/doc/current/vlppos/
 
 For **Windows**, open `Test/UnitTest/UnitTest.sln`, and run the `UnitTest` project.
 
-For **Linux**, use `Test/Linux/makefile` to build and run the unit test project.
+For **Linux**, use `Test/Linux/UnitTest/makefile` to build and run the unit test project.

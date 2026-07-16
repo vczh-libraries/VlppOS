@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title id="page-title">MiniHttpServer Website</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <main id="page-content">
+    <h1 id="page-heading">MiniHttpServer Browser Test</h1>
+    <p id="initial-content">Initial website content is ready.</p>
+
+    <img
+      id="fixture-image"
+      src="image.svg"
+      width="240"
+      height="120"
+      alt="Deterministic MiniHttpServer SVG">
+
+    <section id="status-panel" aria-label="Browser test status">
+      <p id="module-status" aria-live="polite">Module status: waiting for Assets.</p>
+      <p id="fetch-status" aria-live="polite">Fetch status: waiting for Assets.</p>
+      <p id="button-status" aria-live="polite">Button status: not clicked.</p>
+      <button id="action-button" type="button">Run deterministic action</button>
+    </section>
+
+    <p><a id="second-link" href="second.html">Open the second page</a></p>
+  </main>
+
+  <script type="module" src="http://localhost:8889/Assets/app.js"></script>
+</body>
+</html>

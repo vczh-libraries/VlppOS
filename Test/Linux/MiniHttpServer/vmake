@@ -1,0 +1,15 @@
+<#
+CPP_TARGET=./Bin/MiniHttpServer
+CPP_VCXPROJ=../../UnitTest/MiniHttpServer/MiniHttpServer.vcxproj
+CPP_REMOVES=(
+    "../../../Import/Vlpp.Windows.cpp"
+    "../../../Source/FileSystem.Windows.cpp"
+    "../../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.cpp"
+    "../../../Source/Locale.Windows.cpp"
+    "../../../Source/Threading.Windows.cpp"
+    "../../../Source/Encoding/CharFormat/CharFormat.Windows.cpp"
+    )
+TARGETS=("${CPP_TARGET}")
+CPP_COMPILE_OPTIONS="-I ../../../Import"
+#>
+<#@ include "${VCPROOT}/vl/vmake-cpp" #>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120" role="img" aria-labelledby="title description">
+  <title id="title">MiniHttpServer deterministic image</title>
+  <desc id="description">A blue server shape connected to a green browser shape.</desc>
+  <rect width="240" height="120" fill="#e8f2ff"/>
+  <rect x="24" y="25" width="72" height="70" rx="8" fill="#1e63b4"/>
+  <circle cx="42" cy="45" r="5" fill="#ffffff"/>
+  <circle cx="42" cy="60" r="5" fill="#ffffff"/>
+  <circle cx="42" cy="75" r="5" fill="#ffffff"/>
+  <path d="M104 60 H136" stroke="#184078" stroke-width="6"/>
+  <path d="M128 50 L140 60 L128 70" fill="none" stroke="#184078" stroke-width="6"/>
+  <rect x="144" y="25" width="72" height="70" rx="8" fill="#147d5a"/>
+  <rect x="154" y="39" width="52" height="42" rx="3" fill="#ffffff"/>
+  <circle cx="160" cy="32" r="3" fill="#ffffff"/>
+</svg>

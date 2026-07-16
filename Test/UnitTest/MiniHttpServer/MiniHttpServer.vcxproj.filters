@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Common">
+      <UniqueIdentifier>{a0063a3f-fb90-4cc0-8369-26646e7eadf7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\Stream">
+      <UniqueIdentifier>{746901f8-38ae-4ba3-9387-83468fc5559b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Import">
+      <UniqueIdentifier>{f2b75d6f-510b-43a2-a249-bf08fc5e8147}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\Encoding">
+      <UniqueIdentifier>{2b7c4044-fe5b-4999-9e23-0b399a59e43e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\Encoding\CharFormat">
+      <UniqueIdentifier>{9b8e7dd7-d560-48af-92fe-eae76a82879c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\InterProcess">
+      <UniqueIdentifier>{25f0da09-91c8-4737-9a1d-0311cfbb97a9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\InterProcess\AsyncSocket">
+      <UniqueIdentifier>{d610e778-80f6-44fc-8c8d-306cf94a18d2}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.Linux.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.Injectable.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Locale.Windows.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.Windows.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\Accessor.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\EncodingStream.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\FileStream.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\MemoryStream.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Stream\MemoryWrapperStream.cpp">
+      <Filter>Common\Stream</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\Encoding.cpp">
+      <Filter>Common\Encoding</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Linux.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.Windows.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\MbcsEncoding.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Encoding\CharFormat\UtfEncoding.cpp">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\Import\Vlpp.h">
+      <Filter>Import</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\FileSystem.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Locale.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Threading.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\Accessor.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\EncodingStream.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\FileStream.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\Interfaces.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\MemoryStream.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Stream\MemoryWrapperStream.h">
+      <Filter>Common\Stream</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\Encoding.h">
+      <Filter>Common\Encoding</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\BomEncoding.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\CharFormat.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\MbcsEncoding.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Encoding\CharFormat\UtfEncoding.h">
+      <Filter>Common\Encoding\CharFormat</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\Channel.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocol.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\HttpRequest.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Windows.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\MiniHttpServer\Website\index.html">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Website\second.html">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Website\site.css">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Website\image.svg">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Assets\index.html">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Assets\app.js">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\..\MiniHttpServer\Assets\message.json">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
+</Project>
