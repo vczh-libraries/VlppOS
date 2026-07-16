@@ -17,3 +17,17 @@ The fix is accepted only when the focused inter-process tests pass, one complete
 The clean Ubuntu build at source commit `aff9572` succeeded. The first focused `Bin/UnitTest /C /F:TestInterProcess.cpp` process then exceeded the 60-second boundary with its last flushed case at `AsyncSocket (NetworkProtocol)`. It produced neither an assertion diagnostic nor pass summaries before exit code 124. This reproduces the hard failure on the unchanged current source with a boundary more than four times the normal complete-suite duration.
 
 # PROPOSALS
+
+- No.1 Synchronize Linux shared protocol startup
+
+## No.1 Synchronize Linux shared protocol startup
+
+The protocol and channel scenarios test framing, routing, sender ids, repeated exchanges, and hard shutdown. They are not the owner of client-before-server retry coverage. Both shared runners already accept `synchronizeServerStartup`; when enabled, the two client tasks wait on a manual-reset event that the server task signals only after `server->Start()` returns. Windows enables this barrier, while the Linux-only `VCZH_GCC && !VCZH_APPLE` binding currently disables it.
+
+On Linux, `ServerState::Start` does not return until `socket`, `bind`, `listen`, the listener `RingRuntime`, and the first submitted accept operation are ready. Releasing the clients at that boundary therefore removes the incidental listener race. This matters particularly on Linux because each server and client eagerly constructs and probes its own 1024-entry `io_uring` and starts a completion worker, so three runtime startups compete with the test's five-second scenario watchdog when the clients are allowed to run first.
+
+The captured deadlock proves that failure unwinding destroys conversation events while worker tasks still wait on them; it does not prove a production `io_uring` ownership cycle. Do not change Linux connection retry, callback draining, or `Stop()` without such evidence. The shared native test file already contains `AsyncSocket retry then connect` and `AsyncSocket Stop during retry`, which intentionally start a Linux client without a ready server and remain unchanged.
+
+### CODE CHANGE
+
+Change only the argument in the `VCZH_GCC && !VCZH_APPLE` registration in `Test/Source/TestInterProcess.cpp` from `false` to `true`. This changes Ubuntu behavior only: the existing barrier becomes active for `AsyncSocket (NetworkProtocol)` and `AsyncSocket (Channel)`, while Windows, macOS, all scenario repetitions and assertions, and the dedicated Linux retry and cancellation tests remain unchanged.
