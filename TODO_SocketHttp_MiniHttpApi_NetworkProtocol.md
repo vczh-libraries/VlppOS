@@ -1,4 +1,4 @@
-# INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)
+# INetworkProtocol(Server|Client) based on SocketHttp(Server|Client)Api
 
 Implementations in `AsyncSocket/AsyncSocket_Http(Server|Client).(h|cpp)`
 Using namespace `vl::inter_process::async_tcp_socket`
@@ -161,7 +161,7 @@ Access-Control-Allow-Headers: Content-Type
 
 ### Sources of Truth
 
-- Route constants and intent: [NetworkProtocol.Windows.h](Source/InterProcess/Windows/NetworkProtocol.Windows.h)
+- Route constants and intent: future `Source/InterProcess/NetworkProtocolHttp.h` after the common MiniHttp refactor in [TODO_Task_MiniHttpApi.md](./TODO_Task_MiniHttpApi.md)
 - Windows client state machine, validation and retries: [HttpClient.Windows.cpp](Source/InterProcess/Windows/HttpClient.Windows.cpp)
 - Windows server routing, queues and piggybacking: [HttpServer.Windows.cpp](Source/InterProcess/Windows/HttpServer.Windows.cpp)
 - Windows HTTP body and response helpers: [HttpClientApi.Windows.cpp](Source/InterProcess/Windows/HttpClientApi.Windows.cpp) and [HttpServerApi.Windows.cpp](Source/InterProcess/Windows/HttpServerApi.Windows.cpp)
