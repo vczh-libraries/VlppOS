@@ -19,7 +19,7 @@ The clean Ubuntu build at source commit `aff9572` succeeded. The first focused `
 # PROPOSALS
 
 - No.1 Synchronize Linux shared protocol startup [DENIED]
-- No.2 Restore SpinLock exclusion and order the channel handshake
+- No.2 Restore SpinLock exclusion and order the protocol scenarios [CONFIRMED]
 
 ## No.1 Synchronize Linux shared protocol startup
 
@@ -39,7 +39,7 @@ The incremental build succeeded and the first focused `TestInterProcess.cpp` run
 
 The captured Channel trace also proves an independent post-connect ordering defect: Tom can receive the client-id announcement and send `Hello` before the server has submitted Jerry's client-id announcement. Jerry then treats the early `Hello` as the id package, throws, loses the message, and leaves all three tasks waiting. This occurs after both clients connected, so listener startup synchronization cannot fix it.
 
-## No.2 Restore SpinLock exclusion and order the channel handshake
+## No.2 Restore SpinLock exclusion and order the protocol scenarios
 
 A parent-launched `strace -ff -k` run with Proposal No.1 active disproved the remaining listener-start hypothesis. All `io_uring_setup(1024)` and probe calls completed, but in protocol iteration five two different ThreadPool workers simultaneously executed the server lambda and constructed listeners for port 38504. Both reached `bind`; one reached `listen` first and the other failed with `EADDRINUSE`. The failing worker threw before incrementing the scenario completion counter, the ThreadPool suppressed the exception, and the remaining tasks waited until the watchdog failure began the previously captured teardown deadlock.
 
@@ -67,3 +67,13 @@ In `TestInterProcess.cpp`, add an ids-received event and two guarded readiness f
 For the raw protocol scenario, add an all-clients-stopped event and completion counter to `ChatData`. After each client has verified it is connected, called its own connection `Stop`, verified disconnection, and removed its callback, publish that completion. After receiving both protocol `Stop` messages, the server task waits for both local client stops before calling `server->Stop()`. The two events distinguish wire-level message receipt from local endpoint teardown and prevent the server from invalidating the clients' pre-Stop assertion.
 
 Enable the existing `synchronizeServerStartup` barrier only in the `VCZH_GCC && !VCZH_APPLE` registration. Both shared Linux clients then wait until `server->Start()` has committed the listener. Do not change Linux `io_uring`, retry, callback-drain, or `Stop` behavior; the dedicated `retry then connect` and `Stop during retry` cases continue to cover client-before-server retry and cancellation.
+
+### CONFIRMED
+
+The high-contention SpinLock regression was first built against the original primitive and aborted with `data.violations == 0`, proving that simultaneous owners were observable without depending on the inter-process timing. After resetting `expected` on every compare-exchange attempt, the same focused `TestThread.cpp` file passed all 12 cases. The original two-server trace, the exact three-thread compare-exchange schedule, and this before/after regression together confirm the ThreadPool queue-corruption root rather than merely correlating it with the protocol failure.
+
+The focused inter-process file passed after the client-id gate. The two subsequent clean-campaign failures were not accepted: each reset the count, and a GDB throw catchpoint exposed the raw-protocol client/server shutdown ordering at the exact throwing assertion. After adding the local-client-stop barrier and retaining the Linux listener-start barrier, 100 independent focused `TestInterProcess.cpp` processes passed. Each process executed 20 raw protocol and 20 channel repetitions, for 2,000 successful protocol and 2,000 successful channel lifecycles with all payload, sender-id, routing, connection-status, local-stop, server-stop, retry, and cancellation checks intact.
+
+One complete unfiltered suite then passed, followed by another clean `.github/Ubuntu/build.sh -f` build. From that exact binary, 30 independent unfiltered `Bin/UnitTest /C` processes passed consecutively. Every process exited 0 in 13 or 14 seconds and printed both `Passed test files: 13/13` and `Passed test cases: 167/167`. There were zero watchdog aborts, hard timeouts, incomplete summaries, crashes, count resets, or finalization hangs in the accepted campaign.
+
+No Linux `io_uring`, socket retry, callback dispatch, drain, or production `Stop` implementation changed. The common SpinLock owner was corrected because the primitive itself violated exclusion; Linux-specific startup selection and shared test handshake ordering contain the platform-exposed scheduling differences. Proposal No.1 remains denied as a standalone fix because the broken SpinLock could still duplicate a task when that barrier was active, while its listener boundary is useful and confirmed only as one part of this complete proposal.
