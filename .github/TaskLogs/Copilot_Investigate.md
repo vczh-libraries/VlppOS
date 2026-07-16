@@ -2,36 +2,18 @@
 
 # PROBLEM DESCRIPTION
 
-The last three commits are a new task executed and verified on Windows and Ubuntu. You need to run the unit test and make sure it works on macOS. commit and push all local changes.
+looks like Windows and macOS are both fine but only Ubuntu has frequent deadlocks. I think you are almost able to limit the scope to linux specific files. try to fix the issue, and you have to also pass 30 consecutive good runs to say you finishing the work.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Use the repository's macOS workflow from `Test/Linux`: perform a clean Debug x64 build with `.github/Ubuntu/build.sh -f`, then run the generated `Bin/UnitTest` asynchronously with `/C`.
+Use the existing shared async-socket protocol and channel cases in `TestInterProcess.cpp` as the root-cause-sensitive reproduction. Perform a clean Ubuntu Debug x64 build from `Test/Linux`, then run the complete `Bin/UnitTest /C` process repeatedly with complete raw output and a 60-second process boundary. A process is successful only when it exits with code 0 and prints both `Passed test files: 13/13` and `Passed test cases: 167/167`; a timeout, watchdog assertion, abort, incomplete summary, or failure in any test case is a failure.
 
-The last three commits introduce the cross-platform Mini HTTP API, expand HTTP request/server timeout and shutdown behavior, and replace elapsed wall-clock deadlines with a monotonic clock after Ubuntu stress testing. First run the three focused async-socket and HTTP files (`TestInterProcess_AsyncSocket.cpp`, `TestInterProcess_AsyncSocket_MiniHttpApi.cpp`, and `TestInterProcess_HttpRequest.cpp`) so macOS compilation, native socket behavior, timeout coordination, and shutdown failures are isolated. Then run the complete unfiltered suite to detect regressions in other VlppOS behavior.
+The existing 30-run Ubuntu campaign is the baseline: 15 processes passed, eight hard hangs were localized to `AsyncSocket (NetworkProtocol)`, one hard hang was localized to `AsyncSocket (Channel)`, and six additional `NetworkProtocol` processes aborted after the five-second watchdog fired. The captured hard hang showed the test main thread unwinding through `pthread_cond_destroy` while three ThreadPool workers still waited on stack-owned conversation events. Reproduce at least one protocol/channel failure against the current source before changing it, and use focused `TestInterProcess.cpp` runs for fast iteration.
 
-Success requires the clean build to compile and link every common and macOS source, the focused files to finish with all cases passing, and the complete suite to finish with every test file and case passing. No test may hang. Regenerating the tracked `Test/Linux/vmake.txt` and `Test/Linux/makefile` on macOS must not introduce host-specific differences.
+The fix is accepted only when the focused inter-process tests pass, one complete unfiltered suite passes, and then 30 independent complete unfiltered suites pass consecutively from the final clean build. The consecutive count resets to zero after any nonzero exit, missing summary, assertion, abort, or timeout. Preserve the dedicated client-before-server retry scenarios; the fix must not remove Linux retry or shutdown coverage merely to make the shared protocol scenarios deterministic.
 
-The clean native arm64 build succeeds with Apple Clang, including the common HTTP sources and macOS Network.framework backend. Regeneration leaves `Test/Linux/vmake.txt` and `Test/Linux/makefile` unchanged. The focused run passes 3/3 files and 54/54 cases, and the complete run passes 13/13 files and 167/167 cases without hanging.
-
-Because the preceding Ubuntu deadline defect was timing-dependent, the Mini HTTP file was also run 20 consecutive times with `/C`. Every run passes 1/1 file and 13/13 cases.
+The clean Ubuntu build at source commit `aff9572` succeeded. The first focused `Bin/UnitTest /C /F:TestInterProcess.cpp` process then exceeded the 60-second boundary with its last flushed case at `AsyncSocket (NetworkProtocol)`. It produced neither an assertion diagnostic nor pass summaries before exit code 124. This reproduces the hard failure on the unchanged current source with a boundary more than four times the normal complete-suite duration.
 
 # PROPOSALS
-
-- No.1 Retain the implementation after macOS validation [CONFIRMED]
-
-## No.1 Retain the implementation after macOS validation
-
-The last three commits already route Mini HTTP through `macos_socket::AsyncSocketServer`, register the shared cross-platform tests on macOS, use `std::chrono::steady_clock` for concurrent duration deadlines, and coordinate Network.framework listener startup and shutdown. Review the macOS factory binding, test guards, common source dependencies, generated build metadata, and framework link policy. Keep the implementation unchanged if the clean, focused, complete, and repeated runs all pass.
-
-### CODE CHANGE
-
-- No product, test, or generated-build change is required. Archived the preceding Ubuntu investigation and recorded the macOS validation in the current investigation document.
-
-### CONFIRMED
-
-The source review finds no unguarded Windows or Linux native API in the common Mini HTTP implementation. The product factory selects the macOS async-socket backend under `VCZH_GCC && VCZH_APPLE`, the same shared Mini HTTP suite is registered on macOS, and the generated build selects the required Blocks, CoreFoundation, and Network.framework options without host-specific tracked output.
-
-The clean build, focused 54/54 run, complete 167/167 run, and 20 repeated Mini HTTP runs all pass. These checks exercise native listener startup, occupied-port retry, persistent longest-prefix routing, malformed-wire responses, deferred and callback-reentrant responses, cancellation, hard shutdown draining, and response deadlines. No macOS portability fix is necessary.
