@@ -612,7 +612,7 @@ ConnectionState
 		class CancelOperation;
 
 		Ptr<RingRuntime>					runtime;
-		AsyncSocketConnection*			owner = nullptr;
+		IAsyncSocketConnection*			owner = nullptr;
 
 		// covers all fields below, callback counts, and target operation counts
 		CriticalSection					lockState;
