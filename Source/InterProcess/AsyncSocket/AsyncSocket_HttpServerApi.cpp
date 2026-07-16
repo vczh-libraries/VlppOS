@@ -699,7 +699,15 @@ namespace vl::inter_process::async_tcp_socket
 		protected:
 			void OnServerStopped() override;
 		public:
-			SharedServer(Ptr<IAsyncSocketServer> server, Ptr<RegistryEntry> _entry) : HttpRequestServer(server), entry(_entry) {}
+			SharedServer(
+				Ptr<IAsyncSocketServer> server,
+				Ptr<RegistryEntry> _entry,
+				const Func<Ptr<IHttpRequestTimeoutController>()>& timeoutControllerFactory
+				)
+				: HttpRequestServer(server, timeoutControllerFactory)
+				, entry(_entry)
+			{
+			}
 			void InitializeSelf(Ptr<SharedServer> self) { CS_LOCK(lock) { selfReference = self; } }
 			WaitForClientResult OnClientConnected(IHttpRequestConnection* connection) override;
 			void StopAndRelease();
@@ -709,6 +717,8 @@ namespace vl::inter_process::async_tcp_socket
 			SpinLock						lock;
 			Dictionary<vint, Ptr<RegistryEntry>> entries;
 			Func<Ptr<IAsyncSocketServer>(vint)>	listenerFactory;
+			Func<Ptr<IHttpRequestTimeoutController>()>
+										timeoutControllerFactory;
 		INITIALIZE_GLOBAL_STORAGE_CLASS
 		FINALIZE_GLOBAL_STORAGE_CLASS
 			List<Ptr<HttpRequestServer>> servers;
@@ -722,6 +732,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 				entries.Clear();
 				listenerFactory = {};
+				timeoutControllerFactory = {};
 			}
 			for (auto server : servers)
 			{
@@ -753,6 +764,14 @@ namespace vl::inter_process::async_tcp_socket
 #else
 			CHECK_FAIL(L"No async socket server is available on this platform.");
 #endif
+		}
+
+		Func<Ptr<IHttpRequestTimeoutController>()> GetTimeoutControllerFactory()
+		{
+			Func<Ptr<IHttpRequestTimeoutController>()> factory;
+			auto& registry = GetSocketHttpRegistry();
+			SPIN_LOCK(registry.lock) { factory = registry.timeoutControllerFactory; }
+			return factory;
 		}
 
 		bool CurrentEntry(SocketHttpRegistry& registry, Ptr<RegistryEntry> entry)
@@ -888,7 +907,7 @@ namespace vl::inter_process::async_tcp_socket
 				{
 					auto listener = CreateListener(entry->port);
 					CHECK_ERROR(listener, L"The socket HTTP listener factory returned null.");
-					server = Ptr(new SharedServer(listener, entry));
+					server = Ptr(new SharedServer(listener, entry, GetTimeoutControllerFactory()));
 					server->InitializeSelf(server);
 					server->Start();
 					started = true;
@@ -1050,6 +1069,18 @@ namespace vl::inter_process::async_tcp_socket
 	}
 
 	void ResetSocketHttpServerListenerFactoryForTesting() { SetSocketHttpServerListenerFactoryForTesting({}); }
+
+	void SetSocketHttpServerTimeoutControllerFactoryForTesting(const Func<Ptr<IHttpRequestTimeoutController>()>& factory)
+	{
+		auto& registry = GetSocketHttpRegistry();
+		SPIN_LOCK(registry.lock)
+		{
+			CHECK_ERROR(registry.entries.Count() == 0, L"The test timeout controller factory can only change while no API is started.");
+			registry.timeoutControllerFactory = factory;
+		}
+	}
+
+	void ResetSocketHttpServerTimeoutControllerFactoryForTesting() { SetSocketHttpServerTimeoutControllerFactoryForTesting({}); }
 
 	WaitForClientResult SharedServer::OnClientConnected(IHttpRequestConnection* connection)
 	{

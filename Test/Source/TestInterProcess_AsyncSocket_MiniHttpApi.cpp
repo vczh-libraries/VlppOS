@@ -20,6 +20,8 @@ namespace vl::inter_process::async_tcp_socket
 {
 	extern void SetSocketHttpServerListenerFactoryForTesting(const Func<Ptr<IAsyncSocketServer>(vint)>& factory);
 	extern void ResetSocketHttpServerListenerFactoryForTesting();
+	extern void SetSocketHttpServerTimeoutControllerFactoryForTesting(const Func<Ptr<IHttpRequestTimeoutController>()>& factory);
+	extern void ResetSocketHttpServerTimeoutControllerFactoryForTesting();
 }
 
 namespace mini_http_api_test
@@ -219,6 +221,135 @@ namespace mini_http_api_test
 		}
 		TEST_ASSERT(failure == WString::Empty);
 	}
+
+	class ManualServerTimeoutController : public Object, public virtual IHttpRequestTimeoutController
+	{
+	private:
+		static thread_local ManualServerTimeoutController*
+										currentFiring;
+		CriticalSection					lockState;
+		ConditionVariable				cvState;
+		Func<void()>						callback;
+		bool							firing = false;
+		EventObject						eventArmed;
+
+		void FinishFiring()
+		{
+			CS_LOCK(lockState)
+			{
+				firing = false;
+				cvState.WakeAllPendings();
+			}
+		}
+
+	public:
+		atomic_vint						armCount = 0;
+		atomic_vint						cancelCount = 0;
+		atomic_vint						lastArmDuration = 0;
+
+		ManualServerTimeoutController()
+		{
+			CHECK_ERROR(eventArmed.CreateManualUnsignal(false), L"MiniHttp test failed to create the timeout armed event.");
+		}
+
+		~ManualServerTimeoutController()
+		{
+			CancelAndWait();
+		}
+
+		void Arm(vint milliseconds, const Func<void()>& value) override
+		{
+			CS_LOCK(lockState)
+			{
+				CHECK_ERROR(!callback && !firing, L"The manual MiniHttp timeout controller is already armed.");
+				callback = value;
+				armCount++;
+				lastArmDuration = milliseconds;
+			}
+			eventArmed.Signal();
+		}
+
+		void Refresh() override
+		{
+		}
+
+		void CancelAndWait() override
+		{
+			cancelCount++;
+			auto nested = currentFiring == this;
+			lockState.Enter();
+			callback = {};
+			while (firing && !nested)
+			{
+				cvState.SleepWith(lockState);
+			}
+			lockState.Leave();
+		}
+
+		bool WaitUntilArmed(vint milliseconds)
+		{
+			return eventArmed.WaitForTime(milliseconds);
+		}
+
+		bool Fire()
+		{
+			Func<void()> firingCallback;
+			CS_LOCK(lockState)
+			{
+				if (!callback) return false;
+				firingCallback = callback;
+				callback = {};
+				firing = true;
+			}
+
+			auto previous = currentFiring;
+			currentFiring = this;
+			try
+			{
+				firingCallback();
+			}
+			catch (...)
+			{
+				currentFiring = previous;
+				FinishFiring();
+				throw;
+			}
+			currentFiring = previous;
+			FinishFiring();
+			return true;
+		}
+	};
+
+	thread_local ManualServerTimeoutController* ManualServerTimeoutController::currentFiring = nullptr;
+
+	class SelectiveTimeoutControllerFactory : public Object
+	{
+	private:
+		CriticalSection					lockState;
+		Ptr<IHttpRequestTimeoutController>	nextController;
+
+	public:
+		void SetNext(Ptr<IHttpRequestTimeoutController> controller)
+		{
+			CHECK_ERROR(controller, L"The selective MiniHttp timeout factory requires a controller.");
+			CS_LOCK(lockState)
+			{
+				CHECK_ERROR(!nextController, L"The selective MiniHttp timeout factory already has a pending controller.");
+				nextController = controller;
+			}
+		}
+
+		Ptr<IHttpRequestTimeoutController> Create()
+		{
+			Ptr<IHttpRequestTimeoutController> controller;
+			CS_LOCK(lockState)
+			{
+				controller = nextController;
+				nextController = nullptr;
+			}
+			return controller ? controller : CreateHttpRequestTimeoutController();
+		}
+	};
 
 	HttpField CreateField(const WString& name, const WString& value)
 	{
@@ -561,6 +692,26 @@ namespace mini_http_api_test
 		}
 	};
 
+	class TimeoutControllerFactoryScope
+	{
+	public:
+		TimeoutControllerFactoryScope(const Func<Ptr<IHttpRequestTimeoutController>()>& factory)
+		{
+			SetSocketHttpServerTimeoutControllerFactoryForTesting(factory);
+		}
+
+		~TimeoutControllerFactoryScope()
+		{
+			try
+			{
+				ResetSocketHttpServerTimeoutControllerFactoryForTesting();
+			}
+			catch (...)
+			{
+			}
+		}
+	};
+
 	class BarrierListenerState : public Object
 	{
 	public:
@@ -717,7 +868,12 @@ namespace mini_http_api_test
 	}
 
 	template<typename TNativeClient>
-	vint ProbeWireStatus(vint port, const WString& request, vint timeout = TransferTimeout)
+	vint ProbeWireStatus(
+		vint port,
+		const WString& request,
+		vint timeout = TransferTimeout,
+		const Func<void()>& afterWrite = {}
+		)
 	{
 		auto state = Ptr(new WireProbeState);
 		auto client = Ptr<IAsyncSocketClient>(new TNativeClient(port));
@@ -749,6 +905,7 @@ namespace mini_http_api_test
 			{
 				client->GetConnection()->BeginReadingLoopUnsafe();
 				client->GetConnection()->WriteAsync(CreateWireBytes(request));
+				if (afterWrite) afterWrite();
 				state->Expect(state->eventDone.WaitForTime(timeout), L"MiniHttp wire-probe response timed out.");
 			}
 			catch (...)
@@ -1351,6 +1508,11 @@ namespace mini_http_api_test
 		TEST_CASE(L"SocketHttpServerApi maps malformed wire requests to structured 400 408 413 414 417 431 501 and 505 responses")
 		{
 			NativeListenerFactoryScope<TNativeServer> listenerFactory;
+			auto timeoutFactory = Ptr(new SelectiveTimeoutControllerFactory);
+			TimeoutControllerFactoryScope timeoutFactoryScope(Func<Ptr<IHttpRequestTimeoutController>()>([timeoutFactory]()
+			{
+				return timeoutFactory->Create();
+			}));
 			auto serverState = Ptr(new TestState);
 			auto server = Ptr(new TestServerApi(L"http://localhost:38911/errors", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
@@ -1376,11 +1538,20 @@ namespace mini_http_api_test
 				38911,
 				L"GET /errors/%C0%AF HTTP/1.1\r\nHost: localhost:38911\r\n\r\n"
 				) == 400);
+			auto manualTimeout = Ptr(new ManualServerTimeoutController);
+			timeoutFactory->SetNext(manualTimeout);
 			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
 				38911,
 				L"GET /errors HTTP/1.1\r\nHost: localhost:38911\r\n",
-				45000
+				ConnectTimeout,
+				Func<void()>([manualTimeout]()
+				{
+					CHECK_ERROR(manualTimeout->WaitUntilArmed(ConnectTimeout), L"The MiniHttp 408 timeout controller was not armed.");
+					CHECK_ERROR(manualTimeout->Fire(), L"The MiniHttp 408 timeout controller could not fire.");
+				})
 				) == 408);
+			TEST_ASSERT(manualTimeout->armCount == 1);
+			TEST_ASSERT(manualTimeout->lastArmDuration == HttpIncompleteMessageTimeout);
 			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
 				38911,
 				L"POST /errors HTTP/1.1\r\nHost: localhost:38911\r\nContent-Length: 16777217\r\n\r\n"

@@ -15,6 +15,8 @@ HttpRequestServer::Impl
 			HttpRequestServer*					owner = nullptr;
 			Ptr<IAsyncSocketServer>				server;
 			Ptr<HttpRequestCallbackDomain>		callbackDomain = Ptr(new HttpRequestCallbackDomain);
+			Func<Ptr<IHttpRequestTimeoutController>()>
+										timeoutControllerFactory;
 
 			// covers owner, connections, and all lifecycle flags below
 			CriticalSection						lockState;
@@ -29,9 +31,14 @@ HttpRequestServer::Impl
 			bool								destroyStarted = false;
 			bool								destroyAdaptersRetained = false;
 
-			Lifecycle(HttpRequestServer* _owner, Ptr<IAsyncSocketServer> _server)
+			Lifecycle(
+				HttpRequestServer* _owner,
+				Ptr<IAsyncSocketServer> _server,
+				const Func<Ptr<IHttpRequestTimeoutController>()>& _timeoutControllerFactory
+				)
 				: owner(_owner)
 				, server(_server)
+				, timeoutControllerFactory(_timeoutControllerFactory)
 			{
 			}
 		};
@@ -191,10 +198,25 @@ HttpRequestServer::Impl
 				return WaitForClientResult::Reject;
 			}
 
+			Ptr<IHttpRequestTimeoutController> timeoutController;
+			try
+			{
+				if (state->timeoutControllerFactory)
+				{
+					timeoutController = state->timeoutControllerFactory();
+					CHECK_ERROR(timeoutController, L"The HTTP request timeout controller factory returned null.");
+				}
+			}
+			catch (...)
+			{
+				return WaitForClientResult::Reject;
+			}
+
 			auto httpConnection = Ptr(new HttpRequestConnection(
 				connection,
 				HttpRequestConnectionDirection::Server,
-				state->callbackDomain
+				state->callbackDomain,
+				timeoutController
 				));
 			auto connectionObject = httpConnection.Obj();
 			httpConnection->RetainUntilStopped(httpConnection, Func<void()>([state, connectionObject]()
@@ -271,11 +293,15 @@ HttpRequestServer::Impl
 		}
 
 	public:
-		Impl(HttpRequestServer* owner, Ptr<IAsyncSocketServer> server)
+		Impl(
+			HttpRequestServer* owner,
+			Ptr<IAsyncSocketServer> server,
+			const Func<Ptr<IHttpRequestTimeoutController>()>& timeoutControllerFactory
+			)
 		{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::HttpRequestServer::HttpRequestServer(Ptr<IAsyncSocketServer>)#"
 			CHECK_ERROR(server, ERROR_MESSAGE_PREFIX L"Requires a server.");
-			lifecycle = Ptr(new Lifecycle(owner, server));
+			lifecycle = Ptr(new Lifecycle(owner, server, timeoutControllerFactory));
 			callback = Ptr(new SocketServerCallback(lifecycle));
 #undef ERROR_MESSAGE_PREFIX
 		}
@@ -439,7 +465,15 @@ HttpRequestServer
 ***********************************************************************/
 
 	HttpRequestServer::HttpRequestServer(Ptr<IAsyncSocketServer> server)
-		: impl(Ptr(new Impl(this, server)))
+		: HttpRequestServer(server, {})
+	{
+	}
+
+	HttpRequestServer::HttpRequestServer(
+		Ptr<IAsyncSocketServer> server,
+		const Func<Ptr<IHttpRequestTimeoutController>()>& timeoutControllerFactory
+		)
+		: impl(Ptr(new Impl(this, server, timeoutControllerFactory)))
 	{
 	}
 

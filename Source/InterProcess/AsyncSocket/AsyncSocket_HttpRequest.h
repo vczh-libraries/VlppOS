@@ -71,14 +71,18 @@ namespace vl::inter_process::async_tcp_socket
 		using Lifecycle = HttpRequestConnectionLifecycle;
 		struct CallbackFrame;
 		struct SocketCallbackFrame;
+		struct TimeoutCallbackFrame;
 		static thread_local CallbackFrame*	currentCallbackFrame;
 		static thread_local SocketCallbackFrame*
 										currentSocketCallbackFrame;
+		static thread_local TimeoutCallbackFrame*
+										currentTimeoutCallbackFrame;
 
 		Ptr<Lifecycle>						lifecycle;
 
 		static vint						CurrentCallbackDepth(Ptr<Lifecycle> state);
 		static vint						CurrentSocketCallbackDepth(Ptr<Lifecycle> state);
+		static vint						CurrentTimeoutCallbackDepth(Ptr<Lifecycle> state);
 		static void						FinishSocketCall(Ptr<Lifecycle> state);
 
 		template<typename TCallback>

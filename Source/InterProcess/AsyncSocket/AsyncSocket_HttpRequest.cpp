@@ -1584,8 +1584,27 @@ HttpRequestConnection callback frames
 		}
 	};
 
+	struct HttpRequestConnection::TimeoutCallbackFrame
+	{
+		Ptr<Lifecycle>						state;
+		TimeoutCallbackFrame*				previous = nullptr;
+
+		TimeoutCallbackFrame(Ptr<Lifecycle> _state)
+			: state(_state)
+			, previous(currentTimeoutCallbackFrame)
+		{
+			currentTimeoutCallbackFrame = this;
+		}
+
+		~TimeoutCallbackFrame()
+		{
+			currentTimeoutCallbackFrame = previous;
+		}
+	};
+
 	thread_local HttpRequestConnection::CallbackFrame* HttpRequestConnection::currentCallbackFrame = nullptr;
 	thread_local HttpRequestConnection::SocketCallbackFrame* HttpRequestConnection::currentSocketCallbackFrame = nullptr;
+	thread_local HttpRequestConnection::TimeoutCallbackFrame* HttpRequestConnection::currentTimeoutCallbackFrame = nullptr;
 
 /***********************************************************************
 HttpRequestConnection helpers
@@ -1605,6 +1624,16 @@ HttpRequestConnection helpers
 	{
 		vint depth = 0;
 		for (auto frame = currentSocketCallbackFrame; frame; frame = frame->previous)
+		{
+			if (frame->state.Obj() == state.Obj()) depth++;
+		}
+		return depth;
+	}
+
+	vint HttpRequestConnection::CurrentTimeoutCallbackDepth(Ptr<Lifecycle> state)
+	{
+		vint depth = 0;
+		for (auto frame = currentTimeoutCallbackFrame; frame; frame = frame->previous)
 		{
 			if (frame->state.Obj() == state.Obj()) depth++;
 		}
@@ -1763,6 +1792,7 @@ HttpRequestConnection helpers
 		{
 			state->timeoutController->Arm(milliseconds, Func<void()>([captured, capturedError]()
 			{
+				TimeoutCallbackFrame timeoutCallbackFrame(captured);
 				if (captured->direction == HttpRequestConnectionDirection::Server)
 				{
 					ReportRequestFailure(captured, HttpRequestFailure::RequestTimeout, true);
@@ -2184,10 +2214,12 @@ HttpRequestConnection helpers
 	{
 		auto callbackDepth = CurrentCallbackDepth(state);
 		auto socketCallbackDepth = CurrentSocketCallbackDepth(state);
+		auto timeoutCallbackDepth = CurrentTimeoutCallbackDepth(state);
 		auto nestedCallback = callbackDepth > 0 || socketCallbackDepth > 0;
 		IAsyncSocketConnection* connection = nullptr;
 		bool executeStop = false;
 		bool nestedFollower = false;
+		bool timeoutFollower = false;
 		Lifecycle::RetainedAdapterRelease releasing;
 
 		state->lockState.Enter();
@@ -2215,6 +2247,10 @@ HttpRequestConnection helpers
 			connection = state->socketConnection;
 			nestedFollower = true;
 		}
+		else if (timeoutCallbackDepth > 0)
+		{
+			timeoutFollower = true;
+		}
 		else
 		{
 			while (!state->stopFinished) state->cvState.SleepWith(state->lockState);
@@ -2232,6 +2268,10 @@ HttpRequestConnection helpers
 		{
 			if (connection && socketCallbackDepth > 0) connection->Stop();
 			NotifyDisconnected(state);
+			return;
+		}
+		if (timeoutFollower)
+		{
 			return;
 		}
 		state->timeoutController->CancelAndWait();

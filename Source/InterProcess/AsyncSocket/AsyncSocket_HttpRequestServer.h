@@ -23,6 +23,10 @@ namespace vl::inter_process::async_tcp_socket
 
 	protected:
 		virtual void							OnServerStopped();
+		HttpRequestServer(
+			Ptr<IAsyncSocketServer> server,
+			const Func<Ptr<IHttpRequestTimeoutController>()>& timeoutControllerFactory
+			);
 
 	public:
 		explicit HttpRequestServer(Ptr<IAsyncSocketServer> server);

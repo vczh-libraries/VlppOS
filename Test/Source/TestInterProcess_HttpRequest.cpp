@@ -448,11 +448,13 @@ namespace http_request_test
 
 	public:
 		EventObject						eventFiringFinished;
+		EventObject						eventExternalCancelEntered;
 		atomic_vint					externalCancelWaits = 0;
 
 		RacingTimeoutController()
 		{
 			CHECK_ERROR(eventFiringFinished.CreateManualUnsignal(false), L"Failed to create the timeout-firing-finished event.");
+			CHECK_ERROR(eventExternalCancelEntered.CreateManualUnsignal(false), L"Failed to create the external-timeout-cancel event.");
 		}
 
 		void Arm(vint, const Func<void()>& value) override
@@ -479,6 +481,7 @@ namespace http_request_test
 			if (wait)
 			{
 				externalCancelWaits++;
+				eventExternalCancelEntered.Signal();
 				CHECK_ERROR(eventFiringFinished.WaitForTime(ConnectTimeout), L"The racing timeout callback did not finish before cancellation timed out.");
 			}
 		}
@@ -609,6 +612,26 @@ namespace http_request_test
 				eventRaceCanRelease.Signal();
 			}
 			RecordingHttpCallback::OnError(error, fatal);
+		}
+	};
+
+	class BlockingErrorHttpCallback : public RecordingHttpCallback
+	{
+	public:
+		EventObject						eventErrorEntered;
+		EventObject						eventReleaseError;
+
+		BlockingErrorHttpCallback()
+		{
+			CHECK_ERROR(eventErrorEntered.CreateManualUnsignal(false), L"Failed to create the timeout-error-entered event.");
+			CHECK_ERROR(eventReleaseError.CreateManualUnsignal(false), L"Failed to create the timeout-error-release event.");
+		}
+
+		void OnError(const WString& error, bool fatal) override
+		{
+			RecordingHttpCallback::OnError(error, fatal);
+			eventErrorEntered.Signal();
+			CHECK_ERROR(eventReleaseError.WaitForTime(ConnectTimeout), L"The coordinated timeout error callback was not released.");
 		}
 	};
 
@@ -1903,6 +1926,83 @@ namespace http_request_test
 			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
 			TEST_ASSERT(!socket->HasCallback());
 			connection->Stop();
+		});
+
+		TEST_CASE(L"HTTP external Stop does not cyclically wait for a firing response timeout")
+		{
+			auto socket = Ptr(new FakeAsyncSocketConnection);
+			auto timer = Ptr(new RacingTimeoutController);
+			auto connection = Ptr(new HttpRequestConnection(
+				socket.Obj(),
+				HttpRequestConnectionDirection::Client,
+				nullptr,
+				timer
+				));
+			BlockingErrorHttpCallback callback;
+			connection->InstallCallback(&callback);
+			connection->BeginReadingLoopUnsafe();
+
+			auto request = Ptr(new HttpRequest);
+			request->method = L"GET";
+			request->requestTarget = L"/timeout-external-stop-race";
+			connection->SendRequest(request);
+			socket->CompleteNextWrite();
+
+			EventObject eventFireDone;
+			EventObject eventStopDone;
+			TEST_ASSERT(eventFireDone.CreateManualUnsignal(false));
+			TEST_ASSERT(eventStopDone.CreateManualUnsignal(false));
+			atomic_vint fireFailed = 0;
+			atomic_vint stopFailed = 0;
+			auto fireQueued = ThreadPoolLite::Queue(Func<void()>([timer, &eventFireDone, &fireFailed]()
+			{
+				EventReleaseOnExit signal(eventFireDone);
+				try
+				{
+					timer->Fire();
+				}
+				catch (...)
+				{
+					fireFailed = 1;
+				}
+			}));
+
+			auto errorEntered = fireQueued && callback.eventErrorEntered.WaitForTime(ConnectTimeout);
+			bool stopQueued = false;
+			if (errorEntered)
+			{
+				stopQueued = ThreadPoolLite::Queue(Func<void()>([connection, &eventStopDone, &stopFailed]()
+				{
+					EventReleaseOnExit signal(eventStopDone);
+					try
+					{
+						connection->Stop();
+					}
+					catch (...)
+					{
+						stopFailed = 1;
+					}
+				}));
+			}
+			auto externalCancelEntered = stopQueued && timer->eventExternalCancelEntered.WaitForTime(ConnectTimeout);
+			callback.eventReleaseError.Signal();
+			auto fireDone = !fireQueued || eventFireDone.WaitForTime(ConnectTimeout);
+			auto stopDone = !stopQueued || eventStopDone.WaitForTime(ConnectTimeout);
+			connection->Stop();
+
+			TEST_ASSERT(fireQueued);
+			TEST_ASSERT(errorEntered);
+			TEST_ASSERT(stopQueued);
+			TEST_ASSERT(externalCancelEntered);
+			TEST_ASSERT(fireDone);
+			TEST_ASSERT(stopDone);
+			TEST_ASSERT(fireFailed == 0);
+			TEST_ASSERT(stopFailed == 0);
+			TEST_ASSERT(timer->externalCancelWaits == 1);
+			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(!socket->HasCallback());
 		});
 
 		TEST_CASE(L"HTTP client uses a per-exchange deadline without refreshing partial responses")
