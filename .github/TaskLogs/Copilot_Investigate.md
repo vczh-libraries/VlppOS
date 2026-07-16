@@ -2,42 +2,44 @@
 
 # PROBLEM DESCRIPTION
 
-You accidentally stopped, I have committed all local changes so far, and I run the unit test myself and find `SocketHttpServerApi maps malformed wire requests to structured 400 408 413 414 417 431 501 and 505 responses` does not finish in 10 seconds so I killed it. Please continue to investigate and fix the issue, finish all the work, commit and push to master
+The last two commits are a new task executed and verified on Windows. You need to run the unit test and make sure it works on Ubuntu. commit and push all local changes.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-The named test sends four immediately malformed requests, then sends an incomplete HTTP/1.1 header to exercise `408 Request Timeout`. The fifth probe passed a 45-second wait to `ProbeWireStatus`, while the product constant `HttpIncompleteMessageTimeout` is 30 seconds. `HttpRequestConnection::ProcessBufferedInput` therefore armed the production 30-second incomplete-message deadline, and the server could not produce the expected 408 within the user's 10-second observation window. The earlier focused run consequently took about 35 seconds. This confirms that the test was intentionally sleeping on a production deadline rather than exposing a parser, response-write, disconnect, or server-stop deadlock.
+Use the repository's Ubuntu workflow from `Test/Linux`: perform a clean Debug x64 build with `.github/Ubuntu/build.sh -f`, then run the generated `Bin/UnitTest` asynchronously with `/C`.
 
-The regression criterion is to preserve the production 30-second policy and the complete native exchange: the parser must observe incomplete input, arm the deadline, report structured `RequestTimeout`, serialize a 408 response, complete the write, and close the connection. The test must trigger that deadline through a deterministic fake seam with bounded event coordination and no sleep. The focused MiniHttp file must then finish below 10 seconds, and the complete Debug x64 suite and all four Windows build configurations must remain clean.
+The last two commits add the cross-platform `SocketHttpServerApi` / `SocketHttpClientApi` layer and deterministic timeout/stop-race coverage. First run the focused `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` and `TestInterProcess_HttpRequest.cpp` files so compile failures, native Linux socket failures, timeout coordination failures, or hangs are isolated. Then run the complete unfiltered suite to detect regressions in other VlppOS behavior.
 
-A repeated complete-suite run exposed a second timeout race in the later client response-deadline case. Native debugger stacks showed the external `SocketHttpClientApi::Stop` thread inside `HttpRequestTimeoutController::CancelAndWait`, waiting for the firing timeout callback, while that callback had finished `OnError` and entered `HttpRequestConnection::StopConnection` as a non-callback follower, waiting for the external stop to set `stopFinished`. This cycle is separate from the original 30-second 408 delay and requires deterministic raw-layer regression coverage.
+Success requires the clean build to compile and link every common and Linux-specific source, both focused files to finish with all cases passing (including the malformed-wire 408 path and external-stop/firing-timeout race), and the complete suite to finish with every test file and case passing. No test may hang or require a production-duration sleep.
+
+The clean build succeeds. The focused MiniHttp file passes 1/1 file and 13/13 cases, and the focused HTTP-request file passes 1/1 file and 36/36 cases. The first complete-suite run instead exits with code 1 during `AsyncSocket (Channel)` in `TestInterProcess.cpp`, before printing a failure or final summary. This reproduces an Ubuntu-only integration failure outside the two directly changed files and confirms that focused success alone is insufficient.
+
+The failure is timing-dependent rather than order-dependent. A later complete run reached MiniHttp but received an unexpected first result in the persistent-routing case. Stressing MiniHttp alone with `/C` reproduced by iteration 3, this time with the raw CORS sequence completing with fewer than nine responses. Stressing the three inter-process files reproduced by iteration 2 with a wrong/error result in the application-500 sequence. In contrast, 20 MiniHttp runs with `/R` and a debugger-delayed run passed. The same process can therefore lose or terminalize different asynchronous exchanges depending on timing; passing one focused invocation is not sufficient evidence.
 
 # PROPOSALS
 
-- No.1 Inject a deterministic per-connection server timeout controller [CONFIRMED]
+- No.1 Use a monotonic clock for asynchronous duration deadlines [CONFIRMED]
 
-## No.1 Inject a deterministic per-connection server timeout controller
+## No.1 Use a monotonic clock for asynchronous duration deadlines
 
-Keep `HttpIncompleteMessageTimeout` at 30 seconds. Preserve the existing public one-argument `HttpRequestServer` constructor and add a protected overload that accepts a `Func<Ptr<IHttpRequestTimeoutController>()>`. Store the factory immutably in the server lifecycle, invoke it outside server locks for every accepted native connection, require a fresh non-null controller, and pass it to the existing `HttpRequestConnection` injection point.
+The raw diagnostic exposes the hidden terminal error: `The HTTP peer timed out before sending a response header.` A nominal 30-second deadline fires during a sub-second MiniHttp run. On GCC platforms, `DateTime::LocalTime()` reaches `localtime`'s shared static `tm` and then passes that buffer to the mutating `mktime`. Multiple HTTP timeout workers call this concurrently, so the wall-clock values have a data race and can jump beyond a newly stored deadline. Debugger serialization and `/R` timing suppress the race.
 
-Thread a snapshot of this factory through the private MiniHttp shared-server construction path. A test-only setter/resetter lives beside the existing private listener-factory seam and may change the factory only while the MiniHttp registry has no entries. Copy factory functions while holding the registry lock, but construct controllers and listeners only after releasing it.
+Replace elapsed-duration bookkeeping in `HttpRequestTimeoutController` with `std::chrono::steady_clock` time points. Use the same monotonic clock for `NetworkProtocolConnection`'s bounded queued-write drain, which is the only other product duration loop using `DateTime::LocalTime()` and can explain the earlier channel failure. This fixes the owning deadline state without modifying imported date-time code or making a platform-specific exception.
 
-In the shared MiniHttp test, use a selective factory that returns ordinary production controllers for every connection except the next explicitly selected one. Give only the incomplete-header 408 probe a manual controller. The probe's post-write hook waits for the controller's manual-reset armed event and calls `Fire`; the controller mirrors production self-cancel behavior with a critical section, condition variable, firing flag, and thread-local nested-callback detection. This avoids a self-deadlock when `ReportRequestFailure` calls `CancelAndWait` from inside the fired callback. It also proves the parser actually armed the 30-second duration before the test advances it.
-
-Track execution of the callback passed to every timeout controller with a connection-local thread-local frame. If an external stop already owns shutdown, a stop request made by that firing timeout callback is a follower and must return immediately; the external initiator will resume as soon as the timeout callback unwinds, then perform native stop, disconnect notification, and callback drain. A timeout callback that wins the initial stop race still performs the complete stop itself. This mirrors the existing callback/socket-callback follower policy without exposing controller implementation details.
+Move the existing raw CORS `AssertState` check ahead of derivative response-count assertions so a future transport error remains visible instead of being masked, while retaining one check rather than duplicating it. Verify the fix with the focused files, repeated `/C` MiniHttp and inter-process runs, a clean build, and repeated complete suites.
 
 ### CODE CHANGE
 
-- Added the protected timeout-controller-factory overload to `HttpRequestServer`, retained the original public constructor symbol, and created one injected controller per accepted connection outside lifecycle locks.
-- Added a private empty-registry-guarded timeout factory to the MiniHttp registry and passed its snapshot to `SharedServer` without changing `SocketHttpServerApi`'s public surface.
-- Added a reentrancy-safe manual timeout controller, selective per-connection factory, RAII reset scope, and post-write hook to `TestInterProcess_AsyncSocket_MiniHttpApi.cpp`.
-- Replaced the real 45-second 408 probe wait with deterministic arm-and-fire coordination, while asserting one arm and the unchanged `HttpIncompleteMessageTimeout` duration. The test intentionally permits refreshes because TCP may split one write across multiple reads.
-- Added a timeout-callback frame to `HttpRequestConnection` so a firing timeout cannot wait behind an external stop that is already waiting for that callback, plus a barrier-controlled raw regression that forces this exact ownership order.
+- Replaced `DateTime::LocalTime().osMilliseconds` deadline arithmetic in both `HttpRequestTimeoutController` and `NetworkProtocolConnection`'s write drain with `std::chrono::steady_clock` time points and rounded monotonic waits.
+- Moved the raw CORS sequence's existing `AssertState` check before response-count assertions so the actual asynchronous transport error is reported first.
+- Regenerated `Test/Linux/vmake.txt` and `Test/Linux/makefile` through `.github/Ubuntu/build.sh`; they now include the common HTTP values, MiniHttp client/server implementations, and MiniHttp test file added by the preceding task.
 
 ### CONFIRMED
 
-The final focused Debug x64 MiniHttp run completed in 2.53 seconds and passed 1/1 test file and 15/15 cases. The named malformed-wire case still traversed the native socket server, raw HTTP parser, structured 408 callback, response serializer, write completion, and connection-close boundary; only the clock source was controlled. The focused raw HTTP file passed 1/1 file and 38/38 cases, including the new external-stop/firing-timeout ownership regression. Two consecutive complete Debug x64 runs then passed 15/15 files and 181/181 cases, and the final `Execute.log` contains no CRT memory-leak dump.
+The monotonic clock removes both unsafe `DateTime::LocalTime().osMilliseconds` duration loops from `Source`. The HTTP controller still resets its deadline on `Refresh`, cancels and drains its worker through the existing condition-variable protocol, and rounds positive sub-millisecond remainders up before waiting. The network-protocol stop path retains its original bounded write-drain behavior without depending on a mutable wall clock.
 
-The repository build wrapper completed Debug and Release for Win32 and x64 with zero warnings and zero errors in every configuration. The final retained Debug x64 `Build.log` also ends with zero warnings and zero errors. Linux and macOS were not executed on Windows; the changed factory types, lifecycle storage, shared-server path, test runner, event coordination, and guarded native instantiations are platform-neutral and were reviewed textually.
+After the incremental build, the focused HTTP-request file passed 1/1 file and 36/36 cases, the three inter-process files passed 3/3 files and 21/21 cases, and MiniHttp passed 50 consecutive `/C` runs. This directly exercises the path that had failed by iteration 3 before the change.
+
+The final clean rebuild compiled and linked all common and Linux-specific sources, including every newly generated MiniHttp build entry. Two consecutive complete runs from those clean artifacts each passed 13/13 files and 167/167 cases. No premature response timeout, channel failure, test hang, or assertion occurred.

@@ -1,4 +1,5 @@
 #include "AsyncSocket.h"
+#include <chrono>
 #include <cstring>
 #include <limits>
 
@@ -384,15 +385,16 @@ NetworkProtocolConnection
 			if (!nestedCallback && !state->terminal && state->queuedWrites.Count() > 0)
 			{
 				state->drainWrites = true;
-				auto deadline = DateTime::LocalTime().osMilliseconds + WriteDrainTimeout;
+				auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(WriteDrainTimeout);
 				while (state->queuedWrites.Count() > 0 && !state->terminal)
 				{
-					auto now = DateTime::LocalTime().osMilliseconds;
+					auto now = std::chrono::steady_clock::now();
 					if (now >= deadline)
 					{
 						break;
 					}
-					state->cvState.SleepWithForTime(state->lockState, (vint)(deadline - now));
+					auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count();
+					state->cvState.SleepWithForTime(state->lockState, (vint)remaining);
 				}
 				state->drainWrites = false;
 			}

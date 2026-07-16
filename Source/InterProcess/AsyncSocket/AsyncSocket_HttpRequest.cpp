@@ -8,6 +8,7 @@ Async Socket HTTP/1.1 Connection
 
 #include "AsyncSocket_HttpRequest.h"
 
+#include <chrono>
 #include <cstring>
 #include <limits>
 
@@ -1251,7 +1252,8 @@ HttpRequestTimeoutController
 				CriticalSection					lock;
 				ConditionVariable				cv;
 				Func<void()>					callback;
-				vuint64_t						deadline = 0;
+				std::chrono::steady_clock::time_point
+										deadline;
 				vint							duration = 0;
 				bool							armed = false;
 				bool							workerRunning = false;
@@ -1269,7 +1271,7 @@ HttpRequestTimeoutController
 					state->lock.Enter();
 					while (state->armed)
 					{
-						auto now = DateTime::LocalTime().osMilliseconds;
+						auto now = std::chrono::steady_clock::now();
 						if (now >= state->deadline)
 						{
 							callback = state->callback;
@@ -1278,8 +1280,8 @@ HttpRequestTimeoutController
 							state->activeCallbacks++;
 							break;
 						}
-						auto remaining = state->deadline - now;
-						auto wait = remaining > (vuint64_t)(std::numeric_limits<vint>::max)()
+						auto remaining = std::chrono::ceil<std::chrono::milliseconds>(state->deadline - now).count();
+						auto wait = remaining > (std::numeric_limits<vint>::max)()
 							? (std::numeric_limits<vint>::max)()
 							: (vint)remaining;
 						state->cv.SleepWithForTime(state->lock, wait);
@@ -1327,7 +1329,7 @@ HttpRequestTimeoutController
 					CHECK_ERROR(!state->armed, L"The HTTP timeout controller is already armed.");
 					state->callback = callback;
 					state->duration = milliseconds;
-					state->deadline = DateTime::LocalTime().osMilliseconds + (vuint64_t)milliseconds;
+					state->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
 					state->armed = true;
 					if (!state->workerRunning)
 					{
@@ -1363,7 +1365,7 @@ HttpRequestTimeoutController
 				{
 					if (state->armed)
 					{
-						state->deadline = DateTime::LocalTime().osMilliseconds + (vuint64_t)state->duration;
+						state->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(state->duration);
 						state->cv.WakeAllPendings();
 					}
 				}

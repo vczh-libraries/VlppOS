@@ -18,7 +18,7 @@ clean:
 
 all:pre-build ./Bin/UnitTest
 
-./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestClient.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/ChannelPackage.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TestInterProcess.o ./Obj/TestInterProcess_AsyncSocket.o ./Obj/TestInterProcess_HttpRequest.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
+./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/NetworkProtocolHttp.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpClientApi.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestClient.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket_HttpServerApi.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/ChannelPackage.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TestInterProcess.o ./Obj/TestInterProcess_AsyncSocket.o ./Obj/TestInterProcess_AsyncSocket_MiniHttpApi.o ./Obj/TestInterProcess_HttpRequest.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../Import/Vlpp.cpp
@@ -51,7 +51,13 @@ all:pre-build ./Bin/UnitTest
 ./Obj/FileSystem.Linux.o: ../../Source/FileSystem.Linux.cpp
 	$(CPP_COMPILE)
 
+./Obj/NetworkProtocolHttp.o: ../../Source/InterProcess/NetworkProtocolHttp.cpp
+	$(CPP_COMPILE)
+
 ./Obj/AsyncSocket.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket.cpp
+	$(CPP_COMPILE)
+
+./Obj/AsyncSocket_HttpClientApi.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.cpp
 	$(CPP_COMPILE)
 
 ./Obj/AsyncSocket_HttpRequest.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequest.cpp
@@ -61,6 +67,9 @@ all:pre-build ./Bin/UnitTest
 	$(CPP_COMPILE)
 
 ./Obj/AsyncSocket_HttpRequestServer.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestServer.cpp
+	$(CPP_COMPILE)
+
+./Obj/AsyncSocket_HttpServerApi.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.cpp
 	$(CPP_COMPILE)
 
 ./Obj/AsyncSocket.Linux.o: ../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp
@@ -121,6 +130,9 @@ all:pre-build ./Bin/UnitTest
 	$(CPP_COMPILE)
 
 ./Obj/TestInterProcess_AsyncSocket.o: ../Source/TestInterProcess_AsyncSocket.cpp
+	$(CPP_COMPILE)
+
+./Obj/TestInterProcess_AsyncSocket_MiniHttpApi.o: ../Source/TestInterProcess_AsyncSocket_MiniHttpApi.cpp
 	$(CPP_COMPILE)
 
 ./Obj/TestInterProcess_HttpRequest.o: ../Source/TestInterProcess_HttpRequest.cpp

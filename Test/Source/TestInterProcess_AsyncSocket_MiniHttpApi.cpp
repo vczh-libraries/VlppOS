@@ -1636,6 +1636,7 @@ namespace mini_http_api_test
 			state->requests.Add(CreateRawRequest(L"GET", L"/cors/not-modified", 38905));
 
 			RunRawSequence<TNativeClient>(38905, state);
+			AssertState(*state.Obj());
 			server->Stop();
 
 			TEST_ASSERT(state->responses.Count() == 9);
@@ -1674,7 +1675,6 @@ namespace mini_http_api_test
 			TEST_ASSERT(state->writes == 9);
 			TEST_ASSERT(serverState->serverRequests == 4);
 			TEST_ASSERT(serverState->stoppingCallbacks == 1);
-			AssertState(*state.Obj());
 			AssertState(*serverState.Obj());
 		});
 
