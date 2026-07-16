@@ -64,11 +64,30 @@ namespace vl::inter_process::async_tcp_socket
 		virtual ClientStatus					GetStatus() = 0;
 	};
 
+	enum class AsyncSocketServerStartFailure
+	{
+		AddressInUse,
+		Other,
+	};
+
+	class AsyncSocketServerStartException : public Exception
+	{
+	private:
+		AsyncSocketServerStartFailure		failure;
+
+	public:
+		AsyncSocketServerStartException(AsyncSocketServerStartFailure _failure, const WString& message);
+
+		AsyncSocketServerStartFailure		GetFailure()const;
+	};
+
 	/// <summary>Callbacks for accepting asynchronous TCP connections.</summary>
 	class IAsyncSocketServerCallback : public virtual Interface
 	{
 	public:
 		virtual WaitForClientResult			OnClientConnected(IAsyncSocketConnection* connection) = 0;
+		/// <summary>Called exactly once when a started listener stops unexpectedly.</summary>
+		virtual void							OnServerStopped();
 	};
 
 	/// <summary>An asynchronous TCP server for the local machine.</summary>

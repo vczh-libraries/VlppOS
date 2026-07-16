@@ -12,41 +12,6 @@ namespace vl::inter_process::windows_http
 using namespace vl::collections;
 
 /***********************************************************************
-HttpRequest
-***********************************************************************/
-
-void HttpRequest::SetBodyUtf8(const WString& bodyString)
-{
-	vint utf8Size = WideCharToMultiByte(CP_UTF8, 0, bodyString.Buffer(), (int)bodyString.Length(), NULL, 0, NULL, NULL);
-	body.Resize(utf8Size);
-	if (utf8Size > 0)
-	{
-		WideCharToMultiByte(CP_UTF8, 0, bodyString.Buffer(), (int)bodyString.Length(), &body[0], (int)utf8Size, NULL, NULL);
-	}
-}
-
-/***********************************************************************
-HttpResponse
-***********************************************************************/
-
-WString HttpResponse::GetBodyUtf8() const
-{
-	if (body.Count() == 0)
-	{
-		return WString::Empty;
-	}
-
-	vint utf16Size = MultiByteToWideChar(CP_UTF8, 0, &body[0], (int)body.Count(), NULL, 0);
-	Array<wchar_t> utf16(utf16Size + 1);
-	ZeroMemory(&utf16[0], utf16.Count() * sizeof(wchar_t));
-	if (utf16Size > 0)
-	{
-		MultiByteToWideChar(CP_UTF8, 0, &body[0], (int)body.Count(), &utf16[0], (int)utf16Size);
-	}
-	return &utf16[0];
-}
-
-/***********************************************************************
 HttpClientApi
 ***********************************************************************/
 
@@ -57,14 +22,6 @@ HttpError HttpClientApi::MakeError(const WString& operation, DWORD errorCode)
 	error.errorCode = errorCode;
 	error.message = operation + L" failed with Windows error " + itow((vint)errorCode) + L".";
 	return error;
-}
-
-vint HttpClientApi::HexValue(wchar_t c)
-{
-	if (L'0' <= c && c <= L'9') return c - L'0';
-	if (L'a' <= c && c <= L'f') return c - L'a' + 10;
-	if (L'A' <= c && c <= L'F') return c - L'A' + 10;
-	return -1;
 }
 
 bool HttpClientApi::IsStopping()
@@ -690,91 +647,12 @@ void HttpClientApi::Stop()
 
 WString HttpClientApi::UrlEncodeQuery(const WString& query)
 {
-	vint utf8Size = WideCharToMultiByte(CP_UTF8, 0, query.Buffer(), (int)query.Length(), NULL, 0, NULL, NULL);
-	Array<char> utf8(utf8Size);
-	if (utf8Size > 0)
-	{
-		WideCharToMultiByte(CP_UTF8, 0, query.Buffer(), (int)query.Length(), &utf8[0], (int)utf8Size, NULL, NULL);
-	}
-
-	Array<wchar_t> encoded(utf8Size * 3 + 1);
-	ZeroMemory(&encoded[0], encoded.Count() * sizeof(wchar_t));
-	wchar_t* writing = &encoded[0];
-	for (vint i = 0; i < utf8Size; i++)
-	{
-		unsigned char x = (unsigned char)utf8[i];
-		if ((L'a' <= x && x <= L'z') || (L'A' <= x && x <= L'Z') || (L'0' <= x && x <= L'9'))
-		{
-			writing[0] = x;
-			writing += 1;
-		}
-		else
-		{
-			writing[0] = L'%';
-			writing[1] = L"0123456789ABCDEF"[x / 16];
-			writing[2] = L"0123456789ABCDEF"[x % 16];
-			writing += 3;
-		}
-	}
-
-	return &encoded[0];
+	return HttpUrlEncodeQuery(query);
 }
 
 WString HttpClientApi::UrlDecodeQuery(const WString& query)
 {
-	List<char> utf8;
-	for (vint i = 0; i < query.Length(); i++)
-	{
-		wchar_t c = query[i];
-		if (c == L'%' && i + 2 < query.Length())
-		{
-			vint high = HexValue(query[i + 1]);
-			vint low = HexValue(query[i + 2]);
-			if (high != -1 && low != -1)
-			{
-				utf8.Add((char)(high * 16 + low));
-				i += 2;
-				continue;
-			}
-		}
-
-		if (c == L'+')
-		{
-			utf8.Add(' ');
-		}
-		else if (c <= 0x7F)
-		{
-			utf8.Add((char)c);
-		}
-		else
-		{
-			wchar_t single[] = { c, 0 };
-			vint utf8Size = WideCharToMultiByte(CP_UTF8, 0, single, 1, NULL, 0, NULL, NULL);
-			if (utf8Size > 0)
-			{
-				Array<char> singleUtf8(utf8Size);
-				WideCharToMultiByte(CP_UTF8, 0, single, 1, &singleUtf8[0], (int)utf8Size, NULL, NULL);
-				for (vint j = 0; j < utf8Size; j++)
-				{
-					utf8.Add(singleUtf8[j]);
-				}
-			}
-		}
-	}
-
-	if (utf8.Count() == 0)
-	{
-		return WString::Empty;
-	}
-
-	vint utf16Size = MultiByteToWideChar(CP_UTF8, 0, &utf8[0], (int)utf8.Count(), NULL, 0);
-	Array<wchar_t> utf16(utf16Size + 1);
-	ZeroMemory(&utf16[0], utf16.Count() * sizeof(wchar_t));
-	if (utf16Size > 0)
-	{
-		MultiByteToWideChar(CP_UTF8, 0, &utf8[0], (int)utf8.Count(), &utf16[0], (int)utf16Size);
-	}
-	return &utf16[0];
+	return HttpUrlDecodeQuery(query);
 }
 
 }

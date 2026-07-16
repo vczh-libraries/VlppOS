@@ -1345,16 +1345,49 @@ AsyncSocketServer::Impl
 		Ptr<IocpRuntime>						runtime;
 		CriticalSection					lockState;
 		IAsyncSocketServerCallback*		callback = nullptr;
+		bool							startCalled = false;
+		bool							starting = false;
+		vint							startingThreadId = -1;
 		bool							started = false;
 		bool							stopping = false;
 		bool							stopped = false;
+		bool							unexpectedStopQueued = false;
+		bool							unexpectedStopNotified = false;
 		SOCKET							listener = INVALID_SOCKET;
 		LPFN_ACCEPTEX						acceptEx = nullptr;
 		bool							acceptPending = false;
 		vint							pendingAccepts = 0;
 		EventObject						eventAcceptDrained;
+		EventObject						eventStartFinished;
 		EventObject						eventStopped;
 		List<Ptr<AsyncSocketConnection>>		connections;
+
+		void FinishStart()
+		{
+			CS_LOCK(lockState)
+			{
+				starting = false;
+				startingThreadId = -1;
+				eventStartFinished.Signal();
+			}
+		}
+
+		class StartScope
+		{
+		private:
+			Impl*							server = nullptr;
+
+		public:
+			StartScope(Impl* _server)
+				: server(_server)
+			{
+			}
+
+			~StartScope()
+			{
+				server->FinishStart();
+			}
+		};
 
 		void BeginAcceptPendingLocked()
 		{
@@ -1441,6 +1474,48 @@ AsyncSocketServer::Impl
 			}
 		}
 
+		void QueueUnexpectedStop()
+		{
+			bool queue = false;
+			CS_LOCK(lockState)
+			{
+				if (started && !stopping && !unexpectedStopQueued)
+				{
+					unexpectedStopQueued = true;
+					queue = true;
+				}
+			}
+			if (!queue)
+			{
+				return;
+			}
+
+			auto self = this;
+			runtime->QueueCallback(Func<void()>([self]()
+			{
+				IAsyncSocketServerCallback* installed = nullptr;
+				CS_LOCK(self->lockState)
+				{
+					if (self->started && !self->stopping && !self->unexpectedStopNotified)
+					{
+						self->unexpectedStopNotified = true;
+						installed = self->callback;
+					}
+				}
+				if (installed)
+				{
+					try
+					{
+						installed->OnServerStopped();
+					}
+					catch (...)
+					{
+					}
+				}
+				self->Stop();
+			}));
+		}
+
 		void CompleteAccept(AcceptOperation* operation, DWORD error)
 		{
 			bool running = false;
@@ -1456,7 +1531,10 @@ AsyncSocketServer::Impl
 				closesocket(acceptedSocket);
 				if (running)
 				{
-					PostAccept();
+					if (!PostAccept())
+					{
+						QueueUnexpectedStop();
+					}
 				}
 				return;
 			}
@@ -1464,7 +1542,10 @@ AsyncSocketServer::Impl
 			if (setsockopt(acceptedSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (CHAR*)&listener, sizeof(listener)) == SOCKET_ERROR || !runtime->Associate(acceptedSocket))
 			{
 				closesocket(acceptedSocket);
-				PostAccept();
+				if (!PostAccept())
+				{
+					QueueUnexpectedStop();
+				}
 				return;
 			}
 
@@ -1480,7 +1561,10 @@ AsyncSocketServer::Impl
 				}
 			}
 
-			PostAccept();
+			if (!PostAccept())
+			{
+				QueueUnexpectedStop();
+			}
 			if (!retain)
 			{
 				connection->Stop();
@@ -1531,6 +1615,7 @@ AsyncSocketServer::Impl
 			, runtime(Ptr(new IocpRuntime))
 		{
 			CHECK_ERROR(eventAcceptDrained.CreateManualUnsignal(true), L"AsyncSocketServer failed to create its accept drain event.");
+			CHECK_ERROR(eventStartFinished.CreateManualUnsignal(true), L"AsyncSocketServer failed to create its startup drain event.");
 			CHECK_ERROR(eventStopped.CreateManualUnsignal(false), L"AsyncSocketServer failed to create its stop event.");
 		}
 
@@ -1542,29 +1627,55 @@ AsyncSocketServer::Impl
 		void Start(IAsyncSocketServerCallback* _callback)
 		{
 			CHECK_ERROR(_callback != nullptr, L"AsyncSocketServer::Start requires a callback.");
+			bool begin = false;
+			CS_LOCK(lockState)
+			{
+				if (!startCalled && !stopping)
+				{
+					startCalled = true;
+					starting = true;
+					startingThreadId = Thread::GetCurrentThreadId();
+					eventStartFinished.Unsignal();
+					begin = true;
+				}
+			}
+			CHECK_ERROR(begin, L"AsyncSocketServer::Start can only be called once.");
+			StartScope startScope(this);
 			SOCKET createdListener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
-			CHECK_ERROR(createdListener != INVALID_SOCKET, L"AsyncSocketServer failed to create its listener socket.");
+			if (createdListener == INVALID_SOCKET)
+			{
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer failed to create its listener socket.");
+			}
 
 			BOOL exclusive = TRUE;
 			if (setsockopt(createdListener, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (CHAR*)&exclusive, sizeof(exclusive)) == SOCKET_ERROR)
 			{
 				closesocket(createdListener);
-				CHECK_ERROR(false, L"AsyncSocketServer failed to apply SO_EXCLUSIVEADDRUSE.");
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer failed to apply SO_EXCLUSIVEADDRUSE.");
 			}
 
 			SOCKADDR_IN address = {};
 			address.sin_family = AF_INET;
 			address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 			address.sin_port = htons((u_short)port);
-			if (bind(createdListener, (SOCKADDR*)&address, sizeof(address)) == SOCKET_ERROR || listen(createdListener, SOMAXCONN) == SOCKET_ERROR)
+			if (bind(createdListener, (SOCKADDR*)&address, sizeof(address)) == SOCKET_ERROR)
 			{
+				auto error = WSAGetLastError();
 				closesocket(createdListener);
-				CHECK_ERROR(false, L"AsyncSocketServer failed to bind or listen on 127.0.0.1.");
+				auto failure = error == WSAEADDRINUSE || error == WSAEACCES ? AsyncSocketServerStartFailure::AddressInUse : AsyncSocketServerStartFailure::Other;
+				throw AsyncSocketServerStartException(failure, SocketErrorMessage(L"AsyncSocketServer bind", error));
+			}
+			if (listen(createdListener, SOMAXCONN) == SOCKET_ERROR)
+			{
+				auto error = WSAGetLastError();
+				closesocket(createdListener);
+				auto failure = error == WSAEADDRINUSE || error == WSAEACCES ? AsyncSocketServerStartFailure::AddressInUse : AsyncSocketServerStartFailure::Other;
+				throw AsyncSocketServerStartException(failure, SocketErrorMessage(L"AsyncSocketServer listen", error));
 			}
 			if (!runtime->Associate(createdListener))
 			{
 				closesocket(createdListener);
-				CHECK_ERROR(false, L"AsyncSocketServer failed to associate its listener with the IO completion port.");
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer failed to associate its listener with the IO completion port.");
 			}
 
 			LPFN_ACCEPTEX loadedAcceptEx = nullptr;
@@ -1583,13 +1694,13 @@ AsyncSocketServer::Impl
 			) == SOCKET_ERROR)
 			{
 				closesocket(createdListener);
-				CHECK_ERROR(false, L"AsyncSocketServer failed to load AcceptEx.");
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer failed to load AcceptEx.");
 			}
 
 			bool canStart = false;
 			CS_LOCK(lockState)
 			{
-				if (!started && !stopping)
+				if (!stopping)
 				{
 					listener = createdListener;
 					acceptEx = loadedAcceptEx;
@@ -1601,12 +1712,12 @@ AsyncSocketServer::Impl
 			if (!canStart)
 			{
 				closesocket(createdListener);
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer was stopped during startup.");
 			}
-			CHECK_ERROR(canStart, L"AsyncSocketServer::Start can only be called once.");
 			if (!PostAccept())
 			{
 				Stop();
-				CHECK_ERROR(false, L"AsyncSocketServer failed to post AcceptEx.");
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, L"AsyncSocketServer failed to post AcceptEx.");
 			}
 		}
 
@@ -1614,7 +1725,10 @@ AsyncSocketServer::Impl
 		{
 			SOCKET closingListener = INVALID_SOCKET;
 			bool first = false;
+			bool waitForStart = false;
+			bool selfStarting = false;
 			auto selfWorker = currentCallbackRuntime == runtime.Obj() || currentCompletionRuntime == runtime.Obj();
+			auto currentThreadId = Thread::GetCurrentThreadId();
 			CS_LOCK(lockState)
 			{
 				if (!stopping)
@@ -1625,9 +1739,19 @@ AsyncSocketServer::Impl
 					listener = INVALID_SOCKET;
 					first = true;
 				}
+				selfStarting = starting && startingThreadId == currentThreadId;
+				waitForStart = starting && !selfStarting;
+			}
+			if (waitForStart)
+			{
+				eventStartFinished.Wait();
 			}
 			if (!first)
 			{
+				if (selfStarting)
+				{
+					return;
+				}
 				// A runtime callback must not wait for the caller that is draining it.
 				if (!selfWorker)
 				{

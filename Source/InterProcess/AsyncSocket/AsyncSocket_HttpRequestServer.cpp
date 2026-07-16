@@ -23,6 +23,7 @@ HttpRequestServer::Impl
 										connections;
 			bool								startCalled = false;
 			bool								stopStarted = false;
+			bool								unexpectedStopNotified = false;
 			bool								stopFinished = false;
 			bool								nativeStopCalling = false;
 			bool								destroyStarted = false;
@@ -76,6 +77,19 @@ HttpRequestServer::Impl
 				return self
 					? Impl::OnSocketClientConnected(lifecycle, connection)
 					: WaitForClientResult::Reject;
+			}
+
+			void OnServerStopped() override
+			{
+				Ptr<SocketServerCallback> self;
+				CS_LOCK(lockSelf)
+				{
+					self = selfReference;
+				}
+				if (self)
+				{
+					Impl::OnSocketServerStopped(lifecycle);
+				}
 			}
 		};
 
@@ -230,6 +244,30 @@ HttpRequestServer::Impl
 				httpConnection->StopWithRetainedAdapter(httpConnection);
 			}
 			return accepted ? WaitForClientResult::Accept : WaitForClientResult::Reject;
+		}
+
+		static void OnSocketServerStopped(Ptr<Lifecycle> state)
+		{
+			HttpRequestCallbackDomain::CallbackFrame callbackFrame(state->callbackDomain);
+			HttpRequestServer* owner = nullptr;
+			CS_LOCK(state->lockState)
+			{
+				if (!state->stopStarted && !state->unexpectedStopNotified)
+				{
+					state->unexpectedStopNotified = true;
+					owner = state->owner;
+				}
+			}
+			if (owner)
+			{
+				try
+				{
+					owner->OnServerStopped();
+				}
+				catch (...)
+				{
+				}
+			}
 		}
 
 	public:
@@ -413,6 +451,11 @@ HttpRequestServer
 	WaitForClientResult HttpRequestServer::OnClientConnected(IHttpRequestConnection*)
 	{
 		return WaitForClientResult::Accept;
+	}
+
+	void HttpRequestServer::OnServerStopped()
+	{
+		Stop();
 	}
 
 	void HttpRequestServer::Start()

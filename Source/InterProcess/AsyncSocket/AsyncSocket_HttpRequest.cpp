@@ -328,7 +328,7 @@ namespace vl::inter_process::async_tcp_socket
 			return true;
 		}
 
-		bool ParseContentLength(const Array<vuint8_t>& value, bool& initialized, vint& contentLength)
+		bool ParseContentLength(const Array<vuint8_t>& value, bool& initialized, vuint64_t& contentLength)
 		{
 			vint reading = 0;
 			while (true)
@@ -339,16 +339,16 @@ namespace vl::inter_process::async_tcp_socket
 				vint end = reading;
 				while (reading < value.Count() && IsOws(value[reading])) reading++;
 				vuint64_t number = 0;
-				if (!ParseUnsignedDecimal(value, begin, end, number) || number > (vuint64_t)HttpBodySizeLimit)
+				if (!ParseUnsignedDecimal(value, begin, end, number))
 				{
 					return false;
 				}
 				if (!initialized)
 				{
 					initialized = true;
-					contentLength = (vint)number;
+					contentLength = number;
 				}
-				else if (contentLength != (vint)number)
+				else if (contentLength != number)
 				{
 					return false;
 				}
@@ -358,7 +358,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 		}
 
-		bool ParseTransferCodings(const Array<vuint8_t>& value, List<WString>& codings)
+		bool ParseTransferCodings(const Array<vuint8_t>& value, List<WString>& codings, bool& hasParameters)
 		{
 			vint reading = 0;
 			while (true)
@@ -373,6 +373,7 @@ namespace vl::inter_process::async_tcp_socket
 				while (reading < value.Count() && IsOws(value[reading])) reading++;
 				while (reading < value.Count() && value[reading] == ';')
 				{
+					hasParameters = true;
 					reading++;
 					while (reading < value.Count() && IsOws(value[reading])) reading++;
 					if (!ParseToken(&value[0], reading, value.Count())) return false;
@@ -432,49 +433,57 @@ namespace vl::inter_process::async_tcp_socket
 		struct HttpFraming
 		{
 			bool							hasContentLength = false;
-			vint							contentLength = 0;
+			vuint64_t						contentLength = 0;
 			bool							hasTransferEncoding = false;
 			List<WString>					transferCodings;
+			bool							transferCodingParameters = false;
 			bool							connectionClose = false;
 		};
 
-		bool AnalyzeFraming(const List<HttpField>& fields, HttpFraming& framing)
+		enum class HttpFramingAnalysisResult
+		{
+			Succeeded,
+			Invalid,
+			UnsupportedTransferCoding,
+		};
+
+		HttpFramingAnalysisResult AnalyzeFraming(const List<HttpField>& fields, HttpFraming& framing)
 		{
 			for (auto&& field : fields)
 			{
 				if (IsAsciiEqual(field.name, L"content-length"))
 				{
-					if (!ParseContentLength(field.value, framing.hasContentLength, framing.contentLength)) return false;
+					if (!ParseContentLength(field.value, framing.hasContentLength, framing.contentLength)) return HttpFramingAnalysisResult::Invalid;
 				}
 				else if (IsAsciiEqual(field.name, L"transfer-encoding"))
 				{
 					framing.hasTransferEncoding = true;
-					if (!ParseTransferCodings(field.value, framing.transferCodings)) return false;
+					if (!ParseTransferCodings(field.value, framing.transferCodings, framing.transferCodingParameters)) return HttpFramingAnalysisResult::Invalid;
 				}
 				else if (IsAsciiEqual(field.name, L"connection"))
 				{
 					framing.connectionClose |= HasConnectionClose(field.value);
 				}
 			}
-			if (framing.hasTransferEncoding && framing.hasContentLength) return false;
+			if (framing.hasTransferEncoding && framing.hasContentLength) return HttpFramingAnalysisResult::Invalid;
 			if (framing.hasTransferEncoding)
 			{
-				if (framing.transferCodings.Count() == 0 || !IsAsciiEqual(framing.transferCodings[framing.transferCodings.Count() - 1], L"chunked"))
+				if (
+					framing.transferCodings.Count() != 1 ||
+					!IsAsciiEqual(framing.transferCodings[0], L"chunked") ||
+					framing.transferCodingParameters
+					)
 				{
-					return false;
-				}
-				for (vint i = 0; i + 1 < framing.transferCodings.Count(); i++)
-				{
-					if (IsAsciiEqual(framing.transferCodings[i], L"chunked")) return false;
+					return HttpFramingAnalysisResult::UnsupportedTransferCoding;
 				}
 			}
-			return true;
+			return HttpFramingAnalysisResult::Succeeded;
 		}
 
 		bool ParseHttpVersion(const vuint8_t* buffer, vint begin, vint end, HttpVersion& version)
 		{
 			const wchar_t* prefix = L"HTTP/";
-			if (end - begin != 8) return false;
+			if (end - begin < 8) return false;
 			for (vint i = 0; i < 5; i++)
 			{
 				if (buffer[begin + i] != prefix[i]) return false;
@@ -503,7 +512,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			version.major = (vint)major;
 			version.minor = (vint)minor;
-			return version.major == 1 && version.minor == 1;
+			return true;
 		}
 
 		bool ParseRequestLine(const vuint8_t* buffer, vint end, HttpVersion& version, WString& method, WString& target)
@@ -525,10 +534,9 @@ namespace vl::inter_process::async_tcp_socket
 			{
 				if (buffer[i] < 0x21 || buffer[i] > 0x7E) return false;
 			}
-			if (!ParseHttpVersion(buffer, secondSpace + 1, end, version)) return false;
 			method = CopyAscii(buffer, 0, firstSpace, false);
 			target = CopyAscii(buffer, firstSpace + 1, secondSpace, false);
-			return true;
+			return ParseHttpVersion(buffer, secondSpace + 1, end, version);
 		}
 
 		bool ParseStatusLine(const vuint8_t* buffer, vint end, HttpVersion& version, vint& statusCode, WString& reason)
@@ -556,17 +564,71 @@ namespace vl::inter_process::async_tcp_socket
 			return true;
 		}
 
+		enum class HttpBodyDetailedParsingResult
+		{
+			Succeeded,
+			Incomplete,
+			BadRequest,
+			PayloadTooLarge,
+			TrailerFieldsTooLarge,
+		};
+
+		HttpBodyDetailedParsingResult ParseHttpRequestBodyToChunksDetailed(
+			const vuint8_t* buffer,
+			vint availableBytes,
+			HttpBody& output,
+			vint& consumedBytes
+			);
+
 		enum class HttpMessageParsingResult
 		{
 			Succeeded,
 			Incomplete,
-			Invalid,
+			BadRequest,
+			PayloadTooLarge,
+			UriTooLong,
+			ExpectationFailed,
+			RequestHeaderFieldsTooLarge,
+			NotImplemented,
+			HttpVersionNotSupported,
 		};
+
+		HttpRequestFailure GetHttpRequestFailure(HttpMessageParsingResult result)
+		{
+			switch (result)
+			{
+			case HttpMessageParsingResult::PayloadTooLarge:
+				return HttpRequestFailure::PayloadTooLarge;
+			case HttpMessageParsingResult::UriTooLong:
+				return HttpRequestFailure::UriTooLong;
+			case HttpMessageParsingResult::ExpectationFailed:
+				return HttpRequestFailure::ExpectationFailed;
+			case HttpMessageParsingResult::RequestHeaderFieldsTooLarge:
+				return HttpRequestFailure::RequestHeaderFieldsTooLarge;
+			case HttpMessageParsingResult::NotImplemented:
+				return HttpRequestFailure::NotImplemented;
+			case HttpMessageParsingResult::HttpVersionNotSupported:
+				return HttpRequestFailure::HttpVersionNotSupported;
+			default:
+				return HttpRequestFailure::BadRequest;
+			}
+		}
+
+		bool HasHeader(const List<HttpField>& fields, const wchar_t* name)
+		{
+			for (auto&& field : fields)
+			{
+				if (IsAsciiEqual(field.name, name)) return true;
+			}
+			return false;
+		}
 
 		HttpMessageParsingResult ParseHttpMessage(
 			const vuint8_t* buffer,
 			vint availableBytes,
 			bool requestMessage,
+			const WString& responseToMethod,
+			WString& parsedRequestMethod,
 			Ptr<HttpRequest>& request,
 			Ptr<HttpResponse>& response,
 			vint& consumedBytes,
@@ -575,13 +637,19 @@ namespace vl::inter_process::async_tcp_socket
 		{
 			consumedBytes = 0;
 			connectionClose = false;
+			parsedRequestMethod = L"";
 			vint startLineEnd = FindCrlf(buffer, 0, availableBytes);
 			if (startLineEnd == -1)
 			{
 				auto possibleLineBytes = availableBytes > 0 && buffer[availableBytes - 1] == '\r' ? availableBytes - 1 : availableBytes;
-				return possibleLineBytes > HttpRequestLineSizeLimit ? HttpMessageParsingResult::Invalid : HttpMessageParsingResult::Incomplete;
+				return possibleLineBytes > HttpRequestLineSizeLimit
+					? (requestMessage ? HttpMessageParsingResult::UriTooLong : HttpMessageParsingResult::BadRequest)
+					: HttpMessageParsingResult::Incomplete;
 			}
-			if (startLineEnd > HttpRequestLineSizeLimit) return HttpMessageParsingResult::Invalid;
+			if (startLineEnd > HttpRequestLineSizeLimit)
+			{
+				return requestMessage ? HttpMessageParsingResult::UriTooLong : HttpMessageParsingResult::BadRequest;
+			}
 
 			HttpVersion version;
 			WString method;
@@ -590,11 +658,16 @@ namespace vl::inter_process::async_tcp_socket
 			WString reason;
 			if (requestMessage)
 			{
-				if (!ParseRequestLine(buffer, startLineEnd, version, method, target)) return HttpMessageParsingResult::Invalid;
+				if (!ParseRequestLine(buffer, startLineEnd, version, method, target)) return HttpMessageParsingResult::BadRequest;
+				parsedRequestMethod = method;
 			}
 			else
 			{
-				if (!ParseStatusLine(buffer, startLineEnd, version, statusCode, reason)) return HttpMessageParsingResult::Invalid;
+				if (!ParseStatusLine(buffer, startLineEnd, version, statusCode, reason)) return HttpMessageParsingResult::BadRequest;
+			}
+			if (version.major != 1 || version.minor != 1)
+			{
+				return HttpMessageParsingResult::HttpVersionNotSupported;
 			}
 
 			List<HttpField> headers;
@@ -606,36 +679,54 @@ namespace vl::inter_process::async_tcp_socket
 				vint lineEnd = FindCrlf(buffer, reading, availableBytes);
 				if (lineEnd == -1)
 				{
-					return availableBytes - headersBegin >= HttpHeaderBlockSizeLimit ? HttpMessageParsingResult::Invalid : HttpMessageParsingResult::Incomplete;
+					return availableBytes - headersBegin >= HttpHeaderBlockSizeLimit
+						? (requestMessage ? HttpMessageParsingResult::RequestHeaderFieldsTooLarge : HttpMessageParsingResult::BadRequest)
+						: HttpMessageParsingResult::Incomplete;
 				}
-				if (lineEnd + 2 - headersBegin > HttpHeaderBlockSizeLimit) return HttpMessageParsingResult::Invalid;
+				if (lineEnd + 2 - headersBegin > HttpHeaderBlockSizeLimit)
+				{
+					return requestMessage ? HttpMessageParsingResult::RequestHeaderFieldsTooLarge : HttpMessageParsingResult::BadRequest;
+				}
 				if (lineEnd == reading)
 				{
 					bodyBegin = lineEnd + 2;
 					break;
 				}
 				HttpField field;
-				if (!ParseFieldLine(buffer, reading, lineEnd, field)) return HttpMessageParsingResult::Invalid;
+				if (!ParseFieldLine(buffer, reading, lineEnd, field)) return HttpMessageParsingResult::BadRequest;
 				headers.Add(std::move(field));
 				reading = lineEnd + 2;
 			}
 
 			HttpFraming framing;
-			if (!AnalyzeFraming(headers, framing)) return HttpMessageParsingResult::Invalid;
-			if (!requestMessage && !framing.hasContentLength && !framing.hasTransferEncoding) return HttpMessageParsingResult::Invalid;
+			auto framingResult = AnalyzeFraming(headers, framing);
+			if (framingResult == HttpFramingAnalysisResult::Invalid) return HttpMessageParsingResult::BadRequest;
+			if (framingResult == HttpFramingAnalysisResult::UnsupportedTransferCoding) return HttpMessageParsingResult::NotImplemented;
+			if (requestMessage && HasHeader(headers, L"expect")) return HttpMessageParsingResult::ExpectationFailed;
+
+			auto headResponse = !requestMessage && responseToMethod == L"HEAD";
+			auto noContentResponse = !requestMessage && statusCode == 204;
+			auto notModifiedResponse = !requestMessage && statusCode == 304;
+			auto responseWithoutBody = headResponse || noContentResponse || notModifiedResponse;
+			if (noContentResponse && (framing.hasContentLength || framing.hasTransferEncoding)) return HttpMessageParsingResult::BadRequest;
+			if (notModifiedResponse && framing.hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
+			if (!requestMessage && !responseWithoutBody && !framing.hasContentLength && !framing.hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
 
 			HttpBody body;
 			vint bodyBytes = 0;
-			if (framing.hasTransferEncoding)
+			if (!responseWithoutBody && framing.hasTransferEncoding)
 			{
-				auto result = ParseHttpRequestBodyToChunks(buffer + bodyBegin, availableBytes - bodyBegin, body, bodyBytes);
-				if (result == HttpRequestBodyParsingResult::Incomplete) return HttpMessageParsingResult::Incomplete;
-				if (result == HttpRequestBodyParsingResult::Invalid) return HttpMessageParsingResult::Invalid;
+				auto result = ParseHttpRequestBodyToChunksDetailed(buffer + bodyBegin, availableBytes - bodyBegin, body, bodyBytes);
+				if (result == HttpBodyDetailedParsingResult::Incomplete) return HttpMessageParsingResult::Incomplete;
+				if (result == HttpBodyDetailedParsingResult::PayloadTooLarge) return HttpMessageParsingResult::PayloadTooLarge;
+				if (result == HttpBodyDetailedParsingResult::TrailerFieldsTooLarge) return HttpMessageParsingResult::RequestHeaderFieldsTooLarge;
+				if (result == HttpBodyDetailedParsingResult::BadRequest) return HttpMessageParsingResult::BadRequest;
 			}
-			else if (framing.hasContentLength)
+			else if (!responseWithoutBody && framing.hasContentLength)
 			{
-				if (availableBytes - bodyBegin < framing.contentLength) return HttpMessageParsingResult::Incomplete;
-				bodyBytes = framing.contentLength;
+				if (framing.contentLength > (vuint64_t)HttpBodySizeLimit) return HttpMessageParsingResult::PayloadTooLarge;
+				bodyBytes = (vint)framing.contentLength;
+				if (availableBytes - bodyBegin < bodyBytes) return HttpMessageParsingResult::Incomplete;
 				if (bodyBytes > 0)
 				{
 					HttpBodyChunk chunk;
@@ -798,7 +889,7 @@ namespace vl::inter_process::async_tcp_socket
 			return total;
 		}
 
-		Ptr<AsyncSocketBuffer> SerializeHttpMessage(HttpRequest* request, HttpResponse* response, bool& connectionClose)
+		Ptr<AsyncSocketBuffer> SerializeHttpMessage(HttpRequest* request, HttpResponse* response, const WString& responseToMethod, bool& connectionClose)
 		{
 			auto requestMessage = request != nullptr;
 			CHECK_ERROR(requestMessage != (response != nullptr), L"HTTP serialization requires exactly one message.");
@@ -846,25 +937,44 @@ namespace vl::inter_process::async_tcp_socket
 			}
 
 			HttpFraming framing;
-			CHECK_ERROR(AnalyzeFraming(headers, framing), L"HTTP serialization received invalid or ambiguous body framing.");
+			CHECK_ERROR(AnalyzeFraming(headers, framing) == HttpFramingAnalysisResult::Succeeded, L"HTTP serialization received invalid, ambiguous, or unsupported body framing.");
 			auto bodySize = ValidateBody(body);
+			auto headResponse = !requestMessage && responseToMethod == L"HEAD";
+			auto noContentResponse = !requestMessage && response->statusCode == 204;
+			auto notModifiedResponse = !requestMessage && response->statusCode == 304;
+			auto suppressBody = headResponse || noContentResponse || notModifiedResponse;
 			auto chunked = framing.hasTransferEncoding;
 			auto generateContentLength = false;
 			auto generateTransferEncoding = false;
-			if (!framing.hasContentLength && !framing.hasTransferEncoding)
+			if (noContentResponse)
+			{
+				CHECK_ERROR(body.chunks.Count() == 0 && body.trailers.Count() == 0, L"An HTTP 204 response cannot contain a body.");
+				CHECK_ERROR(!framing.hasContentLength && !framing.hasTransferEncoding, L"An HTTP 204 response cannot contain body framing.");
+				chunked = false;
+			}
+			else if (notModifiedResponse)
+			{
+				CHECK_ERROR(body.chunks.Count() == 0 && body.trailers.Count() == 0, L"An HTTP 304 response cannot contain a body.");
+				CHECK_ERROR(!framing.hasTransferEncoding, L"An HTTP 304 response cannot contain Transfer-Encoding.");
+				chunked = false;
+			}
+			else if (!framing.hasContentLength && !framing.hasTransferEncoding)
 			{
 				chunked = body.chunks.Count() > 1 || body.trailers.Count() > 0;
 				generateTransferEncoding = chunked;
 				generateContentLength = !chunked && (!requestMessage || body.chunks.Count() > 0);
 			}
-			if (!chunked)
+			if (!noContentResponse && !notModifiedResponse && !chunked)
 			{
 				CHECK_ERROR(body.trailers.Count() == 0 && body.chunks.Count() <= 1, L"A fixed HTTP body cannot contain multiple chunks or trailers.");
 				if (framing.hasContentLength)
 				{
-					CHECK_ERROR(framing.contentLength == bodySize, L"HTTP Content-Length does not match the supplied body.");
+					if (!headResponse || body.chunks.Count() > 0)
+					{
+						CHECK_ERROR(framing.contentLength == (vuint64_t)bodySize, L"HTTP Content-Length does not match the supplied body.");
+					}
 				}
-				else if (!generateContentLength)
+				else if (!generateContentLength && !headResponse)
 				{
 					CHECK_ERROR(requestMessage && bodySize == 0, L"An HTTP response requires explicit body framing.");
 				}
@@ -889,7 +999,7 @@ namespace vl::inter_process::async_tcp_socket
 			vint wireSize = startLineSize;
 			AddBoundedSize(wireSize, 2, HttpWireMessageSizeLimit, L"HTTP wire message exceeds the configured size limit.");
 			AddBoundedSize(wireSize, headerBlockSize, HttpWireMessageSizeLimit, L"HTTP wire message exceeds the configured size limit.");
-			if (chunked)
+			if (!suppressBody && chunked)
 			{
 				for (auto&& chunk : body.chunks)
 				{
@@ -899,7 +1009,7 @@ namespace vl::inter_process::async_tcp_socket
 				AddBoundedSize(wireSize, 3, HttpWireMessageSizeLimit, L"HTTP wire message exceeds the configured size limit.");
 				AddBoundedSize(wireSize, trailerBlockSize, HttpWireMessageSizeLimit, L"HTTP wire message exceeds the configured size limit.");
 			}
-			else
+			else if (!suppressBody)
 			{
 				AddBoundedSize(wireSize, bodySize, HttpWireMessageSizeLimit, L"HTTP wire message exceeds the configured size limit.");
 			}
@@ -939,7 +1049,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			AppendCrlf(bytes);
 
-			if (chunked)
+			if (!suppressBody && chunked)
 			{
 				for (auto&& chunk : body.chunks)
 				{
@@ -952,7 +1062,7 @@ namespace vl::inter_process::async_tcp_socket
 				for (auto&& trailer : body.trailers) AppendField(bytes, trailer);
 				AppendCrlf(bytes);
 			}
-			else if (body.chunks.Count() == 1)
+			else if (!suppressBody && body.chunks.Count() == 1)
 			{
 				for (auto c : body.chunks[0].data) bytes.Add(c);
 			}
@@ -973,6 +1083,108 @@ namespace vl::inter_process::async_tcp_socket
 HttpRequestBody
 ***********************************************************************/
 
+	namespace
+	{
+		HttpBodyDetailedParsingResult ParseHttpRequestBodyToChunksDetailed(
+			const vuint8_t* buffer,
+			vint availableBytes,
+			HttpBody& output,
+			vint& consumedBytes
+			)
+		{
+			consumedBytes = 0;
+			if (availableBytes < 0 || (!buffer && availableBytes > 0)) return HttpBodyDetailedParsingResult::BadRequest;
+			HttpBody parsed;
+			vint reading = 0;
+			vint decodedBytes = 0;
+			while (true)
+			{
+				vint lineEnd = FindCrlf(buffer, reading, availableBytes);
+				if (lineEnd == -1)
+				{
+					auto trailingCrlfPrefix = availableBytes > reading && buffer[availableBytes - 1] == '\r';
+					vint prefixEnd = trailingCrlfPrefix ? availableBytes - 1 : availableBytes;
+					auto validPrefix = trailingCrlfPrefix
+						? ValidateCompleteChunkSizeLine(buffer, reading, prefixEnd)
+						: ValidateChunkSizeLinePrefix(buffer, reading, prefixEnd);
+					if (prefixEnd - reading > HttpChunkSizeLineLimit || !validPrefix)
+					{
+						return HttpBodyDetailedParsingResult::BadRequest;
+					}
+					return HttpBodyDetailedParsingResult::Incomplete;
+				}
+				if (lineEnd - reading > HttpChunkSizeLineLimit) return HttpBodyDetailedParsingResult::BadRequest;
+				if (lineEnd + 2 > HttpWireMessageSizeLimit) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+				vint numberEnd = reading;
+				vuint64_t chunkSize = 0;
+				while (numberEnd < lineEnd && IsHexDigit(buffer[numberEnd]))
+				{
+					auto digit = (vuint64_t)HexDigitValue(buffer[numberEnd++]);
+					if (chunkSize > ((std::numeric_limits<vuint64_t>::max)() - digit) / 16) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+					chunkSize = chunkSize * 16 + digit;
+				}
+				if (numberEnd == reading) return HttpBodyDetailedParsingResult::BadRequest;
+				if (chunkSize > (vuint64_t)HttpBodySizeLimit) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+				if (numberEnd < lineEnd)
+				{
+					vint firstExtension = numberEnd;
+					while (firstExtension < lineEnd && IsOws(buffer[firstExtension])) firstExtension++;
+					if (firstExtension == lineEnd || buffer[firstExtension] != ';') return HttpBodyDetailedParsingResult::BadRequest;
+				}
+				vint extensionReading = numberEnd;
+				if (!ParseSemicolonParameters(buffer, extensionReading, lineEnd)) return HttpBodyDetailedParsingResult::BadRequest;
+				reading = lineEnd + 2;
+
+				if (chunkSize == 0)
+				{
+					vint trailerBegin = reading;
+					while (true)
+					{
+						vint trailerEnd = FindCrlf(buffer, reading, availableBytes);
+						if (trailerEnd == -1)
+						{
+							return availableBytes - trailerBegin >= HttpTrailerBlockSizeLimit
+								? HttpBodyDetailedParsingResult::TrailerFieldsTooLarge
+								: HttpBodyDetailedParsingResult::Incomplete;
+						}
+						if (trailerEnd + 2 - trailerBegin > HttpTrailerBlockSizeLimit) return HttpBodyDetailedParsingResult::TrailerFieldsTooLarge;
+						if (trailerEnd + 2 > HttpWireMessageSizeLimit) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+						if (trailerEnd == reading)
+						{
+							consumedBytes = trailerEnd + 2;
+							output = std::move(parsed);
+							return HttpBodyDetailedParsingResult::Succeeded;
+						}
+						HttpField trailer;
+						if (!ParseFieldLine(buffer, reading, trailerEnd, trailer) || trailer.name == L"content-length" || trailer.name == L"transfer-encoding")
+						{
+							return HttpBodyDetailedParsingResult::BadRequest;
+						}
+						parsed.trailers.Add(std::move(trailer));
+						reading = trailerEnd + 2;
+					}
+				}
+
+				if (chunkSize > (vuint64_t)(HttpBodySizeLimit - decodedBytes)) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+				vint chunkBytes = (vint)chunkSize;
+				if (availableBytes - reading < chunkBytes) return HttpBodyDetailedParsingResult::Incomplete;
+				auto terminatorBytes = availableBytes - reading - chunkBytes;
+				if (terminatorBytes == 0) return HttpBodyDetailedParsingResult::Incomplete;
+				if (buffer[reading + chunkBytes] != '\r') return HttpBodyDetailedParsingResult::BadRequest;
+				if (terminatorBytes == 1) return HttpBodyDetailedParsingResult::Incomplete;
+				if (buffer[reading + chunkBytes + 1] != '\n') return HttpBodyDetailedParsingResult::BadRequest;
+				if (reading > HttpWireMessageSizeLimit - chunkBytes - 2) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+				if (parsed.chunks.Count() >= HttpChunkCountLimit) return HttpBodyDetailedParsingResult::PayloadTooLarge;
+				HttpBodyChunk chunk;
+				chunk.data.Resize(chunkBytes);
+				std::memcpy(&chunk.data[0], buffer + reading, (size_t)chunkBytes);
+				parsed.chunks.Add(std::move(chunk));
+				decodedBytes += chunkBytes;
+				reading += chunkBytes + 2;
+			}
+		}
+	}
+
 	HttpRequestBodyParsingResult ParseHttpRequestBodyToChunks(
 		const vuint8_t* buffer,
 		vint availableBytes,
@@ -980,92 +1192,15 @@ HttpRequestBody
 		vint& consumedBytes
 		)
 	{
-		consumedBytes = 0;
-		if (availableBytes < 0 || (!buffer && availableBytes > 0)) return HttpRequestBodyParsingResult::Invalid;
-		HttpBody parsed;
-		vint reading = 0;
-		vint decodedBytes = 0;
-		while (true)
+		auto result = ParseHttpRequestBodyToChunksDetailed(buffer, availableBytes, output, consumedBytes);
+		switch (result)
 		{
-			vint lineEnd = FindCrlf(buffer, reading, availableBytes);
-			if (lineEnd == -1)
-			{
-				auto trailingCrlfPrefix = availableBytes > reading && buffer[availableBytes - 1] == '\r';
-				vint prefixEnd = trailingCrlfPrefix ? availableBytes - 1 : availableBytes;
-				auto validPrefix = trailingCrlfPrefix
-					? ValidateCompleteChunkSizeLine(buffer, reading, prefixEnd)
-					: ValidateChunkSizeLinePrefix(buffer, reading, prefixEnd);
-				if (prefixEnd - reading > HttpChunkSizeLineLimit || !validPrefix)
-				{
-					return HttpRequestBodyParsingResult::Invalid;
-				}
-				return HttpRequestBodyParsingResult::Incomplete;
-			}
-			if (lineEnd - reading > HttpChunkSizeLineLimit) return HttpRequestBodyParsingResult::Invalid;
-			if (lineEnd + 2 > HttpWireMessageSizeLimit) return HttpRequestBodyParsingResult::Invalid;
-			vint numberEnd = reading;
-			vuint64_t chunkSize = 0;
-			while (numberEnd < lineEnd && IsHexDigit(buffer[numberEnd]))
-			{
-				auto digit = (vuint64_t)HexDigitValue(buffer[numberEnd++]);
-				if (chunkSize > ((std::numeric_limits<vuint64_t>::max)() - digit) / 16) return HttpRequestBodyParsingResult::Invalid;
-				chunkSize = chunkSize * 16 + digit;
-			}
-			if (numberEnd == reading || chunkSize > (vuint64_t)HttpBodySizeLimit) return HttpRequestBodyParsingResult::Invalid;
-			if (numberEnd < lineEnd)
-			{
-				vint firstExtension = numberEnd;
-				while (firstExtension < lineEnd && IsOws(buffer[firstExtension])) firstExtension++;
-				if (firstExtension == lineEnd || buffer[firstExtension] != ';') return HttpRequestBodyParsingResult::Invalid;
-			}
-			vint extensionReading = numberEnd;
-			if (!ParseSemicolonParameters(buffer, extensionReading, lineEnd)) return HttpRequestBodyParsingResult::Invalid;
-			reading = lineEnd + 2;
-
-			if (chunkSize == 0)
-			{
-				vint trailerBegin = reading;
-				while (true)
-				{
-					vint trailerEnd = FindCrlf(buffer, reading, availableBytes);
-					if (trailerEnd == -1)
-					{
-						return availableBytes - trailerBegin >= HttpTrailerBlockSizeLimit ? HttpRequestBodyParsingResult::Invalid : HttpRequestBodyParsingResult::Incomplete;
-					}
-					if (trailerEnd + 2 - trailerBegin > HttpTrailerBlockSizeLimit) return HttpRequestBodyParsingResult::Invalid;
-					if (trailerEnd + 2 > HttpWireMessageSizeLimit) return HttpRequestBodyParsingResult::Invalid;
-					if (trailerEnd == reading)
-					{
-						consumedBytes = trailerEnd + 2;
-						output = std::move(parsed);
-						return HttpRequestBodyParsingResult::Succeeded;
-					}
-					HttpField trailer;
-					if (!ParseFieldLine(buffer, reading, trailerEnd, trailer) || trailer.name == L"content-length" || trailer.name == L"transfer-encoding")
-					{
-						return HttpRequestBodyParsingResult::Invalid;
-					}
-					parsed.trailers.Add(std::move(trailer));
-					reading = trailerEnd + 2;
-				}
-			}
-
-			if (chunkSize > (vuint64_t)(HttpBodySizeLimit - decodedBytes)) return HttpRequestBodyParsingResult::Invalid;
-			vint chunkBytes = (vint)chunkSize;
-			if (availableBytes - reading < chunkBytes) return HttpRequestBodyParsingResult::Incomplete;
-			auto terminatorBytes = availableBytes - reading - chunkBytes;
-			if (terminatorBytes == 0) return HttpRequestBodyParsingResult::Incomplete;
-			if (buffer[reading + chunkBytes] != '\r') return HttpRequestBodyParsingResult::Invalid;
-			if (terminatorBytes == 1) return HttpRequestBodyParsingResult::Incomplete;
-			if (buffer[reading + chunkBytes] != '\r' || buffer[reading + chunkBytes + 1] != '\n') return HttpRequestBodyParsingResult::Invalid;
-			if (reading > HttpWireMessageSizeLimit - chunkBytes - 2) return HttpRequestBodyParsingResult::Invalid;
-			if (parsed.chunks.Count() >= HttpChunkCountLimit) return HttpRequestBodyParsingResult::Invalid;
-			HttpBodyChunk chunk;
-			chunk.data.Resize(chunkBytes);
-			std::memcpy(&chunk.data[0], buffer + reading, (size_t)chunkBytes);
-			parsed.chunks.Add(std::move(chunk));
-			decodedBytes += chunkBytes;
-			reading += chunkBytes + 2;
+		case HttpBodyDetailedParsingResult::Succeeded:
+			return HttpRequestBodyParsingResult::Succeeded;
+		case HttpBodyDetailedParsingResult::Incomplete:
+			return HttpRequestBodyParsingResult::Incomplete;
+		default:
+			return HttpRequestBodyParsingResult::Invalid;
 		}
 	}
 
@@ -1074,6 +1209,10 @@ IHttpRequestCallback
 ***********************************************************************/
 
 	void IHttpRequestCallback::OnReadRequest(Ptr<HttpRequest>)
+	{
+	}
+
+	void IHttpRequestCallback::OnReadRequestFailure(HttpRequestFailure)
 	{
 	}
 
@@ -1113,6 +1252,7 @@ HttpRequestTimeoutController
 				ConditionVariable				cv;
 				Func<void()>					callback;
 				vuint64_t						deadline = 0;
+				vint							duration = 0;
 				bool							armed = false;
 				bool							workerRunning = false;
 				vint							activeCallbacks = 0;
@@ -1178,14 +1318,16 @@ HttpRequestTimeoutController
 				CancelAndWait();
 			}
 
-			void Arm(const Func<void()>& callback) override
+			void Arm(vint milliseconds, const Func<void()>& callback) override
 			{
+				CHECK_ERROR(milliseconds > 0, L"The HTTP timeout controller requires a positive duration.");
 				bool queueWorker = false;
 				CS_LOCK(state->lock)
 				{
 					CHECK_ERROR(!state->armed, L"The HTTP timeout controller is already armed.");
 					state->callback = callback;
-					state->deadline = DateTime::LocalTime().osMilliseconds + HttpIncompleteMessageTimeout;
+					state->duration = milliseconds;
+					state->deadline = DateTime::LocalTime().osMilliseconds + (vuint64_t)milliseconds;
 					state->armed = true;
 					if (!state->workerRunning)
 					{
@@ -1221,7 +1363,7 @@ HttpRequestTimeoutController
 				{
 					if (state->armed)
 					{
-						state->deadline = DateTime::LocalTime().osMilliseconds + HttpIncompleteMessageTimeout;
+						state->deadline = DateTime::LocalTime().osMilliseconds + (vuint64_t)state->duration;
 						state->cv.WakeAllPendings();
 					}
 				}
@@ -1358,12 +1500,16 @@ HttpRequestConnectionLifecycle
 		bool							awaitingResponse = false;
 		bool							exchangeActive = false;
 		bool							closeAfterExchange = false;
+		WString						activeRequestMethod;
+		vint							activeResponseTimeout = HttpIncompleteMessageTimeout;
 		Ptr<HttpResponse>					heldResponse;
 		bool							fatalAfterResponse = false;
 		bool							responseDelivering = false;
 		bool							responseFinalizing = false;
 		Ptr<AsyncSocketBuffer>				deferredRequestWrite;
 		bool							deferredRequestClose = false;
+		WString						deferredRequestMethod;
+		vint							deferredResponseTimeout = HttpIncompleteMessageTimeout;
 		Ptr<AsyncSocketBuffer>				pendingWrite;
 		bool							writePending = false;
 
@@ -1537,20 +1683,99 @@ HttpRequestConnection helpers
 		FinishSocketCall(state);
 	}
 
-	void HttpRequestConnection::InstallTimeout(Ptr<Lifecycle> state, const WString& error)
+	void HttpRequestConnection::ReportRequestFailure(Ptr<Lifecycle> state, HttpRequestFailure failure, bool timeoutOnly, bool reserved)
 	{
+		bool report = false;
+		bool cancelTimeout = false;
+		CS_LOCK(state->lockState)
+		{
+			if (
+				reserved &&
+				state->direction == HttpRequestConnectionDirection::Server &&
+				!state->stopStarted &&
+				!state->terminal &&
+				state->parserFailed &&
+				state->awaitingResponse
+				)
+			{
+				cancelTimeout = state->timeoutArmed;
+				state->timeoutArmed = false;
+				report = true;
+			}
+			else if (
+				state->direction == HttpRequestConnectionDirection::Server &&
+				!state->stopStarted &&
+				!state->terminal &&
+				!state->parserFailed &&
+				!state->awaitingResponse &&
+				(!timeoutOnly || state->timeoutArmed)
+				)
+			{
+				state->parserFailed = true;
+				state->awaitingResponse = true;
+				state->closeAfterExchange = true;
+				state->receiveBuffer.Clear();
+				cancelTimeout = state->timeoutArmed;
+				state->timeoutArmed = false;
+				report = true;
+				state->cvState.WakeAllPendings();
+			}
+		}
+		if (!report)
+		{
+			return;
+		}
+		if (cancelTimeout)
+		{
+			state->timeoutController->CancelAndWait();
+		}
+
+		try
+		{
+			InvokeHttpCallback(state, false, [&](IHttpRequestCallback* installed)
+			{
+				installed->OnReadRequestFailure(failure);
+			});
+		}
+		catch (...)
+		{
+			StopConnection(state);
+			throw;
+		}
+
+		bool closeWithoutResponse = false;
+		CS_LOCK(state->lockState)
+		{
+			closeWithoutResponse = !state->stopStarted && !state->terminal && !state->peerDisconnected && !state->writePending;
+		}
+		if (closeWithoutResponse)
+		{
+			StopConnection(state);
+		}
+	}
+
+	void HttpRequestConnection::InstallTimeout(Ptr<Lifecycle> state, vint milliseconds, const WString& error)
+	{
+		CHECK_ERROR(milliseconds > 0, L"HttpRequestConnection requires a positive timeout when arming a deadline.");
 		auto captured = state;
 		auto capturedError = error;
 		try
 		{
-			state->timeoutController->Arm(Func<void()>([captured, capturedError]()
+			state->timeoutController->Arm(milliseconds, Func<void()>([captured, capturedError]()
 			{
+				if (captured->direction == HttpRequestConnectionDirection::Server)
+				{
+					ReportRequestFailure(captured, HttpRequestFailure::RequestTimeout, true);
+					return;
+				}
+
 				bool expired = false;
 				CS_LOCK(captured->lockState)
 				{
-					if (captured->timeoutArmed && !captured->stopStarted && !captured->terminal)
+					if (captured->timeoutArmed && !captured->stopStarted && !captured->terminal && !captured->parserFailed)
 					{
 						captured->timeoutArmed = false;
+						captured->parserFailed = true;
 						expired = true;
 					}
 				}
@@ -1612,6 +1837,7 @@ HttpRequestConnection helpers
 				state->responseDelivering = false;
 				state->deferredRequestWrite = nullptr;
 				state->deferredRequestClose = false;
+				state->deferredRequestMethod = L"";
 				notifyDisconnected = state->peerDisconnected;
 				state->responseFinalizing = notifyDisconnected;
 				state->cvState.WakeAllPendings();
@@ -1643,6 +1869,7 @@ HttpRequestConnection helpers
 			{
 				state->deferredRequestWrite = nullptr;
 				state->deferredRequestClose = false;
+				state->deferredRequestMethod = L"";
 			}
 			else if (state->deferredRequestWrite && !state->stopStarted && !state->terminal && state->socketConnection)
 			{
@@ -1650,6 +1877,8 @@ HttpRequestConnection helpers
 				state->exchangeActive = true;
 				state->closeAfterExchange = state->deferredRequestClose;
 				state->deferredRequestClose = false;
+				state->activeRequestMethod = std::move(state->deferredRequestMethod);
+				state->activeResponseTimeout = state->deferredResponseTimeout;
 				state->pendingWrite = deferredRequestWrite;
 				state->writePending = true;
 				deferredRequestConnection = state->socketConnection;
@@ -1714,7 +1943,10 @@ HttpRequestConnection helpers
 		bool deliverRequest = false;
 		bool deliverResponse = false;
 		bool closeAfterDelivery = false;
-		bool invalid = false;
+		bool requestFailure = false;
+		bool clientFailure = false;
+		HttpRequestFailure failure = HttpRequestFailure::BadRequest;
+		WString parsedRequestMethod;
 
 		state->lockState.Enter();
 		if (state->stopStarted || state->terminal || state->parserFailed || state->peerDisconnected)
@@ -1742,6 +1974,8 @@ HttpRequestConnection helpers
 			&state->receiveBuffer[0],
 			state->receiveBuffer.Count(),
 			state->direction == HttpRequestConnectionDirection::Server,
+			state->activeRequestMethod,
+			parsedRequestMethod,
 			request,
 			response,
 			consumedBytes,
@@ -1750,26 +1984,50 @@ HttpRequestConnection helpers
 		if (result == HttpMessageParsingResult::Incomplete)
 		{
 			bool armTimeout = false;
-			if (!state->timeoutArmed)
+			bool refreshTimeout = false;
+			auto serverSide = state->direction == HttpRequestConnectionDirection::Server;
+			if (serverSide && parsedRequestMethod.Length() > 0)
+			{
+				state->activeRequestMethod = parsedRequestMethod;
+			}
+			auto timeout = serverSide ? HttpIncompleteMessageTimeout : state->activeResponseTimeout;
+			auto canArm = timeout > 0 && (serverSide || !state->writePending);
+			if (canArm && !state->timeoutArmed)
 			{
 				state->timeoutArmed = true;
 				armTimeout = true;
 			}
+			else if (canArm && serverSide)
+			{
+				refreshTimeout = true;
+			}
 			state->lockState.Leave();
 			if (armTimeout)
 			{
-				InstallTimeout(state, L"The HTTP peer timed out while sending an incomplete message.");
+				InstallTimeout(state, timeout, L"The HTTP peer timed out while sending an incomplete message.");
 			}
-			else
+			else if (refreshTimeout)
 			{
 				RefreshTimeout(state);
 			}
 			return;
 		}
-		if (result == HttpMessageParsingResult::Invalid)
+		if (result != HttpMessageParsingResult::Succeeded)
 		{
-			state->parserFailed = true;
-			invalid = true;
+			if (state->direction == HttpRequestConnectionDirection::Server)
+			{
+				state->activeRequestMethod = parsedRequestMethod;
+				state->parserFailed = true;
+				state->awaitingResponse = true;
+				state->closeAfterExchange = true;
+				state->receiveBuffer.Clear();
+				failure = GetHttpRequestFailure(result);
+				requestFailure = true;
+			}
+			else
+			{
+				clientFailure = true;
+			}
 			state->lockState.Leave();
 		}
 		else
@@ -1783,6 +2041,7 @@ HttpRequestConnection helpers
 			state->closeAfterExchange |= messageClose;
 			if (state->direction == HttpRequestConnectionDirection::Server)
 			{
+				state->activeRequestMethod = request->method;
 				state->awaitingResponse = true;
 				deliverRequest = true;
 			}
@@ -1810,7 +2069,12 @@ HttpRequestConnection helpers
 			state->lockState.Leave();
 		}
 
-		if (invalid)
+		if (requestFailure)
+		{
+			ReportRequestFailure(state, failure, false, true);
+			return;
+		}
+		if (clientFailure)
 		{
 			ReportFatalError(state, L"The HTTP peer sent malformed or unsafe HTTP/1.1 framing.");
 			return;
@@ -1846,6 +2110,7 @@ HttpRequestConnection helpers
 			state->fatalAfterResponse = false;
 			state->deferredRequestWrite = nullptr;
 			state->deferredRequestClose = false;
+			state->deferredRequestMethod = L"";
 			state->cvState.WakeAllPendings();
 		}
 		if (state->disconnectFinished)
@@ -1937,11 +2202,12 @@ HttpRequestConnection helpers
 			state->fatalAfterResponse = false;
 			state->deferredRequestWrite = nullptr;
 			state->deferredRequestClose = false;
+			state->deferredRequestMethod = L"";
 			if (!nestedCallback)
 			{
 				while (state->activeSocketCalls > 0) state->cvState.SleepWith(state->lockState);
 			}
-			connection = state->socketConnection;
+			connection = state->peerDisconnected ? nullptr : state->socketConnection;
 			executeStop = true;
 		}
 		else if (nestedCallback)
@@ -1962,13 +2228,13 @@ HttpRequestConnection helpers
 		}
 		state->lockState.Leave();
 
-		state->timeoutController->CancelAndWait();
 		if (nestedFollower)
 		{
 			if (connection && socketCallbackDepth > 0) connection->Stop();
 			NotifyDisconnected(state);
 			return;
 		}
+		state->timeoutController->CancelAndWait();
 		if (executeStop && connection) connection->Stop();
 		NotifyDisconnected(state);
 
@@ -2000,6 +2266,7 @@ HttpRequestConnection helpers
 				state->fatalAfterResponse = false;
 				state->deferredRequestWrite = nullptr;
 				state->deferredRequestClose = false;
+				state->deferredRequestMethod = L"";
 				report = true;
 				state->cvState.WakeAllPendings();
 			}
@@ -2159,27 +2426,28 @@ HttpRequestConnection
 		FinishSocketCall(state);
 	}
 
-	void HttpRequestConnection::SendRequest(Ptr<HttpRequest> request)
+	void HttpRequestConnection::SendRequest(Ptr<HttpRequest> request, vint responseTimeout)
 	{
 		auto state = lifecycle;
 		CHECK_ERROR(state->direction == HttpRequestConnectionDirection::Client, L"HttpRequestConnection::SendRequest is only available on a client connection.");
 		CHECK_ERROR(request, L"HttpRequestConnection::SendRequest requires a request.");
 		bool requestClose = false;
-		auto buffer = SerializeHttpMessage(request.Obj(), nullptr, requestClose);
+		auto buffer = SerializeHttpMessage(request.Obj(), nullptr, L"", requestClose);
 		IAsyncSocketConnection* connection = nullptr;
 		Ptr<Object> callRetainer;
 		bool canSend = false;
 		bool deferSend = false;
-		auto callbackDepth = CurrentCallbackDepth(state);
 		CS_LOCK(state->lockState)
 		{
 			auto commonStateAvailable = !state->stopStarted && !state->terminal && !state->peerDisconnected
 				&& !state->exchangeActive && !state->writePending && !state->deferredRequestWrite
 				&& !state->responseFinalizing && !state->fatalAfterResponse && !state->closeAfterExchange && state->socketConnection;
-			if (commonStateAvailable && callbackDepth > 0 && state->responseDelivering)
+			if (commonStateAvailable && state->responseDelivering)
 			{
 				state->deferredRequestWrite = buffer;
 				state->deferredRequestClose = requestClose;
+				state->deferredRequestMethod = request->method;
+				state->deferredResponseTimeout = responseTimeout;
 				deferSend = true;
 				canSend = true;
 			}
@@ -2187,6 +2455,8 @@ HttpRequestConnection
 			{
 				state->exchangeActive = true;
 				state->closeAfterExchange = requestClose;
+				state->activeRequestMethod = request->method;
+				state->activeResponseTimeout = responseTimeout;
 				state->pendingWrite = buffer;
 				state->writePending = true;
 				connection = state->socketConnection;
@@ -2206,8 +2476,13 @@ HttpRequestConnection
 		auto state = lifecycle;
 		CHECK_ERROR(state->direction == HttpRequestConnectionDirection::Server, L"HttpRequestConnection::SendResponse is only available on a server connection.");
 		CHECK_ERROR(response, L"HttpRequestConnection::SendResponse requires a response.");
+		WString responseToMethod;
+		CS_LOCK(state->lockState)
+		{
+			responseToMethod = state->activeRequestMethod;
+		}
 		bool responseClose = false;
-		auto buffer = SerializeHttpMessage(nullptr, response.Obj(), responseClose);
+		auto buffer = SerializeHttpMessage(nullptr, response.Obj(), responseToMethod, responseClose);
 		IAsyncSocketConnection* connection = nullptr;
 		Ptr<Object> callRetainer;
 		bool canSend = false;
@@ -2239,6 +2514,7 @@ HttpRequestConnection
 		SocketCallbackFrame frame(state);
 		if (!buffer || size <= 0) return;
 		bool tooLarge = false;
+		bool requestTooLarge = false;
 		bool unsolicited = false;
 		CS_LOCK(state->lockState)
 		{
@@ -2258,8 +2534,19 @@ HttpRequestConnection
 			}
 			else if (size > HttpWireMessageSizeLimit - state->receiveBuffer.Count())
 			{
-				state->parserFailed = true;
-				tooLarge = true;
+				if (state->direction == HttpRequestConnectionDirection::Server)
+				{
+					state->parserFailed = true;
+					state->awaitingResponse = true;
+					state->closeAfterExchange = true;
+					state->receiveBuffer.Clear();
+					requestTooLarge = true;
+				}
+				else
+				{
+					state->parserFailed = true;
+					tooLarge = true;
+				}
 			}
 			else
 			{
@@ -2274,6 +2561,11 @@ HttpRequestConnection
 		if (tooLarge)
 		{
 			ReportFatalError(state, L"The HTTP peer exceeded the configured wire-message size limit.");
+			return;
+		}
+		if (requestTooLarge)
+		{
+			ReportRequestFailure(state, HttpRequestFailure::PayloadTooLarge, false, true);
 			return;
 		}
 		ProcessBufferedInput(state);
@@ -2315,6 +2607,7 @@ HttpRequestConnection
 		bool serverSide = false;
 		bool closeAfterDelivery = false;
 		bool armTimeout = false;
+		vint responseTimeout = 0;
 		CS_LOCK(state->lockState)
 		{
 			if (state->stopStarted || state->terminal) return;
@@ -2323,6 +2616,7 @@ HttpRequestConnection
 			if (serverSide)
 			{
 				state->awaitingResponse = false;
+				state->activeRequestMethod = L"";
 				closeAfterDelivery = state->closeAfterExchange;
 			}
 			else if (state->heldResponse)
@@ -2332,9 +2626,10 @@ HttpRequestConnection
 				state->responseDelivering = true;
 				closeAfterDelivery = state->closeAfterExchange;
 			}
-			else if (!state->peerDisconnected && !state->timeoutArmed)
+			else if (!state->peerDisconnected && !state->timeoutArmed && state->activeResponseTimeout > 0)
 			{
 				state->timeoutArmed = true;
+				responseTimeout = state->activeResponseTimeout;
 				armTimeout = true;
 			}
 		}
@@ -2353,7 +2648,7 @@ HttpRequestConnection
 		}
 		else if (armTimeout)
 		{
-			InstallTimeout(state, L"The HTTP peer timed out before sending a response header.");
+			InstallTimeout(state, responseTimeout, L"The HTTP peer timed out before sending a response header.");
 		}
 	}
 
@@ -2392,10 +2687,12 @@ HttpRequestConnection
 		bool incomplete = false;
 		bool surplusAfterHeldResponse = false;
 		bool deferDisconnected = false;
+		bool cancelTimeout = false;
 		CS_LOCK(state->lockState)
 		{
 			state->peerDisconnected = true;
 			state->timeoutArmed = false;
+			cancelTimeout = !state->stopStarted;
 			connection = state->socketConnection;
 			if (!state->terminal && !state->stopStarted && state->direction == HttpRequestConnectionDirection::Client && state->heldResponse)
 			{
@@ -2428,7 +2725,10 @@ HttpRequestConnection
 			if (state->socketConnection == connection) state->socketConnection = nullptr;
 			state->cvState.WakeAllPendings();
 		}
-		state->timeoutController->CancelAndWait();
+		if (cancelTimeout)
+		{
+			state->timeoutController->CancelAndWait();
+		}
 		if (deferDisconnected)
 		{
 			return;

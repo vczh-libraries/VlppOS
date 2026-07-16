@@ -4,6 +4,7 @@
 
 #include <Network/Network.h>
 #include <dispatch/dispatch.h>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 
@@ -1262,9 +1263,15 @@ ServerState
 		IAsyncSocketServerCallback*		callback = nullptr;
 		vint							port = 0;
 		bool							startCalled = false;
+		bool							starting = false;
+		bool							startupResolved = false;
+		bool							startupReady = false;
+		AsyncSocketServerStartFailure	startupFailure = AsyncSocketServerStartFailure::Other;
+		vint							startupError = 0;
 		bool							started = false;
 		bool							stopping = false;
 		bool							stopped = false;
+		bool							unexpectedStopNotified = false;
 		bool							stopFinalizing = false;
 		bool							stopCompleted = false;
 		nw_listener_t					listener = nullptr;
@@ -1323,14 +1330,94 @@ ServerState
 			}
 		}
 
-		void OnListenerState(Ptr<ServerState> retainedState, nw_listener_state_t state)
+		void OnListenerState(Ptr<ServerState> retainedState, nw_listener_state_t state, nw_error_t error)
 		{
 			switch (state)
 			{
+			case nw_listener_state_waiting:
+				{
+					bool startupFailed = false;
+					CS_LOCK(lockState)
+					{
+						if (starting && !startupResolved)
+						{
+							starting = false;
+							startupResolved = true;
+							startupReady = false;
+							startupError = error ? (vint)nw_error_get_error_code(error) : 0;
+							startupFailure = error && nw_error_get_error_domain(error) == nw_error_domain_posix && startupError == EADDRINUSE
+								? AsyncSocketServerStartFailure::AddressInUse
+								: AsyncSocketServerStartFailure::Other;
+							startupFailed = true;
+							cvState.WakeAllPendings();
+						}
+					}
+					if (startupFailed)
+					{
+						Stop();
+					}
+				}
+				break;
+			case nw_listener_state_ready:
+				CS_LOCK(lockState)
+				{
+					if (starting && !startupResolved && !stopping)
+					{
+						starting = false;
+						startupResolved = true;
+						startupReady = true;
+						started = true;
+						cvState.WakeAllPendings();
+					}
+				}
+				break;
 			case nw_listener_state_failed:
+				{
+					IAsyncSocketServerCallback* installedCallback = nullptr;
+					lockState.Enter();
+					if (starting && !startupResolved)
+					{
+						starting = false;
+						startupResolved = true;
+						startupReady = false;
+						startupError = error ? (vint)nw_error_get_error_code(error) : 0;
+						startupFailure = error && nw_error_get_error_domain(error) == nw_error_domain_posix && startupError == EADDRINUSE
+							? AsyncSocketServerStartFailure::AddressInUse
+							: AsyncSocketServerStartFailure::Other;
+						cvState.WakeAllPendings();
+					}
+					else if (started && !stopping && !unexpectedStopNotified)
+					{
+						unexpectedStopNotified = true;
+						installedCallback = callback;
+					}
+					lockState.Leave();
+
+					if (installedCallback)
+					{
+						try
+						{
+							installedCallback->OnServerStopped();
+						}
+						catch (...)
+						{
+						}
+					}
+				}
 				Stop();
 				break;
 			case nw_listener_state_cancelled:
+				CS_LOCK(lockState)
+				{
+					if (starting && !startupResolved)
+					{
+						starting = false;
+						startupResolved = true;
+						startupReady = false;
+						startupFailure = AsyncSocketServerStartFailure::Other;
+						cvState.WakeAllPendings();
+					}
+				}
 				OnListenerCancelled(retainedState);
 				break;
 			default:
@@ -1450,7 +1537,7 @@ ServerState
 					stopped = true;
 					callback = nullptr;
 				}
-				CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to create the Network.framework listener.");
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ERROR_MESSAGE_PREFIX L"Failed to create the Network.framework listener.");
 			}
 
 			bool installed = false;
@@ -1459,13 +1546,13 @@ ServerState
 			{
 				listener = createdListener;
 				pendingListener = 1;
-				started = true;
+				starting = true;
 				nw_listener_set_queue(listener, queue);
 
 				auto retainedForState = retainedState;
-				nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t)
+				nw_listener_set_state_changed_handler(listener, ^(nw_listener_state_t state, nw_error_t error)
 				{
-					retainedForState->OnListenerState(retainedForState, state);
+					retainedForState->OnListenerState(retainedForState, state, error);
 				});
 
 				auto retainedForConnection = retainedState;
@@ -1480,6 +1567,25 @@ ServerState
 			if (!installed)
 			{
 				nw_release(createdListener);
+				throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ERROR_MESSAGE_PREFIX L"The listener was stopped during startup.");
+			}
+
+			AsyncSocketServerStartFailure failure = AsyncSocketServerStartFailure::Other;
+			vint error = 0;
+			bool ready = false;
+			lockState.Enter();
+			while (!startupResolved)
+			{
+				cvState.SleepWith(lockState);
+			}
+			ready = startupReady;
+			failure = startupFailure;
+			error = startupError;
+			lockState.Leave();
+			if (!ready)
+			{
+				Stop();
+				throw AsyncSocketServerStartException(failure, ERROR_MESSAGE_PREFIX L"Network.framework listener startup failed with error " + itow(error) + L".");
 			}
 #undef ERROR_MESSAGE_PREFIX
 		}
@@ -1494,6 +1600,14 @@ ServerState
 				stopping = true;
 				started = false;
 				stopped = true;
+				if (starting && !startupResolved)
+				{
+					starting = false;
+					startupResolved = true;
+					startupReady = false;
+					startupFailure = AsyncSocketServerStartFailure::Other;
+					cvState.WakeAllPendings();
+				}
 			}
 			RequestListenerCancelLocked();
 			for (auto connection : connections)

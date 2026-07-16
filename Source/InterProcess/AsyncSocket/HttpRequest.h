@@ -14,6 +14,8 @@ Interfaces:
 
 namespace vl::inter_process::async_tcp_socket
 {
+	constexpr vint HttpIncompleteMessageTimeout = 30 * 1000;
+
 	struct HttpVersion
 	{
 		vint							major = 1;
@@ -64,6 +66,18 @@ namespace vl::inter_process::async_tcp_socket
 		Invalid,
 	};
 
+	enum class HttpRequestFailure
+	{
+		BadRequest = 400,
+		RequestTimeout = 408,
+		PayloadTooLarge = 413,
+		UriTooLong = 414,
+		ExpectationFailed = 417,
+		RequestHeaderFieldsTooLarge = 431,
+		NotImplemented = 501,
+		HttpVersionNotSupported = 505,
+	};
+
 	extern HttpRequestBodyParsingResult		ParseHttpRequestBodyToChunks(
 		const vuint8_t*						buffer,
 		vint							availableBytes,
@@ -77,6 +91,7 @@ namespace vl::inter_process::async_tcp_socket
 	{
 	public:
 		virtual void						OnReadRequest(Ptr<HttpRequest> request);
+		virtual void						OnReadRequestFailure(HttpRequestFailure failure);
 		virtual void						OnReadResponse(Ptr<HttpResponse> response);
 		virtual void						OnWriteCompleted();
 		virtual void						OnError(const WString& error, bool fatal);
@@ -90,7 +105,7 @@ namespace vl::inter_process::async_tcp_socket
 	public:
 		virtual void						InstallCallback(IHttpRequestCallback* callback) = 0;
 		virtual void						BeginReadingLoopUnsafe() = 0;
-		virtual void						SendRequest(Ptr<HttpRequest> request) = 0;
+		virtual void						SendRequest(Ptr<HttpRequest> request, vint responseTimeout = HttpIncompleteMessageTimeout) = 0;
 		virtual void						SendResponse(Ptr<HttpResponse> response) = 0;
 		virtual void						Stop() = 0;
 	};

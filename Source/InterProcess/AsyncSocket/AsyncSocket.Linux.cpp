@@ -1663,6 +1663,7 @@ ServerState
 		bool								started = false;
 		bool								stopping = false;
 		bool								stopped = false;
+		bool								unexpectedStopNotified = false;
 		EventObject						eventStartFinished;
 		vuint64_t						acceptOperationId = 0;
 		bool								acceptCancelRequested = false;
@@ -1744,6 +1745,38 @@ ServerState
 			if (!retainedState)
 			{
 				std::abort();
+			}
+			HandleUnexpectedStop(retainedState);
+		}
+
+		void HandleUnexpectedStop(Ptr<ServerState> retainedState)
+		{
+			IAsyncSocketServerCallback* installedCallback = nullptr;
+			CS_LOCK(lockState)
+			{
+				if (started && !stopping && !unexpectedStopNotified)
+				{
+					unexpectedStopNotified = true;
+					installedCallback = callback;
+					if (installedCallback)
+					{
+						activeCallbacks++;
+					}
+				}
+			}
+			if (installedCallback)
+			{
+				ServerCallbackFrame frame{ this, currentServerCallbackFrame };
+				currentServerCallbackFrame = &frame;
+				try
+				{
+					installedCallback->OnServerStopped();
+				}
+				catch (...)
+				{
+				}
+				currentServerCallbackFrame = frame.previous;
+				EndCallback();
 			}
 			Stop(retainedState);
 		}
@@ -1876,12 +1909,12 @@ ServerState::AcceptOperation
 				{
 					if (!server->PostAccept(server))
 					{
-						server->Stop(server);
+						server->HandleUnexpectedStop(server);
 					}
 				}
 				else if (running && result != -ECANCELED)
 				{
-					server->Stop(server);
+					server->HandleUnexpectedStop(server);
 				}
 				return;
 			}
@@ -1895,7 +1928,7 @@ ServerState::AcceptOperation
 			// Keep exactly one accept pending, and rearm before invoking user code.
 			if (!server->PostAccept(server))
 			{
-				server->Stop(server);
+				server->HandleUnexpectedStop(server);
 				return;
 			}
 			auto connectionState = Ptr(new ConnectionState(server->runtime, acceptedSocket.Get()));
@@ -2025,7 +2058,8 @@ ServerState
 				callback = nullptr;
 			}
 			runtime->Stop();
-			CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to create the loopback listener.");
+			auto failure = setupError == EADDRINUSE ? AsyncSocketServerStartFailure::AddressInUse : AsyncSocketServerStartFailure::Other;
+			throw AsyncSocketServerStartException(failure, LinuxSocketErrorMessage(L"AsyncSocketServer listener setup", setupError));
 		}
 
 		bool committed = false;
@@ -2052,38 +2086,32 @@ ServerState
 				callback = nullptr;
 			}
 			runtime->Stop();
-			throw;
+			throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ERROR_MESSAGE_PREFIX L"Failed to start the listener runtime.");
 		}
-		if (committed)
+		if (!committed)
 		{
-			try
+			throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ERROR_MESSAGE_PREFIX L"The listener was stopped during startup.");
+		}
+		if (!PostAccept(retainedState))
+		{
+			CS_LOCK(lockState)
 			{
-				if (!PostAccept(retainedState))
+				started = false;
+				stopping = true;
+				stopped = true;
+				callback = nullptr;
+				if (listener >= 0)
 				{
-					CHECK_FAIL(ERROR_MESSAGE_PREFIX L"Failed to submit the first accept operation.");
-				}
-			}
-			catch (...)
-			{
-				CS_LOCK(lockState)
-				{
-					started = false;
-					stopping = true;
-					stopped = true;
-					callback = nullptr;
-					if (listener >= 0)
+					shutdown((int)listener, SHUT_RDWR);
+					if (targetOperations == 0)
 					{
-						shutdown((int)listener, SHUT_RDWR);
-						if (targetOperations == 0)
-						{
-							CloseFileDescriptor(listener);
-							listener = -1;
-						}
+						CloseFileDescriptor(listener);
+						listener = -1;
 					}
 				}
-				runtime->Stop();
-				throw;
 			}
+			runtime->Stop();
+			throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ERROR_MESSAGE_PREFIX L"Failed to submit the first accept operation.");
 		}
 #undef ERROR_MESSAGE_PREFIX
 	}

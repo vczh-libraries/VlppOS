@@ -175,6 +175,7 @@ namespace http_request_test
 	public:
 		List<Ptr<AsyncSocketBuffer>>	writes;
 		Func<void()>					beforeWrite;
+		Func<void()>					stopAction;
 		bool						completeWritesImmediately = false;
 		bool						readingStarted = false;
 		vint						stopCount = 0;
@@ -217,7 +218,14 @@ namespace http_request_test
 		void Stop() override
 		{
 			stopCount++;
-			DisconnectFromPeer();
+			if (stopAction)
+			{
+				stopAction();
+			}
+			else
+			{
+				DisconnectFromPeer();
+			}
 		}
 
 		void DisconnectFromPeer()
@@ -300,6 +308,17 @@ namespace http_request_test
 			return callback->OnClientConnected(connection);
 		}
 
+		void FailUnexpected()
+		{
+			CHECK_ERROR(callback != nullptr && !stopped, L"The fake async socket server is not running.");
+			auto installed = callback;
+			installed->OnServerStopped();
+			if (!stopped)
+			{
+				Stop();
+			}
+		}
+
 		bool HasCallback()
 		{
 			return callback != nullptr;
@@ -315,12 +334,14 @@ namespace http_request_test
 		vint						armCount = 0;
 		vint						refreshCount = 0;
 		vint						cancelCount = 0;
+		vint						lastArmDuration = 0;
 		bool						failArm = false;
 		bool						failRefresh = false;
 
-		void Arm(const Func<void()>& value) override
+		void Arm(vint milliseconds, const Func<void()>& value) override
 		{
 			armCount++;
+			lastArmDuration = milliseconds;
 			CHECK_ERROR(!failArm, L"The manual HTTP timeout was configured to fail while arming.");
 			callback = value;
 		}
@@ -380,7 +401,7 @@ namespace http_request_test
 			CHECK_ERROR(eventReleaseFirstCancel.CreateManualUnsignal(false), L"Failed to create the first-cancel-release event.");
 		}
 
-		void Arm(const Func<void()>& value) override
+		void Arm(vint, const Func<void()>& value) override
 		{
 			CS_LOCK(lockState)
 			{
@@ -407,6 +428,91 @@ namespace http_request_test
 		}
 	};
 
+	class RacingTimeoutController : public Object, public virtual IHttpRequestTimeoutController
+	{
+	private:
+		static thread_local RacingTimeoutController*
+									currentFiring;
+		CriticalSection					lockState;
+		Func<void()>						callback;
+		bool							firing = false;
+
+		void FinishFiring()
+		{
+			CS_LOCK(lockState)
+			{
+				firing = false;
+			}
+			eventFiringFinished.Signal();
+		}
+
+	public:
+		EventObject						eventFiringFinished;
+		atomic_vint					externalCancelWaits = 0;
+
+		RacingTimeoutController()
+		{
+			CHECK_ERROR(eventFiringFinished.CreateManualUnsignal(false), L"Failed to create the timeout-firing-finished event.");
+		}
+
+		void Arm(vint, const Func<void()>& value) override
+		{
+			CS_LOCK(lockState)
+			{
+				CHECK_ERROR(!callback && !firing, L"The racing timeout controller is already armed.");
+				callback = value;
+			}
+		}
+
+		void Refresh() override
+		{
+		}
+
+		void CancelAndWait() override
+		{
+			bool wait = false;
+			CS_LOCK(lockState)
+			{
+				callback = Func<void()>();
+				wait = firing && currentFiring != this;
+			}
+			if (wait)
+			{
+				externalCancelWaits++;
+				CHECK_ERROR(eventFiringFinished.WaitForTime(ConnectTimeout), L"The racing timeout callback did not finish before cancellation timed out.");
+			}
+		}
+
+		void Fire()
+		{
+			Func<void()> firingCallback;
+			CS_LOCK(lockState)
+			{
+				CHECK_ERROR(callback, L"The racing timeout controller is not armed.");
+				firingCallback = callback;
+				callback = Func<void()>();
+				firing = true;
+			}
+
+			auto previous = currentFiring;
+			currentFiring = this;
+			try
+			{
+				firingCallback();
+			}
+			catch (...)
+			{
+				currentFiring = previous;
+				FinishFiring();
+				throw;
+			}
+			currentFiring = previous;
+			FinishFiring();
+		}
+	};
+
+	thread_local RacingTimeoutController* RacingTimeoutController::currentFiring = nullptr;
+
 	class EventReleaseOnExit
 	{
 	private:
@@ -429,6 +535,7 @@ namespace http_request_test
 	public:
 		IHttpRequestConnection*			connection = nullptr;
 		List<Ptr<HttpRequest>>			requests;
+		List<HttpRequestFailure>		requestFailures;
 		List<Ptr<HttpResponse>>			responses;
 		List<WString>					events;
 		WString						lastError;
@@ -446,6 +553,12 @@ namespace http_request_test
 		{
 			requests.Add(request);
 			events.Add(L"request");
+		}
+
+		void OnReadRequestFailure(HttpRequestFailure failure) override
+		{
+			requestFailures.Add(failure);
+			events.Add(L"request-failure");
 		}
 
 		void OnReadResponse(Ptr<HttpResponse> response) override
@@ -559,6 +672,7 @@ namespace http_request_test
 	public:
 		bool						acceptClients = false;
 		vint						acceptCallbackCount = 0;
+		vint						unexpectedStopCount = 0;
 		IHttpRequestConnection*			acceptedConnection = nullptr;
 		RecordingHttpCallback			acceptedCallback;
 
@@ -584,6 +698,13 @@ namespace http_request_test
 			connection->InstallCallback(&acceptedCallback);
 			connection->BeginReadingLoopUnsafe();
 			return WaitForClientResult::Accept;
+		}
+
+	protected:
+		void OnServerStopped() override
+		{
+			unexpectedStopCount++;
+			HttpRequestServer::OnServerStopped();
 		}
 	};
 
@@ -616,6 +737,23 @@ namespace http_request_test
 		TEST_ASSERT(callback.lastErrorFatal);
 		TEST_ASSERT(callback.disconnectedCount == 1);
 		TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+		connection->Stop();
+	}
+
+	void AssertRequestFailureInput(const Array<vuint8_t>& input, HttpRequestFailure failure)
+	{
+		auto socket = Ptr(new FakeAsyncSocketConnection);
+		auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Server));
+		RecordingHttpCallback callback;
+		connection->InstallCallback(&callback);
+		connection->BeginReadingLoopUnsafe();
+		socket->Feed(input);
+		TEST_ASSERT(callback.requests.Count() == 0);
+		TEST_ASSERT(callback.requestFailures.Count() == 1);
+		TEST_ASSERT(callback.requestFailures[0] == failure);
+		TEST_ASSERT(callback.lastError == L"");
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(callback.events.IndexOf(L"request-failure") < callback.events.IndexOf(L"disconnected"));
 		connection->Stop();
 	}
 
@@ -861,6 +999,88 @@ namespace http_request_test
 			connection->Stop();
 		});
 
+		TEST_CASE(L"HTTP client accepts one cross-thread request while a response callback is delivering")
+		{
+			class BlockingResponseCallback : public RecordingHttpCallback
+			{
+			public:
+				EventObject						eventEntered;
+				EventObject						eventRelease;
+
+				BlockingResponseCallback()
+				{
+					CHECK_ERROR(eventEntered.CreateManualUnsignal(false), L"Failed to create the response-entered event.");
+					CHECK_ERROR(eventRelease.CreateManualUnsignal(false), L"Failed to create the response-release event.");
+				}
+
+				void OnReadResponse(Ptr<HttpResponse> response) override
+				{
+					auto first = responses.Count() == 0;
+					RecordingHttpCallback::OnReadResponse(response);
+					if (first)
+					{
+						eventEntered.Signal();
+						CHECK_ERROR(eventRelease.WaitForTime(ConnectTimeout), L"The first response callback was not released before its deadline.");
+					}
+				}
+			};
+
+			auto socket = Ptr(new FakeAsyncSocketConnection);
+			auto timer = Ptr(new ManualTimeoutController);
+			auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Client, nullptr, timer));
+			BlockingResponseCallback callback;
+			connection->InstallCallback(&callback);
+			connection->BeginReadingLoopUnsafe();
+
+			auto first = Ptr(new HttpRequest);
+			first->method = L"GET";
+			first->requestTarget = L"/before-delivery";
+			connection->SendRequest(first);
+			socket->CompleteNextWrite();
+
+			EventObject eventFeedReturned;
+			TEST_ASSERT(eventFeedReturned.CreateManualUnsignal(false));
+			atomic_vint workerFailed = 0;
+			TEST_ASSERT(ThreadPoolLite::Queue(Func<void()>([socket, &eventFeedReturned, &workerFailed]()
+			{
+				try
+				{
+					socket->Feed(ByteArray("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"));
+				}
+				catch (...)
+				{
+					workerFailed = 1;
+				}
+				eventFeedReturned.Signal();
+			})));
+			EventReleaseOnExit releaseResponse(callback.eventRelease);
+			TEST_ASSERT(callback.eventEntered.WaitForTime(ConnectTimeout));
+
+			auto second = Ptr(new HttpRequest);
+			second->method = L"GET";
+			second->requestTarget = L"/after-delivery";
+			bool sendSucceeded = true;
+			try
+			{
+				connection->SendRequest(second, 1234);
+			}
+			catch (...)
+			{
+				sendSucceeded = false;
+			}
+			auto writesBeforeRelease = socket->writes.Count();
+
+			callback.eventRelease.Signal();
+			TEST_ASSERT(eventFeedReturned.WaitForTime(ConnectTimeout));
+			TEST_ASSERT(workerFailed == 0);
+			TEST_ASSERT(sendSucceeded);
+			TEST_ASSERT(writesBeforeRelease == 1);
+			TEST_ASSERT(callback.responses.Count() == 1);
+			TEST_ASSERT(socket->writes.Count() == 2);
+			TEST_ASSERT(SameBytes(socket->writes[1]->data, "GET /after-delivery HTTP/1.1\r\n\r\n"));
+			connection->Stop();
+		});
+
 		TEST_CASE(L"HTTP fake socket rejects an unsolicited coalesced response suffix")
 		{
 			auto socket = Ptr(new FakeAsyncSocketConnection);
@@ -890,7 +1110,7 @@ namespace http_request_test
 			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
 		});
 
-		TEST_CASE(L"HTTP fake socket reports fatal parse errors before disconnection")
+		TEST_CASE(L"HTTP fake socket reports structured request parse failures before disconnection")
 		{
 			auto socket = Ptr(new FakeAsyncSocketConnection);
 			auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Server));
@@ -900,10 +1120,11 @@ namespace http_request_test
 
 			socket->Feed(ByteArray("GET / HTTP/1.1\r\nBad Header: value\r\n\r\n"));
 			TEST_ASSERT(callback.requests.Count() == 0);
-			TEST_ASSERT(callback.lastError != L"");
-			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.requestFailures.Count() == 1);
+			TEST_ASSERT(callback.requestFailures[0] == HttpRequestFailure::BadRequest);
+			TEST_ASSERT(callback.lastError == L"");
 			TEST_ASSERT(callback.disconnectedCount == 1);
-			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(callback.events.IndexOf(L"request-failure") < callback.events.IndexOf(L"disconnected"));
 			TEST_ASSERT(socket->stopCount >= 1);
 		});
 
@@ -921,32 +1142,34 @@ namespace http_request_test
 				oversizedLine[i] = 'A';
 			}
 			socket->Feed(oversizedLine);
-			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.requestFailures.Count() == 1);
+			TEST_ASSERT(callback.requestFailures[0] == HttpRequestFailure::UriTooLong);
+			TEST_ASSERT(callback.lastError == L"");
 			TEST_ASSERT(callback.disconnectedCount == 1);
-			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(callback.events.IndexOf(L"request-failure") < callback.events.IndexOf(L"disconnected"));
 		});
 
 		TEST_CASE(L"HTTP fake socket rejects ambiguous and unsupported message framing")
 		{
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("POST / HTTP/1.1\r\ncontent-length: 0\r\ntransfer-encoding: chunked\r\n\r\n0\r\n\r\n")
+				, HttpRequestFailure::BadRequest
 				);
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("POST / HTTP/1.1\r\ncontent-length: 1\r\ncontent-length: 2\r\n\r\nAB")
+				, HttpRequestFailure::BadRequest
 				);
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("POST / HTTP/1.1\r\ntransfer-encoding: gzip\r\n\r\n")
+				, HttpRequestFailure::NotImplemented
 				);
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("POST / HTTP/1.1\r\ntransfer-encoding: gzip;bare, chunked\r\n\r\n0\r\n\r\n")
+				, HttpRequestFailure::BadRequest
 				);
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("GET / HTTP/2.0\r\n\r\n")
+				, HttpRequestFailure::HttpVersionNotSupported
 				);
 			AssertFatalInput(
 				HttpRequestConnectionDirection::Client,
@@ -962,6 +1185,138 @@ namespace http_request_test
 				);
 		});
 
+		TEST_CASE(L"HTTP request failures can send one final response before closing")
+		{
+			class RespondingFailureCallback : public RecordingHttpCallback
+			{
+			public:
+				void OnReadRequestFailure(HttpRequestFailure failure) override
+				{
+					RecordingHttpCallback::OnReadRequestFailure(failure);
+					auto response = CreateEmptyResponse(417, L"Expectation Failed");
+					connection->SendResponse(response);
+				}
+			};
+
+			auto socket = Ptr(new FakeAsyncSocketConnection);
+			auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Server));
+			RespondingFailureCallback callback;
+			connection->InstallCallback(&callback);
+			connection->BeginReadingLoopUnsafe();
+
+			socket->Feed(ByteArray("POST /expect HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"));
+			TEST_ASSERT(callback.requestFailures.Count() == 1);
+			TEST_ASSERT(callback.requestFailures[0] == HttpRequestFailure::ExpectationFailed);
+			TEST_ASSERT(callback.disconnectedCount == 0);
+			TEST_ASSERT(socket->writes.Count() == 1);
+			TEST_ASSERT(SameBytes(socket->writes[0]->data, "HTTP/1.1 417 Expectation Failed\r\ncontent-length: 0\r\n\r\n"));
+
+			socket->CompleteNextWrite();
+			TEST_ASSERT(callback.writeCompletedCount == 1);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ASSERT(callback.lastError == L"");
+			TEST_ASSERT(callback.events.IndexOf(L"request-failure") < callback.events.IndexOf(L"write"));
+			TEST_ASSERT(callback.events.IndexOf(L"write") < callback.events.IndexOf(L"disconnected"));
+		});
+
+		TEST_CASE(L"HTTP HEAD, 204, and 304 exchanges suppress response body octets")
+		{
+			{
+				auto socket = Ptr(new FakeAsyncSocketConnection);
+				auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Server));
+				RecordingHttpCallback callback;
+				connection->InstallCallback(&callback);
+				connection->BeginReadingLoopUnsafe();
+
+				socket->Feed(ByteArray("HEAD /metadata HTTP/1.1\r\n\r\n"));
+				auto response = Ptr(new HttpResponse);
+				response->statusCode = 200;
+				response->reason = L"OK";
+				AddChunk(response->body, "hello");
+				connection->SendResponse(response);
+				TEST_ASSERT(SameBytes(socket->writes[0]->data, "HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\n"));
+				socket->CompleteNextWrite();
+
+				socket->Feed(ByteArray("HEAD /declared-metadata HTTP/1.1\r\n\r\n"));
+				auto declaredMetadata = Ptr(new HttpResponse);
+				declaredMetadata->statusCode = 200;
+				declaredMetadata->reason = L"OK";
+				AddField(declaredMetadata->headers, L"content-length", "123");
+				connection->SendResponse(declaredMetadata);
+				TEST_ASSERT(SameBytes(socket->writes[1]->data, "HTTP/1.1 200 OK\r\ncontent-length: 123\r\n\r\n"));
+				socket->CompleteNextWrite();
+
+				socket->Feed(ByteArray("HEAD /unknown-metadata HTTP/1.1\r\n\r\n"));
+				auto unknownMetadata = Ptr(new HttpResponse);
+				unknownMetadata->statusCode = 200;
+				unknownMetadata->reason = L"OK";
+				connection->SendResponse(unknownMetadata);
+				TEST_ASSERT(SameBytes(socket->writes[2]->data, "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n"));
+				socket->CompleteNextWrite();
+
+				socket->Feed(ByteArray("GET /no-content HTTP/1.1\r\n\r\n"));
+				auto noContent = Ptr(new HttpResponse);
+				noContent->statusCode = 204;
+				noContent->reason = L"No Content";
+				connection->SendResponse(noContent);
+				TEST_ASSERT(SameBytes(socket->writes[3]->data, "HTTP/1.1 204 No Content\r\n\r\n"));
+				socket->CompleteNextWrite();
+
+				socket->Feed(ByteArray("GET /not-modified HTTP/1.1\r\n\r\n"));
+				auto notModified = Ptr(new HttpResponse);
+				notModified->statusCode = 304;
+				notModified->reason = L"Not Modified";
+				AddField(notModified->headers, L"content-length", "123");
+				connection->SendResponse(notModified);
+				TEST_ASSERT(SameBytes(socket->writes[4]->data, "HTTP/1.1 304 Not Modified\r\ncontent-length: 123\r\n\r\n"));
+				socket->CompleteNextWrite();
+				connection->Stop();
+			}
+			{
+				auto socket = Ptr(new FakeAsyncSocketConnection);
+				auto timer = Ptr(new ManualTimeoutController);
+				auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Client, nullptr, timer));
+				RecordingHttpCallback callback;
+				connection->InstallCallback(&callback);
+				connection->BeginReadingLoopUnsafe();
+
+				auto head = Ptr(new HttpRequest);
+				head->method = L"HEAD";
+				head->requestTarget = L"/metadata";
+				connection->SendRequest(head);
+				socket->CompleteNextWrite();
+				socket->Feed(ByteArray("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"));
+				TEST_ASSERT(callback.responses.Count() == 1);
+				TEST_ASSERT(callback.responses[0]->body.chunks.Count() == 0);
+
+				auto unframedHead = Ptr(new HttpRequest);
+				unframedHead->method = L"HEAD";
+				unframedHead->requestTarget = L"/unknown-metadata";
+				connection->SendRequest(unframedHead);
+				socket->CompleteNextWrite();
+				socket->Feed(ByteArray("HTTP/1.1 200 OK\r\n\r\n"));
+				TEST_ASSERT(callback.responses.Count() == 2);
+
+				auto get204 = Ptr(new HttpRequest);
+				get204->method = L"GET";
+				get204->requestTarget = L"/no-content";
+				connection->SendRequest(get204);
+				socket->CompleteNextWrite();
+				socket->Feed(ByteArray("HTTP/1.1 204 No Content\r\n\r\n"));
+				TEST_ASSERT(callback.responses.Count() == 3);
+
+				auto get304 = Ptr(new HttpRequest);
+				get304->method = L"GET";
+				get304->requestTarget = L"/not-modified";
+				connection->SendRequest(get304);
+				socket->CompleteNextWrite();
+				socket->Feed(ByteArray("HTTP/1.1 304 Not Modified\r\nContent-Length: 123\r\n\r\n"));
+				TEST_ASSERT(callback.responses.Count() == 4);
+				TEST_ASSERT(callback.responses[3]->body.chunks.Count() == 0);
+				connection->Stop();
+			}
+		});
+
 		TEST_CASE(L"HTTP fake socket enforces header and fixed-body limits")
 		{
 			{
@@ -972,11 +1327,11 @@ namespace http_request_test
 					bytes.Add('x');
 				}
 				auto input = ToByteArray(bytes);
-				AssertFatalInput(HttpRequestConnectionDirection::Server, input);
+				AssertRequestFailureInput(input, HttpRequestFailure::RequestHeaderFieldsTooLarge);
 			}
-			AssertFatalInput(
-				HttpRequestConnectionDirection::Server,
+			AssertRequestFailureInput(
 				ByteArray("POST /too-large HTTP/1.1\r\ncontent-length: 16777217\r\n\r\n")
+				, HttpRequestFailure::PayloadTooLarge
 				);
 		});
 
@@ -1066,6 +1421,12 @@ namespace http_request_test
 				AddField(ambiguous->headers, L"transfer-encoding", "chunked");
 				TEST_ERROR(connection->SendRequest(ambiguous));
 
+				auto unsupportedCoding = Ptr(new HttpRequest);
+				unsupportedCoding->method = L"POST";
+				unsupportedCoding->requestTarget = L"/unsupported-coding";
+				AddField(unsupportedCoding->headers, L"transfer-encoding", "gzip");
+				TEST_ERROR(connection->SendRequest(unsupportedCoding));
+
 				auto tooManyChunks = Ptr(new HttpRequest);
 				tooManyChunks->method = L"POST";
 				tooManyChunks->requestTarget = L"/too-many-chunks";
@@ -1106,6 +1467,8 @@ namespace http_request_test
 				TEST_ERROR(connection->SendResponse(informational));
 				auto outOfRange = CreateEmptyResponse(600, L"Out of Range");
 				TEST_ERROR(connection->SendResponse(outOfRange));
+				auto framedNoContent = CreateEmptyResponse(204, L"No Content");
+				TEST_ERROR(connection->SendResponse(framedNoContent));
 				connection->SendResponse(CreateEmptyResponse());
 				TEST_ERROR(connection->SendResponse(CreateEmptyResponse()));
 				TEST_ASSERT(socket->writes.Count() == 1);
@@ -1130,12 +1493,14 @@ namespace http_request_test
 
 			socket->Feed(ByteArray("POST /timeout HTTP/1.1\r\nContent-Length: 5\r\n\r\nab"));
 			TEST_ASSERT(timer->armCount >= 1);
+			TEST_ASSERT(timer->lastArmDuration == HttpIncompleteMessageTimeout);
 			TEST_ASSERT(callback.requests.Count() == 0);
 			timer->Fire();
-			TEST_ASSERT(callback.lastError != L"");
-			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.requestFailures.Count() == 1);
+			TEST_ASSERT(callback.requestFailures[0] == HttpRequestFailure::RequestTimeout);
+			TEST_ASSERT(callback.lastError == L"");
 			TEST_ASSERT(callback.disconnectedCount == 1);
-			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(callback.events.IndexOf(L"request-failure") < callback.events.IndexOf(L"disconnected"));
 			TEST_ASSERT(timer->cancelCount >= 1);
 		});
 	}
@@ -1267,6 +1632,28 @@ namespace http_request_test
 				server.Stop();
 				TEST_ASSERT(server.IsStopped());
 				TEST_ASSERT(nativeServer->stopCount >= 2);
+			}
+		});
+
+		TEST_CASE(L"HttpRequestServer relays one unexpected listener stop and suppresses explicit stops")
+		{
+			{
+				auto nativeServer = Ptr(new FakeAsyncSocketServer);
+				FakeHttpRequestServer server(nativeServer, true);
+				server.Start();
+				nativeServer->FailUnexpected();
+				TEST_ASSERT(server.unexpectedStopCount == 1);
+				TEST_ASSERT(server.IsStopped());
+				TEST_ASSERT(nativeServer->stopCount >= 1);
+				server.Stop();
+				TEST_ASSERT(server.unexpectedStopCount == 1);
+			}
+			{
+				auto nativeServer = Ptr(new FakeAsyncSocketServer);
+				FakeHttpRequestServer server(nativeServer, true);
+				server.Start();
+				server.Stop();
+				TEST_ASSERT(server.unexpectedStopCount == 0);
 			}
 		});
 
@@ -1415,7 +1802,7 @@ namespace http_request_test
 				TEST_ASSERT(timer->HasCallback());
 				socket->Feed(ByteArray("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nA"));
 				TEST_ASSERT(callback.responses.Count() == 0);
-				TEST_ASSERT(timer->refreshCount >= 1);
+				TEST_ASSERT(timer->refreshCount == 0);
 				connection->Stop();
 
 				TEST_ASSERT(callback.lastError == L"");
@@ -1449,6 +1836,7 @@ namespace http_request_test
 			socket->CompleteNextWrite();
 			TEST_ASSERT(callback.writeCompletedCount == 1);
 			TEST_ASSERT(timer->armCount == 1);
+			TEST_ASSERT(timer->lastArmDuration == HttpIncompleteMessageTimeout);
 			TEST_ASSERT(timer->HasCallback());
 			timer->Fire();
 
@@ -1460,6 +1848,110 @@ namespace http_request_test
 			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
 			TEST_ASSERT(!timer->TryFire());
 			TEST_ASSERT(!socket->HasCallback());
+		});
+
+		TEST_CASE(L"HTTP response timeout does not cyclically wait for its native disconnection callback")
+		{
+			auto socket = Ptr(new FakeAsyncSocketConnection);
+			auto timer = Ptr(new RacingTimeoutController);
+			auto connection = Ptr(new HttpRequestConnection(
+				socket.Obj(),
+				HttpRequestConnectionDirection::Client,
+				nullptr,
+				timer
+				));
+			RecordingHttpCallback callback;
+			connection->InstallCallback(&callback);
+			connection->BeginReadingLoopUnsafe();
+
+			auto request = Ptr(new HttpRequest);
+			request->method = L"GET";
+			request->requestTarget = L"/timeout-disconnect-race";
+			connection->SendRequest(request);
+			socket->CompleteNextWrite();
+
+			EventObject eventNativeDisconnectFinished;
+			TEST_ASSERT(eventNativeDisconnectFinished.CreateManualUnsignal(false));
+			atomic_vint workerFailed = 0;
+			socket->stopAction = Func<void()>([socket, &eventNativeDisconnectFinished, &workerFailed]()
+			{
+				auto queued = ThreadPoolLite::Queue(Func<void()>([socket, &eventNativeDisconnectFinished, &workerFailed]()
+				{
+					try
+					{
+						socket->DisconnectFromPeer();
+					}
+					catch (...)
+					{
+						workerFailed = 1;
+					}
+					eventNativeDisconnectFinished.Signal();
+				}));
+				if (!queued || !eventNativeDisconnectFinished.WaitForTime(ConnectTimeout))
+				{
+					workerFailed = 1;
+				}
+			});
+
+			timer->Fire();
+			socket->stopAction = Func<void()>();
+
+			TEST_ASSERT(workerFailed == 0);
+			TEST_ASSERT(timer->externalCancelWaits == 0);
+			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(!socket->HasCallback());
+			connection->Stop();
+		});
+
+		TEST_CASE(L"HTTP client uses a per-exchange deadline without refreshing partial responses")
+		{
+			{
+				auto socket = Ptr(new FakeAsyncSocketConnection);
+				auto timer = Ptr(new ManualTimeoutController);
+				auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Client, nullptr, timer));
+				RecordingHttpCallback callback;
+				connection->InstallCallback(&callback);
+				connection->BeginReadingLoopUnsafe();
+
+				auto request = Ptr(new HttpRequest);
+				request->method = L"GET";
+				request->requestTarget = L"/custom-deadline";
+				connection->SendRequest(request, 1234);
+				TEST_ASSERT(timer->armCount == 0);
+				socket->CompleteNextWrite();
+				TEST_ASSERT(timer->armCount == 1);
+				TEST_ASSERT(timer->lastArmDuration == 1234);
+
+				socket->Feed(ByteArray("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nA"));
+				TEST_ASSERT(timer->refreshCount == 0);
+				socket->Feed(ByteArray("B"));
+				TEST_ASSERT(callback.responses.Count() == 1);
+				TEST_ASSERT(timer->refreshCount == 0);
+				TEST_ASSERT(!timer->TryFire());
+				connection->Stop();
+			}
+			{
+				auto socket = Ptr(new FakeAsyncSocketConnection);
+				auto timer = Ptr(new ManualTimeoutController);
+				auto connection = Ptr(new HttpRequestConnection(socket.Obj(), HttpRequestConnectionDirection::Client, nullptr, timer));
+				RecordingHttpCallback callback;
+				connection->InstallCallback(&callback);
+				connection->BeginReadingLoopUnsafe();
+
+				auto request = Ptr(new HttpRequest);
+				request->method = L"GET";
+				request->requestTarget = L"/infinite-deadline";
+				connection->SendRequest(request, 0);
+				socket->CompleteNextWrite();
+				TEST_ASSERT(timer->armCount == 0);
+				socket->Feed(ByteArray("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nA"));
+				TEST_ASSERT(timer->armCount == 0);
+				TEST_ASSERT(timer->refreshCount == 0);
+				connection->Stop();
+				TEST_ASSERT(callback.lastError == L"");
+			}
 		});
 
 		TEST_CASE(L"HTTP client rejects unsolicited bytes while idle and after a held response")
@@ -1658,7 +2150,7 @@ namespace http_request_test
 			auto overlapping = Ptr(new HttpRequest);
 			overlapping->method = L"GET";
 			overlapping->requestTarget = L"/overlapping-delivery";
-			TEST_ERROR(connection->SendRequest(overlapping));
+			connection->SendRequest(overlapping);
 			TEST_ASSERT(socket->writes.Count() == 1);
 
 			TEST_ASSERT(ThreadPoolLite::Queue(Func<void()>([socket, &callback, &eventExtraFeedReturned, &workerFailure]()

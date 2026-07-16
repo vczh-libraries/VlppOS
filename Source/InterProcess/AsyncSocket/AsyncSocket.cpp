@@ -29,6 +29,21 @@ IAsyncSocketCallback
 	{
 	}
 
+	AsyncSocketServerStartException::AsyncSocketServerStartException(AsyncSocketServerStartFailure _failure, const WString& message)
+		: Exception(message)
+		, failure(_failure)
+	{
+	}
+
+	AsyncSocketServerStartFailure AsyncSocketServerStartException::GetFailure()const
+	{
+		return failure;
+	}
+
+	void IAsyncSocketServerCallback::OnServerStopped()
+	{
+	}
+
 /***********************************************************************
 NetworkProtocolCallbackDomain::CallbackFrame
 ***********************************************************************/

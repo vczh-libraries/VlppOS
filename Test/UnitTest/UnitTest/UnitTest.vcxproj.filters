@@ -177,6 +177,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
@@ -184,6 +187,9 @@
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
@@ -210,6 +216,9 @@
     <ClCompile Include="..\..\Source\TestInterProcess_HttpRequest.cpp">
       <Filter>Source Files\TestInterProcess</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Source\TestInterProcess_AsyncSocket_MiniHttpApi.cpp">
+      <Filter>Source Files\TestInterProcess</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\ChannelImpls\ChannelPackage.cpp">
       <Filter>Common\InterProcess\ChannelImpls</Filter>
     </ClCompile>
@@ -221,6 +230,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Source\TestInterProcess.cpp">
       <Filter>Source Files\TestInterProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp">
+      <Filter>Common\InterProcess</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -293,6 +305,9 @@
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
@@ -300,6 +315,9 @@
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\HttpRequest.h">
@@ -324,6 +342,9 @@
       <Filter>Common\InterProcess\Windows</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocol.h">
+      <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.h">
       <Filter>Common\InterProcess</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolChannel.h">

@@ -21,6 +21,9 @@ namespace vl::inter_process::async_tcp_socket
 		class Impl;
 		Ptr<Impl>							impl;
 
+	protected:
+		virtual void							OnServerStopped();
+
 	public:
 		explicit HttpRequestServer(Ptr<IAsyncSocketServer> server);
 		/// <remarks>A derived destructor must call <see cref="Stop"/> before destroying any state accessed by <see cref="OnClientConnected"/>.</remarks>
