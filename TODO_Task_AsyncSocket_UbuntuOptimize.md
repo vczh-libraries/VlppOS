@@ -101,6 +101,7 @@ Record the Ubuntu version, kernel, CPU, virtualization/container environment, li
 - Defer a client's ring acquisition and worker start until `WaitForServer` actually begins the first connection attempt. A constructed-and-stopped or wrapper-validation-only client should not create an `io_uring` instance.
 - Define and test the intentional failure-boundary change caused by lazy acquisition. A server ring/probe/worker failure from `Start` must close its newly created listener, leave the server stopped with no retained callback, and throw `AsyncSocketServerStartException(AsyncSocketServerStartFailure::Other, ...)`. A client acquisition failure from `WaitForServer` must release partial native state, change the client to `Disconnected`, unblock its wait state, and synchronously rethrow the original actionable setup error. Do not also report the same setup failure through `OnError`; deliver at most the one terminal `OnDisconnected` notification to an installed callback, and keep every later `Stop` idempotent and nonblocking.
 - Cache the immutable required-opcode result once per process only after proving that this is valid for every ring created with the same parameters. Make concurrent first use race-free, distinguish stable supported/unsupported capability from transient ring/probe allocation failure, preserve early actionable failure when the kernel lacks an operation, and do not cache a transient failure as kernel capability.
+- Keep lazy runtime ownership behind the existing construction surfaces. Attach it through non-interface `Impl`, `ServerState`, or `ConnectionState` internals and the existing `Start` or `WaitForServer` calls; do not add a constructor argument, constructor overload, or replacement factory to expose a runtime, cache, or lease.
 - Retain the 1024-entry depth initially so the effects of laziness and probe caching are measurable independently.
 
 This stage should remove obvious wasted work from invalid-authority, failed-bind, and never-started-object paths without changing concurrency.
@@ -113,7 +114,7 @@ Prefer a bounded cache of started runtimes leased exclusively to one active serv
 - An individual socket's `Stop` must stop that socket owner, not the reusable runtime. Returning a lease early is a use-after-stop defect.
 - A reentrant `Stop` running on the completion worker cannot return its lease from inside the current callback. Mark that lease release-pending and publish it to the idle cache only from a post-callback/post-CQE cleanup boundary where the current operation has been removed and its owner drain has ended. A later external `Stop` must still be able to complete the hard drain.
 - A reusable runtime must be demonstrably idle: its operation dictionary is empty, no SQ/CQ work belongs to the old owner, and no callback can reference that owner. Continue using collision-free operation IDs across leases.
-- Bound the retained idle count using measured concurrency. Create overflow runtimes instead of blocking object construction waiting for a lease, and stop excess runtimes after their owners drain.
+- Bound the retained idle count using measured concurrency. Create overflow runtimes rather than making the lazy acquisition in `Start` or `WaitForServer` block for a lease, and stop excess runtimes after their owners drain.
 - Initialize the cache lazily and finalize it explicitly through the repository's global-storage lifecycle. Require every active owner and lease to drain before `FinalizeGlobalStorage()`; the finalizer then stops all cached idle runtimes. Using the facility after that cleanup boundary is outside the application lifecycle, because a global-storage accessor can initialize storage again. Do not rely on a later C++ static destructor or leak workers intentionally.
 - Keep failures during acquisition, worker startup, or finalization exception-safe. A partially created runtime must not enter the cache.
 
@@ -131,7 +132,8 @@ Do not remove payload transfers, lower `InterProcessTestRepeatCount` or `AsyncSo
 
 ## Fix requirements
 
-- Keep `IAsyncSocketServer`, `IAsyncSocketClient`, and `IAsyncSocketConnection` public APIs and port-only native constructors unchanged.
+- Do not add, remove, or change any declaration in the existing `IAsyncSocket*` interfaces: `IAsyncSocketCallback`, `IAsyncSocketConnection`, `IAsyncSocketClient`, `IAsyncSocketServerCallback`, and `IAsyncSocketServer`.
+- Do not add, remove, or change the signature, overload set, default arguments, explicitness, or accessibility of constructors on any existing production or test class implementing any of those interfaces. In particular, preserve the public Windows, Linux, and macOS `AsyncSocketServer(vint)` and `AsyncSocketClient(vint)` constructors and each platform-private `AsyncSocketConnection(Ptr<ConnectionState>)` constructor. Stage 1 may change Linux constructor implementations, including initializer lists, and move native setup failure timing to the existing `Start` or `WaitForServer` boundary, but runtime, cache, lease, and factory dependencies must remain internal and must not change existing construction call syntax.
 - Preserve ordered full-duplex bytes, one outstanding read, one user write, short-send handling, exact retained write buffers, and callback ordering.
 - Preserve synchronous `OnInstalled`, one terminal disconnect notification, fatal error-before-disconnect ordering, and suppression of intentional-cancellation errors.
 - Preserve idempotent `Stop` as a hard drain boundary, including nested stop from a connection or server callback and the guarantee that no callback touches an owner after external `Stop` returns.
@@ -153,6 +155,7 @@ Do not remove payload transfers, lower `InterProcessTestRepeatCount` or `AsyncSo
 
 - The original Ubuntu cost is attributed to measured phases. The report states how much time and how many retries, rings, probes, worker lifecycles, operations, and CQEs each relevant focused run used.
 - Before/after results use the same Ubuntu host, clean Debug x64 build, command, filters, payloads, and repeat counts, and show a clear repeatable improvement in the measured dominant phase and focused total time.
+- A declaration-level comparison with the baseline confirms that all five existing `IAsyncSocket*` interfaces are unchanged and that no constructor signature, overload, default argument, explicitness, accessibility, or existing call syntax changed for any pre-existing class implementing one. Linux constructor implementation changes, including initializer-list changes, are acceptable only for the lazy internal work described in Stage 1.
 - If warm runtime reuse is implemented, ring/probe/worker creation no longer scales with every sequential server/client object up to the cache's documented bound. Cold first use, warm reuse, overflow, failed acquisition, failed bind, never-started client, reentrant deferred release, and explicit finalization with no active lease are covered.
 - The optimization does not regress steady-state full-duplex throughput or concurrent progress for multiple servers and clients. Any reported variance is measured over repeated runs rather than hidden by a wall-clock assertion.
 - The five shared native async-socket cases pass, including long full-duplex byte validation, rejection, callback stop, retry-then-connect, and stop-during-retry.
@@ -171,6 +174,13 @@ Follow `.github/copilot-instructions.md`, `Project.md`, and the referenced build
 - Run `Bin/UnitTest` asynchronously with `/C` and the appropriate case-sensitive `/F:<filename>` filters for the four focused files.
 - Run repeated focused stress invocations with bounded monitoring, then run `Bin/UnitTest /C` without filters for the complete suite.
 - Read the raw terminal output and process exit code. A `/C` run that stops before the final passed-file and passed-case summaries has failed or crashed.
+- Before committing, inventory every production and test class that directly or indirectly implements an `IAsyncSocket*` interface across headers and implementation files, then compare it with the baseline. The expected declaration-level diff is zero for all five interfaces and for every existing implementing-class constructor; constructor implementation changes, including initializer-list changes, remain permitted for the stated Linux lazy acquisition.
 - Record the baseline, phase attribution, design decision, before/after measurements, stress results, and final summaries in `.github/TaskLogs/Copilot_Investigate.md`.
 
 Commit only intentional implementation, deterministic regression tests, required project/build metadata, design clarification, and the investigation record, then push the current branch.
+
+## REVIEW COMMENTS
+
+### Freeze all `IAsyncSocket*` interfaces and implementing-class constructors
+
+**review comment**: The original fix requirement named only `IAsyncSocketServer`, `IAsyncSocketClient`, and `IAsyncSocketConnection`, omitting `IAsyncSocketCallback` and `IAsyncSocketServerCallback`. Its reference to port-only native constructors also did not protect platform-private connection constructors or constructors of other production and test implementers. The stage guidance, fix requirements, acceptance criteria, and verification now prohibit declaration-level changes to all five interfaces and API-shape changes to every existing implementing-class constructor. The documented Linux lazy-acquisition work may change constructor implementations and setup-failure timing only; it must remain behind the existing construction call syntax.
