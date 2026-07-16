@@ -120,3 +120,80 @@ If a future Windows run exceeds the boundary:
 - Reentrant callback shutdown does not self-wait, while external shutdown still drains all accepted callbacks before returning.
 - No callback, overlapped operation, socket completion, HTTP timeout, registered wait, or finalizer can touch released state after `Stop()` returns.
 - Thirty complete Windows runs finish with all 15 files and 181 cases passing, no timeout during final cleanup, and no Debug memory-leak dump.
+
+## Linux
+
+### Reproduction method
+
+From `Test/Linux`, perform a clean Debug x64 build with `.github/Ubuntu/build.sh -f`, then run the complete suite as 30 independent sequential processes:
+
+- execute `Bin/UnitTest /C` without a file filter;
+- preserve each process's complete raw output and exit status;
+- allow 45 seconds per process, over three times the 13.67-second clean baseline;
+- classify exit code 0 with both pass summaries as a pass, exit code 124 as a hard hang, and any other nonzero exit separately rather than calling every failure a deadlock;
+- use the last flushed file and case only to localize a hang, then require blocked-stack evidence before assigning its cause.
+
+The campaign ran on Ubuntu 24.04.4 LTS, kernel 6.17.0-40-generic, under Microsoft virtualization with eight virtual CPUs and liburing 2.5. The executable was built from source commit `2e9a83c`; the commits that reached `master` during the campaign changed task documents only and did not change `Source` or `Test`. Every hard timeout occurred in one of the two early inter-process cases that already has its own five-second watchdog, so the 45-second process boundary did not truncate one of the later intentional 30-second waits.
+
+### Result: reproduced
+
+Fifteen of the 30 complete-suite processes passed with:
+
+- `Passed test files: 13/13`
+- `Passed test cases: 167/167`
+
+Nine processes entered a hard hang and were terminated at 45 seconds. Six more processes did not hang at process level, but aborted after six or seven seconds when the same inter-process watchdog reported `Assertion failure: !timeoutThread->timeout`.
+
+| Active test | Hard hangs | Watchdog aborts | Affected runs |
+| --- | ---: | ---: | --- |
+| `AsyncSocket (NetworkProtocol)` in `TestInterProcess.cpp` | 8 | 6 | 01, 02, 04, 05, 07, 11, 13, 15, 16, 17, 22, 23, 24, 25 |
+| `AsyncSocket (Channel)` in `TestInterProcess.cpp` | 1 | 0 | 09 |
+
+Therefore the confirmed process-deadlock count is 9/30: eight localized to `AsyncSocket (NetworkProtocol)` and one to `AsyncSocket (Channel)`. The six watchdog aborts are recorded separately because they terminated instead of deadlocking, but they expose the same prerequisite: at least one of the three ThreadPool tasks did not reach its completion counter before the five-second guard fired. No run hung after the final pass summaries, and no other test file or case failed.
+
+### Captured deadlock
+
+Linux Yama rejected a sibling-process LLDB attach. Repeated PTY-backed LLDB launches also remained in the inferior's initial kernel `ptrace_stop` before `main`, so those debugger failures were discarded rather than treated as test evidence. A parent-launched `strace -ff -k` focused run then reproduced the hard `AsyncSocket (Channel)` hang and captured symbolic user stacks for every blocking syscall.
+
+The captured wait graph is stable:
+
+- The unit-test main thread has already left the five-second `TimeoutThread::Wait`, failed the assertion, and started unwinding `RunNetworkProtocolChannel`. It blocks in `pthread_cond_destroy`, called by `vl::ConditionVariable::~ConditionVariable`, `vl::threading_internal::EventData::~EventData`, `vl::EventObject::~EventObject`, and `ChannelChatData::~ChannelChatData`.
+- The server ThreadPool task is still blocked in `vl::EventObject::Wait` at `TestInterProcess.cpp:764` waiting for `eventServer`.
+- The Tom and Jerry ThreadPool tasks are still blocked in `vl::EventObject::Wait` at `TestInterProcess.cpp:779` and `TestInterProcess.cpp:793` waiting for `eventTom` and `eventJerry`.
+- The three Linux `RingRuntime` completion workers are idle in `io_uring_wait_cqe`; no worker is executing a callback that could make it safe for the main thread to destroy the events.
+
+This is a real teardown deadlock. The main thread is destroying a condition variable that still has waiters, while those waiters retain raw references to the stack object being destroyed. The analogous raw-protocol helper has the same ownership pattern at `TestInterProcess.cpp:269`, `TestInterProcess.cpp:291`, and `TestInterProcess.cpp:314`. Its six visible watchdog assertions fail at `TestInterProcess.cpp:331`, and its eight hard-timeout logs stop before that assertion can finish unwinding.
+
+### Analysis
+
+The confirmed defect is in the test's failure lifecycle, not yet in a production `Stop` or `io_uring` drain:
+
+- `RunTextNetworkProtocol` and `RunNetworkProtocolChannel` queue three lambdas that capture stack-local events, callbacks, and counters by reference, but they never join those tasks before returning or throwing.
+- `TimeoutThread` busy-spins on `DateTime::LocalTime()` for five seconds. It consumes a CPU and reports only whether the counter reached three; it does not cancel or drain unfinished work.
+- Each task increments `threadCounter` only after its full body succeeds. `ThreadPoolLite` suppresses task exceptions, so an exception and a blocked task both appear to the caller only as a missing counter increment.
+- When `TEST_ASSERT(!timeoutThread->timeout)` throws, normal stack unwinding destroys `ChatData` or `ChannelChatData` even though workers still use it. On Linux, `pthread_cond_destroy` waits on the live event waiters and converts the original timeout or hidden task failure into the observed permanent hang.
+- The Linux binding passes `false` for the existing `synchronizeServerStartup` option. Clients may begin before the listener is ready and enter the 100-millisecond retry path even though these protocol and channel cases are intended to test framing, routing, and shutdown. Dedicated async-socket cases already own retry coverage.
+
+The trace proves the teardown cycle, but it does not prove that the original five-second delay is a production deadlock. Listener-start scheduling, eager per-object `io_uring` setup, the busy-spin watchdog, or a suppressed worker exception can all consume the guard interval. Do not weaken `Stop`, skip operation drains, or change production callback ownership on this evidence alone.
+
+### Proposed fix
+
+Fix the test owner before changing the socket implementation:
+
+1. Enable the existing listener-start barrier for the Linux protocol and channel binding so both clients wait until `server->Start()` has committed the listener. Apply the same deterministic binding to other available GCC platforms when changing the shared registration. Keep the dedicated retry-then-connect and stop-during-retry cases unchanged.
+2. Replace `TimeoutThread`'s wall-clock busy loop with a monotonic, event-driven completion coordinator. Give every queued task an RAII completion guard that records success or the first exception, increments the finished count on every exit path, and signals an all-finished event when the third task leaves.
+3. Move each scenario's coordination state to shared ownership captured by value, rather than capturing stack locals by reference. A failure must not destroy any event, callback, server, or client while a worker can still access it.
+4. Add an explicit cancellation path. On the first worker exception or the bounded watchdog firing, mark the scenario cancelled, signal every conversation and startup gate, stop any published client/server endpoints outside the state lock, and wait for all three task guards before reporting the original failure. Preserve the first actionable worker error instead of replacing it with `!timeoutThread->timeout`.
+5. Add a deterministic regression for the failure path: hold one worker at a barrier until the watchdog/cancellation path starts, then prove that all workers leave and all synchronization objects are destroyed only after the final completion. This regression must finish without relying on sleep or process termination.
+6. After the harness is safe, rerun the focused cases. If a worker still cannot drain, capture that live worker and its corresponding completion/stop owner before making a production change. Fix only the proven owner transition while preserving external `Stop` as a hard callback and native-operation drain.
+
+Do not solve this by enlarging the watchdog, adding sleeps, reducing `InterProcessTestRepeatCount`, skipping native cases, returning early from `Stop`, or globally sharing one `RingRuntime`. Those changes would hide the trigger or weaken lifetime guarantees without removing the captured teardown cycle.
+
+### Acceptance criteria
+
+- A forced worker failure is reported with its original diagnostic; it cannot be swallowed and reappear only as a missing completion count.
+- A forced watchdog path cancels and joins all three tasks before releasing scenario state, with no thread blocked in `pthread_cond_destroy` and no access to destroyed stack memory.
+- Listener startup is deterministic in the protocol and channel scenarios, while the dedicated retry tests still exercise Linux connection retry and cancellation.
+- The unchanged protocol and channel payload, routing, sender-id, repeat-count, and shutdown assertions all pass.
+- Focused `TestInterProcess.cpp` stress completes at least 100 protocol/channel lifecycle iterations without a hang, watchdog abort, surviving worker, callback after stop, or suppressed exception.
+- Thirty clean-build complete Ubuntu runs finish with 13/13 files and 167/167 cases, no process timeout, no incomplete summary, and no hang during `FinalizeGlobalStorage()`.
