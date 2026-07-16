@@ -19,6 +19,7 @@ The clean Ubuntu build at source commit `aff9572` succeeded. The first focused `
 # PROPOSALS
 
 - No.1 Synchronize Linux shared protocol startup [DENIED]
+- No.2 Restore SpinLock exclusion and order the channel handshake
 
 ## No.1 Synchronize Linux shared protocol startup
 
@@ -37,3 +38,26 @@ Change only the argument in the `VCZH_GCC && !VCZH_APPLE` registration in `Test/
 The incremental build succeeded and the first focused `TestInterProcess.cpp` run passed 1/1 file and 3/3 cases. The second focused run exceeded the 60-second boundary with its last flushed case at `AsyncSocket (NetworkProtocol)`, exactly as the original hard failure did. The listener-start barrier removes a real incidental retry but does not remove the frequent Linux failure, so it is insufficient as the fix and the source experiment was reverted.
 
 The captured Channel trace also proves an independent post-connect ordering defect: Tom can receive the client-id announcement and send `Hello` before the server has submitted Jerry's client-id announcement. Jerry then treats the early `Hello` as the id package, throws, loses the message, and leaves all three tasks waiting. This occurs after both clients connected, so listener startup synchronization cannot fix it.
+
+## No.2 Restore SpinLock exclusion and order the channel handshake
+
+A parent-launched `strace -ff -k` run with Proposal No.1 active disproved the remaining listener-start hypothesis. All `io_uring_setup(1024)` and probe calls completed, but in protocol iteration five two different ThreadPool workers simultaneously executed the server lambda and constructed listeners for port 38504. Both reached `bind`; one reached `listen` first and the other failed with `EADDRINUSE`. The failing worker threw before incrementing the scenario completion counter, the ThreadPool suppressed the exception, and the remaining tasks waited until the watchdog failure began the previously captured teardown deadlock.
+
+The custom GCC ThreadPool does not intentionally duplicate a task. Its queue is protected by the common `SpinLock`, whose `Enter` loop has violated mutual exclusion since commit `df2a7da`. `compare_exchange_strong` overwrites its `expected` argument when it fails, but `SpinLock::Enter` initializes `expected = 0` only once outside the retry loop. The following three-thread schedule is therefore legal in the current code:
+
+1. A owns the token at 1.
+2. B's compare-exchange from 0 to 1 fails, changing B's `expected` to 1.
+3. A releases, then C acquires the token from 0 to 1.
+4. B retries with `expected == 1`; its compare-exchange from 1 to 1 succeeds and B enters beside C.
+
+Two Linux ThreadPool workers can consequently remove or mutate the same linked queue node at once. This exactly accounts for the two independently captured `RunTextNetworkProtocol::$_0` stacks and the missing client task. `QueueLambda`, `Func` copying, and the linked queue are otherwise ownership-safe. Windows uses its native thread pool and did not exercise this custom queue path; macOS did not reproduce the narrow schedule, but the primitive itself is common code and must be corrected at its owner rather than hidden in a Linux caller.
+
+The channel package ordering observed in the earlier trace is a second defect that a correct ThreadPool does not remove. The server channel client batches the id announcement before its hello announcements, but Tom is allowed to process its id package and send `Hello` through another connection before Jerry processes the corresponding id package. A client must not begin the peer exchange until both clients have acknowledged their ids.
+
+### CODE CHANGE
+
+Reset the compare-exchange expected value to zero on every `SpinLock::Enter` attempt in `Source/Threading.cpp`. Add a high-contention `TestThread.cpp` regression that records the number of threads inside one SpinLock-protected section and fails if it ever exceeds one; the existing SpinLock tests increment an atomic counter and cannot detect overlapping owners.
+
+In `TestInterProcess.cpp`, add an ids-received event and two guarded readiness flags to `ChannelChatData`. Have `RememberClientIds` publish each client's readiness after storing its ids, signal when both are ready, and move Tom's initial `Hello` send to an explicit method invoked by Tom's scenario task only after that event. This preserves all payload, sender-id, routing, repeat, and shutdown assertions while removing the invalid cross-connection ordering assumption.
+
+Do not change Linux `io_uring`, retry, callback-drain, or `Stop` behavior. Do not retain Proposal No.1's listener barrier: it was experimentally insufficient, and the dedicated connection retry behavior remains part of the shared GCC scenario.
