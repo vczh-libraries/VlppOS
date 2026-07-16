@@ -197,3 +197,23 @@ Do not solve this by enlarging the watchdog, adding sleeps, reducing `InterProce
 - The unchanged protocol and channel payload, routing, sender-id, repeat-count, and shutdown assertions all pass.
 - Focused `TestInterProcess.cpp` stress completes at least 100 protocol/channel lifecycle iterations without a hang, watchdog abort, surviving worker, callback after stop, or suppressed exception.
 - Thirty clean-build complete Ubuntu runs finish with 13/13 files and 167/167 cases, no process timeout, no incomplete summary, and no hang during `FinalizeGlobalStorage()`.
+
+### Follow-up root cause and implemented fix
+
+Later traces identified the success-path triggers that the original teardown capture could not explain:
+
+- A parent `strace -ff -k` run captured two Linux ThreadPool workers executing the same raw-protocol server closure and binding the same port. The custom GCC ThreadPool queue is protected by `SpinLock`, and `SpinLock::Enter` reused the `expected` value overwritten by a failed `compare_exchange_strong`. A waiter could therefore succeed with a meaningless `1 -> 1` exchange while another thread owned the lock, corrupting the task queue and duplicating or losing a closure.
+- The channel test allowed Tom to send `Hello` as soon as Tom received the id announcement. That package could cross another connection and reach Jerry before Jerry received its own id announcement, causing Jerry to parse `Hello` as the id package and throw inside a callback.
+- After those fixes, a GDB C++ throw catchpoint exposed a separate raw-protocol shutdown order. Both client callbacks sent `Stop` and signaled their task events; the server could receive both messages and disconnect the clients before their task threads performed the asserted local `Stop` sequence.
+
+The implemented change resets the compare-exchange expectation on every SpinLock attempt and adds a 16-thread exclusion regression that failed against the old primitive. The Linux shared protocol binding now uses the existing listener-start event, while the dedicated retry cases still cover client-before-server behavior. The channel conversation begins only after both clients have parsed their ids, and the raw-protocol server waits until both client tasks have completed local connection shutdown before stopping the listener. No `io_uring`, socket retry, callback-drain, or production `Stop` implementation was weakened or changed.
+
+The final verification completed:
+
+- the pre-fix SpinLock regression failed and the corrected primitive passed;
+- 100 consecutive focused inter-process processes passed, totaling 2,000 raw-protocol and 2,000 channel lifecycles;
+- one unfiltered smoke suite passed;
+- a final clean Ubuntu build succeeded;
+- 30 independent unfiltered suites then passed consecutively, each with `13/13` files and `167/167` cases, exit code 0, and a 13-to-14-second runtime.
+
+The accepted campaign had zero watchdog aborts, hard hangs, incomplete summaries, crashes, count resets, or finalization hangs. The broader failure-path ownership issue described above remains useful future hardening: an unrelated worker exception is still suppressed by the generic ThreadPool and could make this legacy harness diagnose the next failure poorly. It was not the source of the duplicated task or either legal package/shutdown ordering exposed in this investigation.

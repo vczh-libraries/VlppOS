@@ -46,7 +46,8 @@ namespace mynamespace
 
 	struct ChatData
 	{
-		EventObject						eventServer, eventTom, eventJerry;
+		EventObject						eventServer, eventTom, eventJerry, eventClientsStopped;
+		atomic_vint					clientStopCounter = 0;
 
 		// covers connectionTom, connectionJerry, tomStopped and jerryStopped
 		SpinLock						lockServer;
@@ -60,6 +61,17 @@ namespace mynamespace
 			eventServer.CreateManualUnsignal(false);
 			eventTom.CreateManualUnsignal(false);
 			eventJerry.CreateManualUnsignal(false);
+			eventClientsStopped.CreateManualUnsignal(false);
+		}
+
+		void NotifyClientStopped()
+		{
+			auto stoppedClients = ++clientStopCounter;
+			CHECK_ERROR(stoppedClients <= 2, L"Each protocol client should stop only once.");
+			if (stoppedClients == 2)
+			{
+				CHECK_ERROR(eventClientsStopped.Signal(), L"Failed to signal that both protocol clients stopped.");
+			}
 		}
 	};
 
@@ -268,6 +280,7 @@ namespace mynamespace
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before accepting clients.");
 				chatData.eventServer.Wait();
 				CHECK_ERROR(!server->IsStopped(), L"Server should not be stopped before Stop.");
+				CHECK_ERROR(chatData.eventClientsStopped.Wait(), L"Failed to wait until both protocol clients stopped.");
 				server->Stop();
 				CHECK_ERROR(server->IsStopped(), L"Server should be stopped after Stop.");
 			}
@@ -293,6 +306,7 @@ namespace mynamespace
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 				client->GetConnection()->InstallCallback(nullptr);
+				chatData.NotifyClientStopped();
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -316,6 +330,7 @@ namespace mynamespace
 				client->GetConnection()->Stop();
 				CHECK_ERROR(client->GetStatus() == ClientStatus::Disconnected, L"Client should be disconnected after Stop.");
 				client->GetConnection()->InstallCallback(nullptr);
+				chatData.NotifyClientStopped();
 			}
 			timeoutThread->threadCounter++;
 		});
@@ -370,13 +385,15 @@ namespace mynamespace
 
 	struct ChannelChatData
 	{
-		EventObject						eventClientsConnected, eventServer, eventTom, eventJerry;
+		EventObject						eventClientsConnected, eventClientIdsReceived, eventServer, eventTom, eventJerry;
 
-		// covers clientId1, clientId2, serverClientId, client1Stopped, client2Stopped, clientId1ReceivedHello and clientId2ReceivedHello
+		// covers clientId1, clientId2, serverClientId, client1ReceivedIds, client2ReceivedIds, client1Stopped, client2Stopped, clientId1ReceivedHello and clientId2ReceivedHello
 		SpinLock						lockServer;
 		vint							clientId1 = -1;
 		vint							clientId2 = -1;
 		vint							serverClientId = -1;
+		bool							client1ReceivedIds = false;
+		bool							client2ReceivedIds = false;
 		bool							client1Stopped = false;
 		bool							client2Stopped = false;
 		bool							clientId1ReceivedHello = false;
@@ -387,6 +404,7 @@ namespace mynamespace
 		ChannelChatData()
 		{
 			eventClientsConnected.CreateManualUnsignal(false);
+			eventClientIdsReceived.CreateManualUnsignal(false);
 			eventServer.CreateManualUnsignal(false);
 			eventTom.CreateManualUnsignal(false);
 			eventJerry.CreateManualUnsignal(false);
@@ -501,6 +519,30 @@ namespace mynamespace
 
 			serverClientId = senderClientId;
 			anotherClientId = clientId == clientId1 ? clientId2 : clientId1;
+
+			bool clientsReceivedIds = false;
+			SPIN_LOCK(chatData->lockServer)
+			{
+				if (clientId == chatData->clientId1)
+				{
+					CHECK_ERROR(!chatData->client1ReceivedIds, L"Tom should receive client ids only once.");
+					chatData->client1ReceivedIds = true;
+				}
+				else if (clientId == chatData->clientId2)
+				{
+					CHECK_ERROR(!chatData->client2ReceivedIds, L"Jerry should receive client ids only once.");
+					chatData->client2ReceivedIds = true;
+				}
+				else
+				{
+					CHECK_FAIL(L"Channel client should record ids for a known client id.");
+				}
+				clientsReceivedIds = chatData->client1ReceivedIds && chatData->client2ReceivedIds;
+			}
+			if (clientsReceivedIds)
+			{
+				CHECK_ERROR(chatData->eventClientIdsReceived.Signal(), L"Failed to signal that both channel clients received their ids.");
+			}
 		}
 
 		void SendTo(vint receiverClientId, const WString& package)
@@ -623,6 +665,12 @@ namespace mynamespace
 		{
 		}
 
+		void SendHello()
+		{
+			CHECK_ERROR(anotherClientId > 0, L"Tom should receive client ids before sending Hello.");
+			SendTo(anotherClientId, L"Hello");
+		}
+
 		void OnConnected(vint clientId) override
 		{
 			ChannelClientBase<NetworkChannelClient>::OnConnected(clientId);
@@ -641,7 +689,6 @@ namespace mynamespace
 			if (anotherClientId == -1)
 			{
 				RememberClientIds(senderClientId, package);
-				SendTo(anotherClientId, L"Hello");
 			}
 			else if (package == L"Good")
 			{
@@ -776,6 +823,8 @@ namespace mynamespace
 				}
 				auto client = Ptr(new TomChannelClient(createClient(), chatData));
 				client->WaitForServer();
+				CHECK_ERROR(chatData.eventClientIdsReceived.Wait(), L"Failed to wait until both channel clients received their ids.");
+				client->SendHello();
 				chatData.eventTom.Wait();
 			}
 			timeoutThread->threadCounter++;
@@ -1029,6 +1078,6 @@ TEST_FILE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::linux_socket::AsyncSocketServer,
 		async_tcp_socket::linux_socket::AsyncSocketClient
-	>(false);
+	>(true);
 #endif
 }

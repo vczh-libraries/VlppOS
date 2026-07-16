@@ -232,6 +232,39 @@ namespace mynamespace
 		}
 	}
 
+	struct SL_ExclusiveThreadData
+	{
+		EventObject			start;
+		SpinLock				lock;
+		atomic_vint			inside = 0;
+		atomic_vint			violations = 0;
+		atomic_vint			entries = 0;
+
+		SL_ExclusiveThreadData()
+		{
+			TEST_ASSERT(start.CreateManualUnsignal(false));
+		}
+	};
+
+	void SL_ExclusiveThreadProc(Thread* thread, void* argument)
+	{
+		SL_ExclusiveThreadData* data = (SL_ExclusiveThreadData*)argument;
+		TEST_ASSERT(data->start.Wait());
+		for (vint i = 0; i < 10000; i++)
+		{
+			SpinLock::Scope lock(data->lock);
+			if (data->inside.exchange(1) != 0)
+			{
+				data->violations++;
+			}
+			data->entries++;
+			if (data->inside.exchange(0) != 1)
+			{
+				data->violations++;
+			}
+		}
+	}
+
 	/***********************************************************************
 	Thread Local Storage
 	***********************************************************************/
@@ -479,22 +512,41 @@ TEST_FILE
 
 	TEST_CASE(L"Test SpinLock 2")
 	{
-		SL_ThreadData data;
 		{
-			SpinLock::Scope lock(data.lock);
-			for (vint i = 0; i < 10; i++)
+			SL_ExclusiveThreadData data;
+			List<Thread*> threads;
+			for (vint i = 0; i < 16; i++)
 			{
-				ThreadPoolLite::QueueLambda([&data]() {SL_ThreadProc(nullptr, &data); });
+				threads.Add(Thread::CreateAndStart(SL_ExclusiveThreadProc, &data, false));
 			}
-			Thread::Sleep(1000);
-			TEST_ASSERT(data.counter == 0);
+			TEST_ASSERT(data.start.Signal());
+			for (auto thread : threads)
+			{
+				thread->Wait();
+				TEST_ASSERT(thread->GetState() == Thread::Stopped);
+				delete thread;
+			}
+			TEST_ASSERT(data.entries == 160000);
+			TEST_ASSERT(data.violations == 0);
 		}
-		while (data.counter != 10);
-		Thread::Sleep(1000);
-		TEST_ASSERT(data.lock.TryEnter());
-	#ifdef VCZH_GCC
-		TEST_ASSERT(ThreadPoolLite::Stop(true));
-	#endif
+		{
+			SL_ThreadData data;
+			{
+				SpinLock::Scope lock(data.lock);
+				for (vint i = 0; i < 10; i++)
+				{
+					ThreadPoolLite::QueueLambda([&data]() {SL_ThreadProc(nullptr, &data); });
+				}
+				Thread::Sleep(1000);
+				TEST_ASSERT(data.counter == 0);
+			}
+			while (data.counter != 10);
+			Thread::Sleep(1000);
+			TEST_ASSERT(data.lock.TryEnter());
+		#ifdef VCZH_GCC
+			TEST_ASSERT(ThreadPoolLite::Stop(true));
+		#endif
+		}
 	});
 
 	TEST_CASE(L"Test TaskQueue")

@@ -36,9 +36,13 @@ SpinLock
 
 	void SpinLock::Enter()
 	{
-		vint expected = 0;
-		while (!token.compare_exchange_strong(expected, 1))
+		while (true)
 		{
+			vint expected = 0;
+			if (token.compare_exchange_strong(expected, 1))
+			{
+				return;
+			}
 			while (token != 0)
 			{
 #ifdef VCZH_ARM
