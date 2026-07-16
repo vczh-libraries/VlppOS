@@ -112,13 +112,15 @@ Return parseable errors with the status policy in `TODO_SocketHttp_MiniHttpApi.m
 
 ## Cross-platform shared tests
 
-Create all MiniHttp product coverage in exactly `Test/Source/TestInterProcess_AsyncSocket_MiniHttpApi.cpp`. Follow `TestInterProcess_HttpRequest.cpp`: define common scenarios once and bind only the native client type under platform guards.
+Create a new `Test/Source/TestInterProcess_AsyncSocket_MiniHttpApi.cpp`; this file does not exist yet, and the coverage must not be folded into or renamed from an existing test file. Follow the pattern in `TestInterProcess_AsyncSocket.cpp` and `TestInterProcess_HttpRequest.cpp`: define the complete platform-neutral MiniHttp scenarios exactly once in a shared runner such as `RunMiniHttpApiTestCases<TNativeServer, TNativeClient>()`, parameterized by both the native `IAsyncSocketServer` and `IAsyncSocketClient` implementation types. Only the guarded platform header includes and the invocation of that shared runner may vary by platform.
 
-| Guard | Native client |
-| --- | --- |
-| `VCZH_MSVC` | `windows_socket::AsyncSocketClient` |
-| `VCZH_GCC && VCZH_APPLE` | `macos_socket::AsyncSocketClient` |
-| `VCZH_GCC && !VCZH_APPLE` | `linux_socket::AsyncSocketClient` |
+| Guard | Native server | Native client |
+| --- | --- | --- |
+| `VCZH_MSVC` | `windows_socket::AsyncSocketServer` | `windows_socket::AsyncSocketClient` |
+| `VCZH_GCC && VCZH_APPLE` | `macos_socket::AsyncSocketServer` | `macos_socket::AsyncSocketClient` |
+| `VCZH_GCC && !VCZH_APPLE` | `linux_socket::AsyncSocketServer` | `linux_socket::AsyncSocketClient` |
+
+Under each guard, invoke the same shared test cases with the matching server/client pair. Do not copy, omit, or alter behavioral cases by platform. Because the public `SocketHttpServerApi` intentionally constructs its native server internally, route the private test listener-factory seam through the shared harness's `TNativeServer`; do not add a public server-injection constructor. Construct `SocketHttpClientApi` with `Ptr<IAsyncSocketClient>(new TNativeClient(port))`. Windows-only HTTP.sys/WinHTTP interoperability cases remain additional separately guarded tests, not replacements for any shared case.
 
 The principal shared integration scenario uses port `38900`:
 
@@ -137,7 +139,9 @@ Use manual-reset events, bounded waits, RAII cleanup, callback-thread failure re
 
 ## Mandatory Windows HTTP interoperability
 
-Add two tests under `VCZH_MSVC` so the new server and client are independently checked against HTTP.sys/WinHTTP behavior.
+Mirror the established structure at the end of `TestInterProcess_HttpRequest.cpp`: that file runs its shared native socket scenario on every platform, then adds `VCZH_MSVC`-only cases for `windows_http::HttpClientApi` against `HttpRequestServer` and `HttpRequestClient` against `windows_http::HttpServerApi`. In the new `TestInterProcess_AsyncSocket_MiniHttpApi.cpp`, run the shared MiniHttp runner first and then add the following two tests under `VCZH_MSVC` in the same `TEST_FILE`. They are additional interoperability coverage and must not replace or weaken the Windows invocation of the shared runner.
+
+These two directions independently check the new server and client against the Windows HTTP APIs implemented through WinHTTP and HTTP.sys.
 
 ### `windows_http::HttpClientApi` to `SocketHttpServerApi`
 
@@ -160,7 +164,7 @@ Fully qualify raw async-socket and `windows_http` request/response names where t
 
 ## Source and project integration
 
-- Add `NetworkProtocolHttp.h/.cpp`, `AsyncSocket_HttpServerApi.h/.cpp`, `AsyncSocket_HttpClientApi.h/.cpp`, and `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` explicitly to `Test/UnitTest/UnitTest/UnitTest.vcxproj`; wildcard entries are forbidden.
+- Create `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` as a new source file and add it, `NetworkProtocolHttp.h/.cpp`, `AsyncSocket_HttpServerApi.h/.cpp`, and `AsyncSocket_HttpClientApi.h/.cpp` explicitly to `Test/UnitTest/UnitTest/UnitTest.vcxproj`; wildcard entries are forbidden.
 - Put common HTTP protocol files under `Common\InterProcess`, Socket API files under `Common\InterProcess\AsyncSocket`, and the test under `Source Files\TestInterProcess` in `UnitTest.vcxproj.filters`.
 - Update includes in Windows HTTP sources, `NetworkProtocol.Windows.h`, release-generation inputs, and tests for the common header. Do not hand-edit generated `Release` outputs.
 - Common source entries flow into Unix builds through the MSBuild project. Do not edit generated `Test/Linux/vmake.txt` or `Test/Linux/makefile` by hand.
@@ -182,9 +186,9 @@ Follow `.github/copilot-instructions.md`, `Project.md`, and all referenced codin
 - Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64. Require zero errors and resolve new warnings.
 - Run only `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` in Debug x64 through `.github/Scripts/copilotExecute.ps1`, then run the complete Debug x64 UnitTest suite.
 - Inspect `Build.log` and `Execute.log` for passing summaries and no Debug CRT memory-leak dump.
-- Execute the shared Socket API scenario and both Windows interoperability directions on Windows. Keep the same shared test bound under Linux and macOS guards, but report only platforms actually run.
+- On each platform, execute the same shared MiniHttp harness with that platform's native `AsyncSocketServer`/`AsyncSocketClient` pair. Also execute both Windows interoperability directions on Windows. Report only platforms actually run.
 - Perform a textual cross-platform audit of common headers, platform guards, registry synchronization, prefix parsing, callback lifetime, and common UTF-8/query helpers.
 - Record the final public API, registry/bind-race design, shared listener evidence, client ownership, common HTTP refactor, request-layer extensions, response-context lifecycle, and all verification evidence in `.github/TaskLogs/Copilot_Investigate.md`.
 - Remove temporary diagnostics. Commit only intentional implementation, tests, project metadata, and investigation changes, then push the current branch.
 
-Acceptance requires the exact `SocketHttp(Server|Client)Api` names, Windows-like prefix construction, same-port shared listener behavior, client-owned `HttpRequestClient`, the common HTTP refactor, no filesystem API, complete focused and Windows interoperability coverage, all four Windows builds clean, the full Debug x64 suite green, and no memory leaks.
+Acceptance requires the exact `SocketHttp(Server|Client)Api` names, Windows-like prefix construction, same-port shared listener behavior, client-owned `HttpRequestClient`, the common HTTP refactor, no filesystem API, one new shared MiniHttp test file running identical cases with the native server/client pair on Windows, Linux, and macOS, complete Windows interoperability coverage, all four Windows builds clean, the full Debug x64 suite green, and no memory leaks.
