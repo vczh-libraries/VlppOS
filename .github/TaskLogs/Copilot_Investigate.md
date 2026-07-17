@@ -27,7 +27,7 @@ The fix succeeds when the exact `localhost` HTTP authority and all 20 interopera
 
 # PROPOSALS
 
-- No.1 Enable WinHTTP IPv6 fast fallback
+- No.1 Enable WinHTTP IPv6 fast fallback [CONFIRMED]
 
 ## No.1 Enable WinHTTP IPv6 fast fallback
 
@@ -38,3 +38,9 @@ The option is available starting with Windows 10 version 1903. Treat it as a bes
 ### CODE CHANGE
 
 Set the Boolean `WINHTTP_OPTION_IPV6_FAST_FALLBACK` session option in `HttpClientApi::HttpClientApi` after successful session creation and before `WinHttpConnect`. No interface, request, route, retry, listener, or test-repeat change is required.
+
+### CONFIRMED
+
+The unchanged timestamped focused `TestInterProcess.cpp` run passed 19/19 cases after the change in 22.0 seconds, down from 107.0 seconds. `SocketHttpServer with Windows HttpClient (NetworkProtocol)` fell from 40.86 seconds to 0.24 seconds, and the channel case fell from 40.81 seconds to 0.24 seconds. All 20 repetitions and the exact `localhost` authority remain unchanged. The intentional 16 MiB bidirectional boundary case is now the longest focused case at 16.95 seconds.
+
+The unfiltered Debug x64 suite then passed 193/193 cases in about 43 seconds with no post-summary CRT leak report. Debug x64, Debug Win32, Release x64, and Release Win32 solution builds all completed with 0 warnings and 0 errors. The test filter was restored to its original empty configuration. These results confirm that session-level IPv6 fast fallback removes the false deadlock appearance while preserving protocol behavior and coverage.

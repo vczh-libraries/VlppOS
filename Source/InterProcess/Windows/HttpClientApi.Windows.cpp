@@ -361,6 +361,12 @@ HttpClientApi::HttpClientApi(const WString& _server, vint _port)
 		WINHTTP_FLAG_ASYNC);
 	CHECK_ERROR(httpSession != NULL, L"WinHttpOpen failed.");
 
+#ifdef WINHTTP_OPTION_IPV6_FAST_FALLBACK
+	// This option is unavailable before Windows 10 1903. Keep the default address fallback when unsupported.
+	BOOL ipv6FastFallback = TRUE;
+	WinHttpSetOption(httpSession, WINHTTP_OPTION_IPV6_FAST_FALLBACK, &ipv6FastFallback, sizeof(ipv6FastFallback));
+#endif
+
 	httpConnection = WinHttpConnect(
 		httpSession,
 		server.Buffer(),
