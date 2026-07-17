@@ -9,4 +9,5 @@
   - [x] [INetworkProtocol(Server|Client) implementation](./TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md)
     - Figure out why there are so many parsing code, since actual parsing should belong to api layer.
     - Move code to correct place, remove duplicate logic.
-
+- [ ] Recognize time consume test cases and put them in Release only
+  - Reorganize test cases in proper test categories.
