@@ -177,6 +177,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
@@ -187,6 +190,9 @@
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.cpp">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServer.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp">
@@ -305,6 +311,9 @@
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
@@ -315,6 +324,9 @@
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.h">
+      <Filter>Common\InterProcess\AsyncSocket</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServer.h">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.h">

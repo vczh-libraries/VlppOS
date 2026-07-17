@@ -184,10 +184,12 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestClient.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServer.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -284,10 +286,12 @@
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequest.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestClient.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpRequestServer.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServer.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\HttpRequest.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.h" />

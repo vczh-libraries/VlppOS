@@ -127,13 +127,15 @@ Cross-process synchronization objects that support waiting operations with timeo
 
 #### Inter-Process Network Protocols and Channels
 
-Inter-process text transport and typed named-channel communication for applications that need client/server messaging, local server-side channel participants, batched package delivery, and optional Windows-only NamedPipe or HTTP transports.
+Inter-process text transport and typed named-channel communication for applications that need client/server messaging, local server-side channel participants, batched package delivery, portable async-socket transports, or Windows NamedPipe/HTTP transports.
 
 - Use `INetworkProtocolServer`, `INetworkProtocolClient`, `INetworkProtocolConnection` and `INetworkProtocolCallback` for raw asynchronous text-message transport.
 - Use `IChannelServer<TPackage>`, `IChannelClient<TPackage>`, `IChannel<TPackage>` and `IChannelReader<TPackage>` for typed named channels with client ids, direct sends, broadcasts and batched writes.
 - Use `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`, `NetworkProtocolChannelClient<TPackage, TSerialization>` and `NetworkProtocolLocalChannelClient<TPackage, TSerialization>` for the default channel implementation over an `INetworkProtocol*` transport.
-- Use `vl::inter_process::named_pipe::NamedPipeServer` / `vl::inter_process::named_pipe::NamedPipeClient` and `vl::inter_process::windows_http::HttpServer` / `vl::inter_process::windows_http::HttpClient` only when targeting Windows, because the current built-in NamedPipe and HTTP implementations are Windows-only.
-- Use `vl::inter_process::windows_http::HttpClientApi` and `vl::inter_process::windows_http::HttpServerApi` when implementing or maintaining the Windows HTTP transport layer directly.
+- Use `vl::inter_process::async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>` / `vl::inter_process::async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>` for the portable direct length-framed transport over a selected native async-socket implementation.
+- Use `vl::inter_process::async_tcp_socket::SocketHttpServer` / `vl::inter_process::async_tcp_socket::SocketHttpClient` for the portable HTTP-compatible raw transport, including interoperability with the legacy Windows HTTP transport.
+- Use `vl::inter_process::named_pipe::NamedPipeServer` / `vl::inter_process::named_pipe::NamedPipeClient` and `vl::inter_process::windows_http::HttpServer` / `vl::inter_process::windows_http::HttpClient` only when targeting Windows.
+- Use `vl::inter_process::async_tcp_socket::SocketHttpServerApi` / `vl::inter_process::async_tcp_socket::SocketHttpClientApi` for portable HTTP request/response work, or `vl::inter_process::windows_http::HttpServerApi` / `vl::inter_process::windows_http::HttpClientApi` for the Windows HTTP helper layer.
 
 [API Explanation](./KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md)
 

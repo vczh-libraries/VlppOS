@@ -4,9 +4,9 @@
 
 The `vl::inter_process` namespace is designed for inter-process communication. Some abstractions are general enough to carry messages inside one process or across a custom transport, but the lifecycle, error handling, connection model and naming are intended for communication between processes.
 
-The built-in `INetworkProtocol*` transports should be treated as reference implementations, validation targets and demo-friendly options. The current concrete `vl::inter_process::named_pipe::NamedPipeServer` / `vl::inter_process::named_pipe::NamedPipeClient` and `vl::inter_process::windows_http::HttpServer` / `vl::inter_process::windows_http::HttpClient` implementations are Windows-only, and they are not meant to be the only production transport choice for every application.
+The built-in `INetworkProtocol*` transports are composition choices, validation targets and demo-friendly options. Portable applications can select either the direct length-framed `vl::inter_process::async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>` / `NetworkProtocolClient<TAsyncSocketClient>` pair or the HTTP-compatible `vl::inter_process::async_tcp_socket::SocketHttpServer` / `SocketHttpClient` pair. Windows applications can also select `vl::inter_process::named_pipe::NamedPipeServer` / `NamedPipeClient` or the legacy `vl::inter_process::windows_http::HttpServer` / `HttpClient` pair.
 
-This distinction is especially important for HTTP. `vl::inter_process::windows_http::HttpServer` and `vl::inter_process::windows_http::HttpClient` are raw `INetworkProtocol*` reference/demo transports, while `vl::inter_process::windows_http::HttpServerApi` and `vl::inter_process::windows_http::HttpClientApi` are lower-level Windows HTTP helper utilities. When a Windows feature needs HTTP request/response behavior directly, the helper utilities can still be used without adopting the inter-process raw transport as the feature contract.
+This distinction is especially important for HTTP. `vl::inter_process::async_tcp_socket::SocketHttpServer` / `SocketHttpClient` and `vl::inter_process::windows_http::HttpServer` / `HttpClient` are raw `INetworkProtocol*` transports that share the successful legacy wire protocol. `vl::inter_process::async_tcp_socket::SocketHttpServerApi` / `SocketHttpClientApi` are lower portable request/response helpers over MiniHttp, while `vl::inter_process::windows_http::HttpServerApi` / `HttpClientApi` are the corresponding lower Windows helpers. A feature can use a helper layer without adopting the raw text-message transport as its contract.
 
 When the built-in raw protocol implementation does not fit the platform, security model, deployment shape, performance target or reconnection behavior of a feature, implement a custom `INetworkProtocolServer`, `INetworkProtocolClient` and `INetworkProtocolConnection`. The default channel bridge can still be reused as long as the custom raw transport follows the `INetworkProtocol*` contract.
 
@@ -18,7 +18,7 @@ The inter-process communication APIs in `vl::inter_process` are layered:
 - The channel layer, represented by `IChannelServer<TPackage>`, `IChannelClient<TPackage>`, `IChannel<TPackage>` and `IChannelReader<TPackage>`, builds typed named channels on top of a connected client id model.
 - The default bridge, represented by `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`, `NetworkProtocolChannelClient<TPackage, TSerialization>` and `NetworkProtocolLocalChannelClient<TPackage, TSerialization>`, serializes channel batches into raw `WString` messages over an `INetworkProtocol*` transport.
 
-The transport-agnostic contracts and channel templates stay directly in `vl::inter_process`. Windows concrete implementations are grouped by feature: named-pipe types are in `vl::inter_process::named_pipe`, and HTTP transport, helper, request, response and error types are in `vl::inter_process::windows_http`.
+The transport-agnostic contracts and channel templates stay directly in `vl::inter_process`. Portable socket transports and request helpers are in `vl::inter_process::async_tcp_socket`. Windows concrete implementations are grouped by feature: named-pipe types are in `vl::inter_process::named_pipe`, and legacy HTTP transport/helper types are in `vl::inter_process::windows_http`.
 
 The interfaces are transport-agnostic. Use the abstract interfaces in portable feature code, and bind them to concrete transports at application composition boundaries.
 
@@ -29,6 +29,9 @@ The interfaces are transport-agnostic. Use the abstract interfaces in portable f
 - Use `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>` and `NetworkProtocolChannelClient<TPackage, TSerialization>` when the channel layer should run over an existing `INetworkProtocolServer` / `INetworkProtocolClient` transport.
 - Use `NetworkProtocolLocalChannelClient<TPackage, TSerialization>` when server-side logic needs to participate in a channel as a normal speaker with a real positive client id.
 - Use `ChannelSerializer<TSerialization>` when an existing `IChannel<DestType>` should be adapted to another package type by serializing and deserializing packages.
+- Use `async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>` and `async_tcp_socket::NetworkProtocolClient<TAsyncSocketClient>` for a portable direct socket transport with a small length-framed wire format.
+- Use `async_tcp_socket::SocketHttpServer` and `async_tcp_socket::SocketHttpClient` for the portable MiniHttp transport when HTTP wire compatibility or Windows HTTP interoperability is required.
+- Use `async_tcp_socket::SocketHttpServerApi` and `async_tcp_socket::SocketHttpClientApi` for lower portable HTTP request/response behavior that is not an `INetworkProtocol*` transport.
 - Choose or implement the concrete `INetworkProtocol*` transport at the application composition boundary; keep feature code on `IChannel*` when transport replacement should remain possible.
 
 ## Raw Network Protocol Contract
@@ -54,6 +57,8 @@ The interfaces are transport-agnostic. Use the abstract interfaces in portable f
 - `GetConnection` always returns an object, but using it before `WaitForServer` finishes is undefined by contract.
 - `WaitForServer` blocks until the connection is established or the implementation gives up.
 - `GetStatus` reports `ClientStatus::Ready`, `ClientStatus::WaitingForServer`, `ClientStatus::Connected` or `ClientStatus::Disconnected`.
+
+A logical `INetworkProtocolConnection` does not reconnect after it has reported disconnection. A transport may replace failed internal physical connections without reporting logical disconnection; `SocketHttpClient` does this independently for its receive and send lanes while retaining the same logical token.
 
 `INetworkProtocolServer` owns the listening side.
 
@@ -245,7 +250,36 @@ To build a typed channel application over a raw transport:
 - `BatchWrite` may report disconnection; callers should stop assuming queued messages were delivered once `disconnected` becomes true.
 - Server-originated normal channel messages should use a connected local channel client so all normal messages have a real positive sender id.
 
-## Current Windows-Only Raw Transports
+## Concrete Raw Transports
+
+### Portable Direct Async-Socket Transport
+
+`vl::inter_process::async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>` and `NetworkProtocolClient<TAsyncSocketClient>` bind the common raw protocol behavior to the Windows, Linux or macOS native async-socket types selected by the application.
+
+- Each logical connection is one physical socket connection.
+- `NetworkProtocolConnection::SendString` writes a length followed by the native `wchar_t` bytes, so this is a direct VlppOS transport rather than an HTTP-compatible wire format.
+- The implementation drains queued writes and callback/socket frames during `Stop` and supports callback-reentrant shutdown without waiting for its current frame.
+- Choose this pair when both peers use the same VlppOS direct transport and HTTP interoperability is unnecessary.
+
+### Portable Socket HTTP Transport
+
+`vl::inter_process::async_tcp_socket::SocketHttpServer` derives from `SocketHttpServerApi` and implements `INetworkProtocolServer`. `vl::inter_process::async_tcp_socket::SocketHttpClient` implements both `INetworkProtocolClient` and its one logical `INetworkProtocolConnection`.
+
+The server constructor is `SocketHttpServer(const WString& baseUrl, vint port)`. The client offers `SocketHttpClient(const WString& baseUrl, vint port)` and a factory overload whose `NativeClientFactory` is `Func<Ptr<IAsyncSocketClient>(vint)>`. The default constructor selects the platform native client; the factory overload creates a fresh native client for each initial or replacement physical lane and is useful when an application needs an exact native binding.
+
+- `baseUrl` is empty for the origin root or an ASCII origin-form prefix with a leading slash and no trailing slash, query, fragment, backslash, invalid escape, encoded separator or NUL.
+- The server creates one opaque 36-character token per accepted logical connection and keeps the token map above physical requests.
+- The shared routes are `GET /VlppInterProcess/Connect`, long-poll `POST /VlppInterProcess/Request/{token}`, and client-send `POST /VlppInterProcess/Response/{token}`. Successful messages use the exact legacy `application/json; charset=utf8` media type but carry one direct UTF-8 `WString`, not JSON syntax.
+- A server send normally completes a pending long poll. A same-connection send performed synchronously from an inbound `/Response` callback can be returned in that HTTP response; additional messages remain FIFO. A message claimed for a long-poll response is removed only after physical delivery succeeds and is restored at the FIFO front after failure.
+- The client has two physical `SocketHttpClientApi` lanes for one logical token: an infinite receive poll and a serialized control/send FIFO. A terminal failure replaces only the affected lane.
+- A successful receive callback submits the replacement poll before delivering its nonempty body. The send FIFO retains one active head so retries cannot be overtaken by later accepted messages.
+- `/Connect` and `/Response` use at most three immediate attempts with nonfatal errors for attempts one and two and a fatal error on attempt three. `/Request` retries silently while the logical client runs. HTTP validation failures reuse a healthy API; physical failures create a fresh API through `NativeClientFactory`.
+- `Stop` is idempotent, rejects new sends, gives accepted sends a bounded drain opportunity, cancels the long poll and drains lower APIs, workers and callbacks. A callback-reentrant stop waits for other frames but not its current frame.
+- The protocol has no disconnect route, heartbeat, acknowledgement or deduplication. A lost `/Response` reply may cause duplicate client-to-server delivery, and a lost server response may lose a message; this is not exactly-once delivery.
+
+The portable and legacy Windows HTTP transports intentionally share successful route/media/body behavior. A socket-backed server can communicate with `windows_http::HttpClient`, and a socket-backed client can communicate with `windows_http::HttpServer` when the authority is `localhost:{port}`.
+
+### Windows-Only Raw Transports
 
 The built-in `vl::inter_process::named_pipe::NamedPipeServer` / `vl::inter_process::named_pipe::NamedPipeClient` and `vl::inter_process::windows_http::HttpServer` / `vl::inter_process::windows_http::HttpClient` classes are currently Windows-only implementations of the raw protocol interfaces. They should not be treated as cross-platform transport classes.
 
@@ -294,6 +328,15 @@ The HTTP protocol uses three routes:
 - `HttpServerConnection::OnNewHttpRequestForPendingRequest` cancels an old pending `/Request`, stores the new one, and replies immediately if a message is already queued.
 - `HttpServerConnection::SubmitResponse` reads the client body, dispatches or queues it as inbound text, then returns one queued outbound message if available.
 - `HttpServer::OnHttpServerStopping` clears connections, cancels pending long-poll requests, disconnects connection objects from the server, and calls `OnDisconnected`.
+
+## Portable Socket HTTP Helper Layer
+
+`vl::inter_process::async_tcp_socket::SocketHttpServerApi` and `SocketHttpClientApi` provide portable MiniHttp request/response behavior below the raw protocol adapter.
+
+- `SocketHttpServerApi` owns a normalized loopback URL prefix, shares a native listener by port, dispatches prefix-relative `SocketHttpRequestContext` objects, normalizes response framing/CORS/cache/date fields, and drains contexts during `Stop`.
+- `SocketHttpRequestContext::Respond` is one-shot and reports physical delivery through `Func<void(bool)>`; `Cancel` abandons a pending response and closes that physical request connection.
+- `SocketHttpClientApi` owns one `HttpRequestClient` and serializes HTTP exchanges over one physical connection. It supports callback-reentrant queue submission but becomes terminal after a transport, framing or timeout failure, so higher layers that need logical continuity must replace the API.
+- `HttpRequestServer`, `HttpRequestClient` and `HttpRequestConnection` form the still-lower portable HTTP/1.1 request layer over `IAsyncSocket*`.
 
 ## Windows HTTP Helper Layer
 

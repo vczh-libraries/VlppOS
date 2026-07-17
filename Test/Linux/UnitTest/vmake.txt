@@ -10,10 +10,12 @@
 ../../../Source/FileSystem.Linux.cpp
 ../../../Source/InterProcess/NetworkProtocolHttp.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.cpp
+../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequest.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestClient.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestServer.cpp
+../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.cpp

@@ -17,11 +17,9 @@ Interfaces:
 namespace vl::inter_process
 {
 	/*
-	* GET: /Request
-	* To connect and initialize the server.
-	* Returns available URLs.
-	*
-	* It can only be called once, all subsequence calls will be rejected.
+	* GET: /Connect
+	* Creates a new logical connection and returns its request and response URLs.
+	* Repeated calls create separate logical connections.
 	*/
 	constexpr const wchar_t* HttpServerUrl_Connect = L"/VlppInterProcess/Connect";
 
@@ -38,7 +36,7 @@ namespace vl::inter_process
 	/*
 	* POST: /Response/GUID
 	* To send responses or events to the server.
-	* Returns nothing.
+	* May return one queued server message in the same HTTP response.
 	*/
 	constexpr const wchar_t* HttpServerUrl_Response = L"/VlppInterProcess/Response";
 

@@ -1,0 +1,270 @@
+# !!!INVESTIGATE!!!
+
+# PROBLEM DESCRIPTION
+
+investigate repro
+
+# Browser test application for SocketHttpServerApi
+
+After [TODO_Task_MiniHttpApi.md](./TODO_Task_MiniHttpApi.md) is complete, add a portable `MiniHttpServer` CLI project and deterministic website fixtures to verify `vl::inter_process::async_tcp_socket::SocketHttpServerApi` in real browsers.
+
+`MiniHttpServer` is the project/executable name. Do not invent a `MiniHttpServerApi` product class; consume `SocketHttpServerApi` exactly as implemented by the prerequisite task.
+
+## Required outcome
+
+- Add `MiniHttpServer.vcxproj` to `Test/UnitTest/UnitTest.sln`.
+- Launch the executable with two physical-folder arguments.
+- Host the first folder at normalized prefix `http://localhost:8888`.
+- Host the second folder at normalized prefix `http://localhost:8889/Assets`.
+- Put every JavaScript file in the second folder so the page on port 8888 loads and calls cross-origin resources on port 8889.
+- Call browser control to verify the website in Chrome on Windows, Firefox on Linux, and Safari on macOS. A native HTTP client, `curl`, raw sockets, code inspection, or merely shell-opening a URL does not satisfy the browser gate.
+- Move the existing `Test/Linux` UnitTest configuration into `Test/Linux/UnitTest` and add `Test/Linux/MiniHttpServer` for Linux and macOS builds.
+- Update `Project.md` as part of executing this future task. Do not treat the current creation of this TODO document as authorization to update `Project.md` early.
+
+The feature referred to as “XSS” in the request is cross-origin/CORS behavior. Do not create an XSS vulnerability. Use a module script and a cross-origin fetch so the browser must enforce CORS.
+
+## Project and solution layout
+
+Create:
+
+```text
+Test/UnitTest/MiniHttpServer/
+|- MiniHttpServer.vcxproj
+|- MiniHttpServer.vcxproj.filters
+`- Main.cpp
+```
+
+Add the project to `Test/UnitTest/UnitTest.sln` with a new project GUID and all four `Debug|Win32`, `Debug|x64`, `Release|Win32`, and `Release|x64` active/build mappings.
+
+Follow `.github/Guidelines/SourceFileManagement.md`: copy the existing UnitTest project as the configuration baseline, then remove unit-test-only sources and enumerate every retained product/source file explicitly. Wildcards are forbidden.
+
+- Keep standard `Header Files`, `Resource Files`, and `Source Files` filters. Header Files may remain empty as required by repository convention.
+- Compile the portable VlppOS file/stream/threading, async-socket request, and MiniHttp API sources needed by the application. Include Windows/Linux/macOS native socket sources with the same platform exclusions used by UnitTest.
+- Define `VCZH_DEBUG_NO_REFLECTION` in every configuration and `VCZH_CHECK_MEMORY_LEAKS` in Debug configurations.
+- List website fixtures as explicit `None` items under `Resource Files` for discoverability, but do not embed or copy them into the binary. Runtime roots must come from the CLI.
+- Do not commit `MiniHttpServer.vcxproj.user`.
+
+## CLI and server lifecycle
+
+Use this command-line contract:
+
+```text
+MiniHttpServer <WebsiteFolder> <AssetsFolder>
+```
+
+- Require exactly two arguments and verify that both resolve to existing folders. Print a short usage/error message and return nonzero on invalid input.
+- Derive a small physical-folder handler from `SocketHttpServerApi`. Construct one instance with `http://localhost:8888` for the Website argument and another with `http://localhost:8889/Assets` for the Assets argument, passing `respondToOptions = true` to both so the mandatory browser preflight is handled.
+- Start both APIs, print the two ready URLs, and wait for an explicit Enter/stop command. Do not busy-wait.
+- On exit, stop both APIs in reverse startup order, drain callbacks, release resources, call `FinalizeGlobalStorage`, and return zero. The derived physical-folder handler's destructor must also call `Stop` before its fields are destroyed, even though normal `main` cleanup already stopped it.
+- Ensure Ctrl+C, application errors, and partial startup do not leave either port bound.
+
+The app uses two different ports and therefore does not need to retest same-port sharing. Same-port listener sharing is covered by the prerequisite product unit tests.
+
+## Physical-folder handler belongs in Main.cpp
+
+Implement the tiny static handler in the application, not in `SocketHttpServerApi` or another product source file.
+
+- Map an exact prefix or relative `/` to `index.html`. A relative path ending in `/` may map to that directory's `index.html`; other paths map to regular files below the supplied root.
+- Use the context's already UTF-8-decoded prefix-relative path and ignore its separate raw query for file lookup. Normalize platform separators, reject NUL, separators/traversal, and require the result to stay below the physical root; never decode a second time.
+- Support browser `GET` and `HEAD`. Return `404` for missing paths and never generate a directory listing.
+- Read exact file bytes. Construct `async_tcp_socket::HttpResponse` in application code with status, reason, fields, body, and correct `Content-Type`.
+- Provide only the fixture metadata needed here: HTML, CSS, JavaScript modules, JSON, SVG, and an `application/octet-stream` fallback. This mapping is application policy and must not be moved into MiniHttp product APIs.
+- Let `SocketHttpServerApi` supply its normal CORS, `OPTIONS`, framing, `HEAD`, date, cache, and shutdown behavior.
+
+## Deterministic website fixtures
+
+Create this minimum fixture tree:
+
+```text
+Test/MiniHttpServer/
+|- Website/
+|  |- index.html
+|  |- second.html
+|  |- site.css
+|  `- image.svg
+`- Assets/
+   |- index.html
+   |- app.js
+   `- message.json
+```
+
+No `.js` file may exist below `Website`.
+
+The fixtures must visibly prove:
+
+- `index.html` has a normal link to `second.html`; `second.html` links back.
+- Both Website pages load only `http://localhost:8889/Assets/app.js` with `<script type="module">`. Module loading is intentional because it is CORS checked.
+- `index.html` renders `image.svg` through `<img>` and includes deterministic initial/status text plus a button.
+- `app.js` changes the visible status after module load, wires the button to another visible text change, and fetches `http://localhost:8889/Assets/message.json`.
+- Make the fetch trigger a real preflight, for example by supplying `Content-Type: application/json` on the cross-origin request. Display either the returned deterministic JSON message or a clear failure marker in the DOM.
+- `Assets/index.html` is simple but browseable at the exact `/Assets` prefix so exact-prefix behavior can be checked independently.
+
+Keep all content deterministic and offline. Do not reference CDN scripts, web fonts, analytics, or external images.
+
+## Linux and macOS layout preparation
+
+Move the existing tracked files:
+
+```text
+Test/Linux/Main.cpp
+Test/Linux/vmake
+Test/Linux/vmake.txt
+Test/Linux/makefile
+```
+
+to:
+
+```text
+Test/Linux/UnitTest/Main.cpp
+Test/Linux/UnitTest/vmake
+Test/Linux/UnitTest/vmake.txt
+Test/Linux/UnitTest/makefile
+```
+
+Update only the hand-authored `Test/Linux/UnitTest/Main.cpp` and `vmake` for the extra directory level. In particular, the project path becomes `../../UnitTest/UnitTest/UnitTest.vcxproj`, source/import removal paths gain one `..`, and resource/output paths still resolve to `Test/Resources` and `Test/Output`.
+
+Create `Test/Linux/MiniHttpServer/vmake` from the repository's CLI-project pattern:
+
+- Use `CPP_TARGET=./Bin/MiniHttpServer`.
+- Read `../../UnitTest/MiniHttpServer/MiniHttpServer.vcxproj`.
+- Remove Windows-only sources and retain the Linux/macOS source selected by platform guards.
+- Use correct `../../../Import` and `../../../Source` depth where explicit paths are needed.
+
+Never hand-edit `vmake.txt` or `makefile`. Run the absolute `.github/Ubuntu/build.sh` from each new project directory to regenerate them, inspect the generated source lists, and commit the generated files only after the build script produces them.
+
+This two-project directory layout is used for both Linux and macOS verification.
+
+## Deferred documentation updates
+
+During execution of this task, update `Project.md` to:
+
+- list both `UnitTest.vcxproj` and `MiniHttpServer.vcxproj` in `Test/UnitTest/UnitTest.sln`;
+- describe `MiniHttpServer` as the CLI/browser verification project and record its two folder arguments;
+- change the UnitTest Unix build location to `Test/Linux/UnitTest`;
+- add `Test/Linux/MiniHttpServer` as the MiniHttpServer Unix build location; and
+- retain the rule that relevant unit tests are required when shared product source changes.
+
+Also update the active Linux instruction in `README.md` from `Test/Linux/makefile` to `Test/Linux/UnitTest/makefile`. Do not rewrite historical completed TODOs solely because their old Linux path appears in recorded history.
+
+## Launch instructions
+
+### Windows and Chrome
+
+Create an ignored `Test/UnitTest/MiniHttpServer/MiniHttpServer.vcxproj.user` for local Debug x64 execution with:
+
+```text
+"..\MiniHttpServer\Website" "..\MiniHttpServer\Assets"
+```
+
+as `LocalDebuggerCommandArguments`. From `Test/UnitTest`, start the server in an interactive/asynchronous terminal through the required wrapper:
+
+```powershell
+& REPO-ROOT\.github\Scripts\copilotExecute.ps1 -Mode CLI -Executable MiniHttpServer -Configuration Debug -Platform x64
+```
+
+Keep that terminal alive after both ready messages. Call browser control, select/drive Chrome, and navigate to `http://localhost:8888/`.
+
+### Linux and Firefox
+
+From `Test/Linux/MiniHttpServer`, build with the absolute `REPO-ROOT/.github/Ubuntu/build.sh`, then start the binary asynchronously from the same directory:
+
+```text
+./Bin/MiniHttpServer ../../MiniHttpServer/Website ../../MiniHttpServer/Assets
+```
+
+Call browser control, select/drive Firefox, and navigate to `http://localhost:8888/`.
+
+### macOS and Safari
+
+Use the same `Test/Linux/MiniHttpServer` build directory, build through the absolute `.github/Ubuntu/build.sh`, and launch with the same relative arguments. Call browser control, select/drive Safari, and navigate to `http://localhost:8888/`.
+
+On every platform, leave the server running until browser checks finish, then send the explicit stop command/Enter and verify a clean exit and released ports.
+
+## Mandatory browser verification
+
+Browser control must perform and record all of the following in the named browser for each platform:
+
+1. Open `http://localhost:8888/` and verify the expected title, heading, initial content, and CSS styling.
+2. Verify the SVG is visibly rendered and loaded, using rendered state such as nonzero `naturalWidth` plus a screenshot when available.
+3. Verify the module-loaded status produced by `http://localhost:8889/Assets/app.js`.
+4. Verify the cross-origin/preflight JSON fetch changes the DOM to the expected success message and does not produce a CORS failure.
+5. Click the button and verify its JavaScript reaction.
+6. Follow the link to `second.html`, verify that page, and navigate back.
+7. Directly browse `http://localhost:8889/Assets` and verify the second folder's index page.
+8. Verify `http://localhost:8889/app.js` and `http://localhost:8889/AssetsExtra/app.js` are not served by the `/Assets` API.
+
+Record only browsers and operating systems actually exercised. If one required platform is unavailable in the current environment, mark it explicitly unverified; do not infer Safari/Firefox behavior from Chrome or claim completion of the overall three-platform gate.
+
+## Build and acceptance
+
+- Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64 after adding the project. Require zero errors and resolve new warnings.
+- On Windows, run the Debug x64 CLI and complete the Chrome browser workflow, then stop cleanly.
+- On Linux and macOS, build from both `Test/Linux/UnitTest` and `Test/Linux/MiniHttpServer`, run the server, and complete the Firefox or Safari workflow respectively.
+- If fixing a discovered issue changes shared product source, run the focused MiniHttp tests and the full relevant UnitTest suite on that platform.
+- Inspect console/browser errors and ensure no memory leaks, crashes, blocked native dialogs, stale processes, or occupied ports remain.
+- Update `Project.md` and `README.md`, remove temporary diagnostics, commit all intentional project/layout/fixture/documentation/evidence changes, and push the current branch.
+
+Acceptance requires the new solution project, two CLI folder roots, exact `8888` and `8889/Assets` prefixes, all JavaScript in Assets, visible navigation/reaction/image behavior, genuine CORS/preflight success, browser-control evidence from Chrome/Firefox/Safari on their named platforms, the reorganized Unix project layout, updated project documentation, clean builds, and clean shutdown.
+
+# UPDATES
+
+# TEST [CONFIRMED]
+
+Confirm the missing browser-test application first by checking that the repository has no `MiniHttpServer` project, executable source, fixture tree, or solution entry. The existing `SocketHttpServerApi` prerequisite and its focused MiniHttp unit tests must already be present; this investigation adds a browser-facing consumer and does not duplicate the product API.
+
+Verification after implementation consists of:
+
+- Static project/layout checks: the solution contains the new project and all four build mappings; the project and filters enumerate every source and fixture without wildcards; Website contains no JavaScript; the Unix UnitTest files are moved one directory deeper; generated Unix source lists match the project metadata; documentation and debugger arguments use the required paths.
+- Windows builds: build `Test/UnitTest/UnitTest.sln` through `copilotBuild.ps1` in Debug/Release and Win32/x64, requiring zero errors and resolving new warnings.
+- CLI contract checks: invalid argument counts and nonexistent folders return nonzero with a short diagnostic; valid roots start exactly `http://localhost:8888` and `http://localhost:8889/Assets`; explicit input, Ctrl+C/error cleanup, and partial startup release both ports without polling, leaks, crashes, or stale processes.
+- Windows browser gate: keep Debug x64 `MiniHttpServer` running through `copilotExecute.ps1`, drive Chrome with browser control, and perform all eight mandatory checks from the request. Inspect rendered DOM/state, CSS, SVG `naturalWidth`, module/fetch success, button behavior, navigation, direct Assets index, negative prefix routes, browser console, and screenshots where useful.
+- Unix builds and browser gates: from `Test/Linux/UnitTest` and `Test/Linux/MiniHttpServer`, run the absolute `build.sh`, then drive Firefox on Linux and Safari on macOS through browser control when those operating systems are actually available. Never infer an unavailable platform result; explicitly record it as unverified and leave the overall three-platform browser gate incomplete.
+- Regression: because only application/project/fixture/documentation files should change, the existing focused MiniHttp product tests must remain available and the full relevant UnitTest suite must pass on every exercised platform. Check Debug execution logs for post-summary memory leaks.
+
+The feature succeeds only if every implemented static/build/runtime check passes and each browser/operating-system pair is reported truthfully. The current host can confirm the missing-project baseline and is expected to exercise Windows/Chrome; Linux/Firefox and macOS/Safari remain mandatory acceptance gates but may only be marked verified when actually run.
+
+The baseline is confirmed on Windows at source commit `4f609f9`. `Test/UnitTest/MiniHttpServer`, `Test/MiniHttpServer`, `Test/Linux/UnitTest`, and `Test/Linux/MiniHttpServer` do not exist; `UnitTest.sln` has no `MiniHttpServer` entry; and neither port 8888 nor 8889 is listening. In contrast, `SocketHttpServerApi`, its portable sources, and `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` are present. The existing Debug x64 solution built with 0 warnings and 0 errors, and the complete UnitTest run passed 15/15 files and 181/181 cases, including all 15 focused MiniHttp cases, with no post-summary memory-leak report. This proves the prerequisite is healthy and isolates the reproduced gap to the absent application, fixtures, layouts, and browser workflow requested here.
+
+# PROPOSALS
+
+- No.1 Add the portable physical-folder browser server [CONFIRMED]
+
+## No.1 Add the portable physical-folder browser server
+
+Add one application-level consumer of `vl::inter_process::async_tcp_socket::SocketHttpServerApi`; do not change or wrap the product API. A `PhysicalFolderHttpServer` class in `MiniHttpServer/Main.cpp` will own a normalized `FilePath` root and override `OnHttpRequestReceived`. Its destructor will call `Stop()` while the root field is still alive. The application will create Website and Assets instances on the stack, start them in order, wait once on console input, and stop them in reverse order. Stack unwinding makes invalid input, a failed second startup, and other application errors release either started server; normal process termination on Ctrl+C releases the native listeners, and verification will confirm both ports are reusable.
+
+The handler will consume only the already-decoded `SocketHttpRequestContext::GetRelativePath()` and will ignore `GetQuery()` for lookup. It will normalize slash and backslash separators into path components, reject NUL, empty interior components, `.`/`..`, colon-bearing or otherwise separator-bearing components, reject per-component symbolic links or Windows reparse points, and reject any `FilePath` whose root-relative result is absolute or begins with a parent component. `/` and trailing `/` map to `index.html`. Only existing regular files are read, using `stream::FileStream` until the exact byte count is obtained; directories and unsafe/missing/unreadable paths return 404 without listings. GET and HEAD receive the same application body metadata so `SocketHttpServerApi` can apply its normal HEAD suppression; other application-visible methods receive 405. The response itself will be built in `Main.cpp` with status/reason, one `Content-Type` field, and an exact byte chunk. The MIME table is limited to HTML, CSS, JavaScript, JSON, SVG, and `application/octet-stream`.
+
+Create deterministic Website and Assets fixtures with no JavaScript under Website. Both Website pages use the one cross-origin module URL. The module publishes a visible loaded state, installs the button behavior, and fetches the cross-origin JSON using a nonsafelisted `Content-Type: application/json` request header, forcing browser preflight. The Website index also carries stable initial text, navigation, CSS, and SVG state; the Assets exact-prefix index is independently browseable.
+
+Create `MiniHttpServer.vcxproj` from the UnitTest configuration baseline with project GUID `{1CE93CCD-1B56-46B0-AE96-8C27D0882E96}`, all four Windows configurations, the required reflection/leak macros, explicitly enumerated portable file/stream/threading and server-side async-socket sources, all three platform socket implementations with the UnitTest Windows exclusions, and explicit `None` fixture items. Keep only the standard and relevant Common filters. Add the project and all eight active/build mappings to `UnitTest.sln`; create only an ignored local `.vcxproj.user` for Debug x64 launch arguments.
+
+Move the four tracked UnitTest Unix files into `Test/Linux/UnitTest`, adjust only the hand-authored `Main.cpp` and `vmake` depths, and create `Test/Linux/MiniHttpServer/vmake` from the CLI pattern. The generated `vmake.txt` and `makefile` files will be produced only by the absolute `build.sh`, not hand-edited. Update `Project.md` for both projects/build directories and update the active README path.
+
+The host is Windows 11 with Chrome installed, but this Codex session currently exposes only the in-app-browser skill and not the separately required Chrome-control skill. Linux, WSL, Firefox, macOS, and Safari are also absent. Implementation and native runtime checks will still be completed here, but browser evidence will be credited only to an actually controllable named browser. If Chrome control remains unavailable after the server starts, Windows/Chrome, Linux/Firefox, and macOS/Safari will all be recorded unverified and the overall browser gate will explicitly remain incomplete rather than being inferred from HTTP or another browser.
+
+### CODE CHANGE
+
+Created `Test/UnitTest/MiniHttpServer/{MiniHttpServer.vcxproj,MiniHttpServer.vcxproj.filters,Main.cpp}` and the seven files under `Test/MiniHttpServer/{Website,Assets}`. Added the project and all eight active/build mappings for the four configuration pairs to `Test/UnitTest/UnitTest.sln`. The application-only handler validates decoded path components, rejects platform filesystem links before opening a file, distinguishes unavailable files from oversized files, serves exact bytes with the required MIME policy, and uses repository-prefixed invariant diagnostics. The two stack-owned APIs use the required prefixes and lifecycle, including reverse explicit shutdown and destructor `Stop()` calls.
+
+Moved the tracked Unix UnitTest configuration to `Test/Linux/UnitTest`, adjusted the two hand-authored files for the extra directory depth, created `Test/Linux/MiniHttpServer/vmake`, and regenerated both projects' `vmake.txt` and `makefile` only by invoking the absolute `.github/Ubuntu/build.sh`. Updated `Project.md`, the active Linux path in `README.md`, and the solution metadata. Created the ignored local `.vcxproj.user` with only the exact Debug x64 fixture arguments; it is not part of the commit. Shared product source and product unit tests were not modified.
+
+### CONFIRMED
+
+The proposal supplies the previously absent application, fixtures, solution integration, Unix layout, and documentation without adding a `MiniHttpServerApi` product class or changing `SocketHttpServerApi`.
+
+Static verification passed. The solution has the new GUID and all eight active/build mappings. The project and filters parse as XML and explicitly agree on 33 `ClCompile`, 25 `ClInclude`, and seven `None` items; all referenced paths exist, there are no wildcards or duplicates, each portable platform source has the four Windows exclusions, and every required macro is present. The fixture tree has exactly the required seven files, no JavaScript exists below Website, and both Website pages reference only the cross-origin Assets module. The generated Unix lists use the new depths, contain the intended Linux/macOS socket implementations, exclude Windows sources, and compile the MiniHttpServer application `Main.cpp`. `Project.md`, `README.md`, and the ignored debugger arguments use the required locations and arguments.
+
+After the final code review hardening, `copilotBuild.ps1` built `Debug|x64`, `Debug|Win32`, `Release|x64`, and `Release|Win32`; every build finished with 0 warnings and 0 errors. The complete Debug x64 UnitTest run passed 15/15 test files and 181/181 test cases, including the 15 existing MiniHttp API cases, with no post-summary memory-leak report.
+
+The CLI contract and Windows native runtime behavior passed. Missing arguments and a nonexistent folder each returned 1 with a short usage/error diagnostic. A valid Debug x64 run launched only through `copilotExecute.ps1`, consumed the exact ignored fixture arguments, printed `http://localhost:8888` and `http://localhost:8889/Assets`, accepted an explicit Enter stop, exited 0, and released both ports. A post-review supplemental HTTP run passed 45 assertions covering GET/HEAD and exact length, MIME metadata, ignored query, CSS/SVG fixture bytes, module and JSON endpoints, actual OPTIONS preflight headers, CORS metadata, both index prefixes, page navigation markup, missing/traversal/incorrect-prefix routes, and POST 405 plus `Allow`. This native pass is supplemental evidence only and is not credited as a browser gate.
+
+Failure cleanup also passed. With an exclusive blocker on 8889, the second `Start()` reported Windows bind error 10048 and the wrapper returned 1; while the blocker still held 8889, 8888 was already absent, proving stack unwinding released the first listener. A separate Win32 harness delivered a genuine `CTRL_C_EVENT`; MiniHttpServer exited with `0xC000013A`, its process disappeared, and both ports remained free on the delayed final check. That Ctrl+C result proves the required OS-level listener cleanup, although default asynchronous Windows Ctrl+C termination does not run normal C++ finalization. No MiniHttpServer process or listener remained after testing.
+
+The platform/browser acceptance status is deliberately incomplete:
+
+- Windows 11 / Chrome: **UNVERIFIED**. Chrome is installed, but this Codex session does not expose the required Chrome-control skill. The available in-app browser is not a valid substitute for the explicitly named Chrome gate, so it was not used to manufacture evidence.
+- Linux / Firefox: **UNVERIFIED**. WSL/Linux and Firefox are unavailable. The absolute build script regenerated both Unix projects, then could not compile because this Windows Git Bash environment has no `make`.
+- macOS / Safari: **UNVERIFIED**. No macOS host or Safari control is available.
+
+Therefore Proposal No.1 is confirmed as a useful and regression-free implementation on the available Windows native/static checks, while the request's overall three-platform browser-control acceptance gate remains explicitly incomplete. No browser behavior or Unix compilation result is inferred from the supplemental HTTP checks or Windows builds.

@@ -90,10 +90,10 @@ The GUID identifies the logical `INetworkProtocolConnection`; a TCP connection d
 ```text
 logical connection {guid}
 |- receive lane: one pending POST /Request/{guid}
-`- send lane: sequential POST /Response/{guid} exchanges (proposed adapter)
+`- send lane: sequential POST /Response/{guid} exchanges (portable adapter)
 ```
 
-This separation is required because an HTTP/1.1 connection with one in-flight exchange cannot submit `/Response/{guid}` while its `/Request/{guid}` response is still pending. A socket-backed client should therefore compose at least two `IHttpRequestConnection` objects: one for the long poll and one reusable send connection. Serializing that send connection is the proposed adapter policy for deterministic submission order; the existing Windows client instead starts independent asynchronous `/Response/{guid}` requests and does not provide this ordering guarantee. A larger connection pool is possible, but unbounded parallel sends are unnecessary.
+This separation is required because an HTTP/1.1 connection with one in-flight exchange cannot submit `/Response/{guid}` while its `/Request/{guid}` response is still pending. The portable socket-backed client therefore composes two `SocketHttpClientApi` instances: one for the long poll and one reusable control/send connection. Serializing that send connection is the adapter policy for deterministic submission order; the existing Windows client instead starts independent asynchronous `/Response/{guid}` requests and does not provide this ordering guarantee. A larger connection pool is possible, but unbounded parallel sends are unnecessary.
 
 A socket-backed server must keep the GUID-to-logical-connection map above all accepted `IHttpRequestConnection` objects. A pending long poll also retains the particular HTTP connection/request context on which its eventual response must be sent.
 
@@ -106,7 +106,7 @@ There is no HTTP disconnect route. `HttpServerConnection::Stop` removes the GUID
 1. `WaitForServer` sends `GET /Connect` and waits for its completion. A valid success contains the two semicolon-separated relative paths. Only then does the client enter the connected state and call `OnConnected`.
 2. `BeginReadingLoopUnsafe` starts one `/Request/{guid}` long poll with an infinite receive timeout. After every successful reply, start the replacement long poll before delivering a nonempty body to `OnReadString`; this avoids a receive gap while application code handles the message.
 3. `SendString` encodes one nonempty string and submits it through `/Response/{guid}`. A nonempty body in the HTTP response is another server-to-client message and is also delivered to `OnReadString`.
-4. For the new adapter, serialize the send lane built on the proposed one-in-flight `IHttpRequestConnection`. This deliberately adds deterministic client submission order while the independent receive lane remains pending; it is not behavior guaranteed by the old WinHTTP implementation.
+4. The portable adapter serializes the send lane through one `SocketHttpClientApi`. This deliberately adds deterministic client submission order while the independent receive lane remains pending; it is not behavior guaranteed by the old WinHTTP implementation.
 5. `Stop` cancels the long poll and reports disconnection. The Windows implementation allows already-started `/Response` submissions to finish during shutdown; this is unrelated to the HTTP `keep-alive` header.
 
 For the existing Windows client, a transport error, any status other than `200`, or any successful response whose content type is not the exact legacy value is a failed attempt:
@@ -131,7 +131,7 @@ Create a fresh GUID and logical connection, add it to the shared map and call `O
 
 Look up the GUID and retain this HTTP exchange as the connection's one pending long poll. If an outbound string is already queued, remove the oldest string and respond immediately with it. Otherwise, the application layer leaves the request pending without setting a finite timeout.
 
-There may be only one pending long poll per GUID. If a newer `/Request/{guid}` arrives, cancel the older HTTP exchange and retain the newer one. With the proposed one-in-flight HTTP interface, the compatibility layer can cancel it by stopping the old poll's physical connection. A well-behaved client normally avoids this overlap, but replacement is part of the Windows server behavior.
+There may be only one pending long poll per GUID. If a newer `/Request/{guid}` arrives, cancel the older HTTP exchange and retain the newer one. The portable one-in-flight HTTP helper cancels it by stopping the old poll's physical connection. A well-behaved client normally avoids this overlap, but replacement is part of the Windows server behavior.
 
 When application code calls `SendString` outside inbound `/Response` dispatch, immediately satisfy the pending long poll if one exists. If that response cannot be sent because the physical connection was closed or aborted, clear the stale poll and put the string back in the queue. If no poll exists, queue the string FIFO until a later poll.
 
@@ -161,7 +161,7 @@ Access-Control-Allow-Headers: Content-Type
 
 ### Sources of Truth
 
-- Route constants and intent: future `Source/InterProcess/NetworkProtocolHttp.h` after the common MiniHttp refactor in [TODO_Task_MiniHttpApi.md](./TODO_Task_MiniHttpApi.md)
+- Route constants and intent: [NetworkProtocolHttp.h](Source/InterProcess/NetworkProtocolHttp.h), completed by the common MiniHttp refactor
 - Windows client state machine, validation and retries: [HttpClient.Windows.cpp](Source/InterProcess/Windows/HttpClient.Windows.cpp)
 - Windows server routing, queues and piggybacking: [HttpServer.Windows.cpp](Source/InterProcess/Windows/HttpServer.Windows.cpp)
 - Windows HTTP body and response helpers: [HttpClientApi.Windows.cpp](Source/InterProcess/Windows/HttpClientApi.Windows.cpp) and [HttpServerApi.Windows.cpp](Source/InterProcess/Windows/HttpServerApi.Windows.cpp)

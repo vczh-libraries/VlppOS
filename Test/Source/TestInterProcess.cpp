@@ -1,4 +1,6 @@
 #include "../../Source/InterProcess/NetworkProtocolChannel.h"
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.h"
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.h"
 #if defined VCZH_MSVC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
 #include "../../Source/InterProcess/Windows/NamedPipe.Windows.h"
@@ -20,6 +22,25 @@ using namespace vl::inter_process::windows_http;
 #elif defined VCZH_GCC && defined VCZH_APPLE
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 #endif
+
+namespace vl::inter_process::async_tcp_socket
+{
+	extern void SetSocketHttpServerListenerFactoryForTesting(const Func<Ptr<IAsyncSocketServer>(vint)>& factory);
+	extern void ResetSocketHttpServerListenerFactoryForTesting();
+	extern void SetSocketHttpServerPollCallbacksForTesting(
+		const Func<void(const WString&)>& claimed,
+		const Func<void(const WString&, bool)>& completed,
+		const Func<void(const WString&)>& registered
+		);
+	extern void ResetSocketHttpServerPollCallbacksForTesting();
+	extern void SetSocketHttpClientReceiveSubmittedCallbackForTesting(const Func<void()>& callback);
+	extern void ResetSocketHttpClientReceiveSubmittedCallbackForTesting();
+	extern void SetSocketHttpClientFatalStopCallbacksForTesting(
+		const Func<void()>& fatalReserved,
+		const Func<void()>& stopStarted
+		);
+	extern void ResetSocketHttpClientFatalStopCallbacksForTesting();
+}
 
 namespace mynamespace
 {
@@ -861,6 +882,1078 @@ using namespace mynamespace;
 
 namespace mynamespace
 {
+	constexpr vint SocketHttpFocusedTimeout = 30000;
+	constexpr const wchar_t* SocketHttpJsonContentType = L"application/json; charset=utf8";
+
+	template<typename TNativeServer>
+	class SocketHttpListenerFactoryScope
+	{
+	public:
+		SocketHttpListenerFactoryScope()
+		{
+			async_tcp_socket::SetSocketHttpServerListenerFactoryForTesting(Func<Ptr<async_tcp_socket::IAsyncSocketServer>(vint)>([](vint port)
+			{
+				return Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
+			}));
+		}
+
+		~SocketHttpListenerFactoryScope()
+		{
+			try
+			{
+				async_tcp_socket::ResetSocketHttpServerListenerFactoryForTesting();
+			}
+			catch (...)
+			{
+			}
+		}
+	};
+
+	class SocketHttpPollHookScope
+	{
+	public:
+		SocketHttpPollHookScope(
+			const Func<void(const WString&)>& claimed,
+			const Func<void(const WString&, bool)>& completed,
+			const Func<void(const WString&)>& registered = {}
+			)
+		{
+			async_tcp_socket::SetSocketHttpServerPollCallbacksForTesting(claimed, completed, registered);
+		}
+
+		~SocketHttpPollHookScope()
+		{
+			try
+			{
+				async_tcp_socket::ResetSocketHttpServerPollCallbacksForTesting();
+			}
+			catch (...)
+			{
+			}
+		}
+	};
+
+	class SocketHttpReceiveSubmissionHookScope
+	{
+	public:
+		SocketHttpReceiveSubmissionHookScope(const Func<void()>& callback)
+		{
+			async_tcp_socket::SetSocketHttpClientReceiveSubmittedCallbackForTesting(callback);
+		}
+
+		~SocketHttpReceiveSubmissionHookScope()
+		{
+			try
+			{
+				async_tcp_socket::ResetSocketHttpClientReceiveSubmittedCallbackForTesting();
+			}
+			catch (...)
+			{
+			}
+		}
+	};
+
+	class SocketHttpFatalStopHookScope
+	{
+	public:
+		SocketHttpFatalStopHookScope(
+			const Func<void()>& fatalReserved,
+			const Func<void()>& stopStarted
+			)
+		{
+			async_tcp_socket::SetSocketHttpClientFatalStopCallbacksForTesting(fatalReserved, stopStarted);
+		}
+
+		~SocketHttpFatalStopHookScope()
+		{
+			try
+			{
+				async_tcp_socket::ResetSocketHttpClientFatalStopCallbacksForTesting();
+			}
+			catch (...)
+			{
+			}
+		}
+	};
+
+	class SignalSocketHttpEventOnExit
+	{
+	private:
+		EventObject*						eventObject = nullptr;
+
+	public:
+		SignalSocketHttpEventOnExit(EventObject& value)
+			: eventObject(&value)
+		{
+		}
+
+		~SignalSocketHttpEventOnExit()
+		{
+			eventObject->Signal();
+		}
+	};
+
+	class SocketHttpTextServer
+		: protected TextServerCallbackHost
+		, public async_tcp_socket::SocketHttpServer
+	{
+	public:
+		SocketHttpTextServer(ChatData& chatData, const WString& baseUrl, vint port)
+			: TextServerCallbackHost(chatData)
+			, SocketHttpServer(baseUrl, port)
+		{
+		}
+
+		~SocketHttpTextServer()
+		{
+			Stop();
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			return AcceptTextConnection(connection);
+		}
+	};
+
+	class SocketHttpChannelServer : public ChannelServer<async_tcp_socket::SocketHttpServer>
+	{
+		using Base = ChannelServer<async_tcp_socket::SocketHttpServer>;
+
+	public:
+		SocketHttpChannelServer(ChannelChatData& chatData, const WString& baseUrl, vint port)
+			: Base(chatData, baseUrl, port)
+		{
+		}
+
+		~SocketHttpChannelServer()
+		{
+			this->Stop();
+		}
+	};
+
+	class FocusedProtocolCallback : public Object, public virtual INetworkProtocolCallback
+	{
+	protected:
+		INetworkProtocolConnection*		connection = nullptr;
+
+	public:
+		EventObject						eventInstalled;
+		EventObject						eventRead;
+		EventObject						eventDisconnected;
+		atomic_vint					readCount = 0;
+		atomic_vint					disconnectedCount = 0;
+
+		FocusedProtocolCallback()
+		{
+			CHECK_ERROR(eventInstalled.CreateManualUnsignal(false), L"Failed to create the SocketHttp installed event.");
+			CHECK_ERROR(eventRead.CreateManualUnsignal(false), L"Failed to create the SocketHttp read event.");
+			CHECK_ERROR(eventDisconnected.CreateManualUnsignal(false), L"Failed to create the SocketHttp disconnected event.");
+		}
+
+		void OnInstalled(INetworkProtocolConnection* value) override
+		{
+			connection = value;
+			eventInstalled.Signal();
+		}
+
+		INetworkProtocolConnection* Connection()
+		{
+			return connection;
+		}
+
+		void OnDisconnected() override
+		{
+			disconnectedCount++;
+			eventDisconnected.Signal();
+		}
+	};
+
+	class ExactMessageCallback : public FocusedProtocolCallback
+	{
+	private:
+		WString							expected;
+		WString							reply;
+
+	public:
+		bool							exact = false;
+
+		ExactMessageCallback(const WString& _expected, const WString& _reply = WString::Empty)
+			: expected(_expected)
+			, reply(_reply)
+		{
+		}
+
+		void OnReadString(const WString& value) override
+		{
+			exact = value == expected;
+			readCount++;
+			if (reply != WString::Empty)
+			{
+				connection->SendString(reply);
+			}
+			eventRead.Signal();
+		}
+	};
+
+	class StopActionCallback : public FocusedProtocolCallback
+	{
+	private:
+		WString							expected;
+		Func<void()>					stopAction;
+
+	public:
+		bool							exact = false;
+		bool							stopReturned = false;
+
+		StopActionCallback(const WString& _expected)
+			: expected(_expected)
+		{
+		}
+
+		void SetStopAction(const Func<void()>& value)
+		{
+			stopAction = value;
+		}
+
+		void OnReadString(const WString& value) override
+		{
+			exact = value == expected;
+			readCount++;
+			stopAction();
+			stopReturned = true;
+			eventRead.Signal();
+		}
+	};
+
+	class ThrowingDisconnectCallback : public FocusedProtocolCallback
+	{
+	public:
+		EventObject						eventSecondStopReturned;
+		atomic_vint					disconnectThrows = 0;
+		atomic_vint					secondStopReturns = 0;
+		atomic_vint					secondStopErrors = 0;
+
+		ThrowingDisconnectCallback()
+		{
+			CHECK_ERROR(eventSecondStopReturned.CreateManualUnsignal(false), L"Failed to create the throwing-disconnect second-Stop event.");
+		}
+
+		void OnReadString(const WString&) override
+		{
+			readCount++;
+		}
+
+		void OnDisconnected() override
+		{
+			FocusedProtocolCallback::OnDisconnected();
+			disconnectThrows++;
+			throw Error(L"Expected throwing SocketHttp OnDisconnected callback.");
+		}
+	};
+
+	class SingleConnectionSocketHttpServer : public async_tcp_socket::SocketHttpServer
+	{
+	private:
+		INetworkProtocolCallback*		callback = nullptr;
+
+	public:
+		SingleConnectionSocketHttpServer(const WString& baseUrl, vint port, INetworkProtocolCallback* _callback)
+			: SocketHttpServer(baseUrl, port)
+			, callback(_callback)
+		{
+		}
+
+		~SingleConnectionSocketHttpServer()
+		{
+			Stop();
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			connection->InstallCallback(callback);
+			connection->BeginReadingLoopUnsafe();
+			return WaitForClientResult::Accept;
+		}
+	};
+
+	class SocketHttpStopRaceState : public Object
+	{
+	public:
+		EventObject						eventPollRegistered;
+		EventObject						eventPollClaimed;
+		EventObject						eventReleasePoll;
+		EventObject						eventWholeStopEntered;
+		EventObject						eventLocalStopReturned;
+		EventObject						eventWholeStopReturned;
+		atomic_vint					pollRegisteredCount = 0;
+		atomic_vint					pollClaimedCount = 0;
+		atomic_vint					pollCompletedCount = 0;
+		atomic_vint					pollReleasedCount = 0;
+		atomic_vint					localStopReturns = 0;
+		atomic_vint					wholeStopReturns = 0;
+		atomic_vint					sendReturns = 0;
+		atomic_vint					stopErrors = 0;
+
+		SocketHttpStopRaceState()
+		{
+			CHECK_ERROR(eventPollRegistered.CreateManualUnsignal(false), L"Failed to create the Stop-race poll-registered event.");
+			CHECK_ERROR(eventPollClaimed.CreateManualUnsignal(false), L"Failed to create the Stop-race poll-claimed event.");
+			CHECK_ERROR(eventReleasePoll.CreateManualUnsignal(false), L"Failed to create the Stop-race release-poll event.");
+			CHECK_ERROR(eventWholeStopEntered.CreateManualUnsignal(false), L"Failed to create the Stop-race whole-Stop-entered event.");
+			CHECK_ERROR(eventLocalStopReturned.CreateManualUnsignal(false), L"Failed to create the Stop-race local-Stop-returned event.");
+			CHECK_ERROR(eventWholeStopReturned.CreateManualUnsignal(false), L"Failed to create the Stop-race whole-Stop-returned event.");
+		}
+
+		void PollRegistered()
+		{
+			pollRegisteredCount++;
+			eventPollRegistered.Signal();
+		}
+
+		void PollClaimed()
+		{
+			pollClaimedCount++;
+			eventPollClaimed.Signal();
+			eventReleasePoll.Wait();
+			pollReleasedCount++;
+		}
+
+		void PollCompleted()
+		{
+			pollCompletedCount++;
+		}
+	};
+
+	class SocketHttpStopRaceServer : public SingleConnectionSocketHttpServer
+	{
+	private:
+		Ptr<SocketHttpStopRaceState>		state;
+
+	protected:
+		void OnHttpServerStopping() override
+		{
+			state->eventWholeStopEntered.Signal();
+			async_tcp_socket::SocketHttpServer::OnHttpServerStopping();
+		}
+
+	public:
+		SocketHttpStopRaceServer(const WString& baseUrl, vint port, INetworkProtocolCallback* callback, Ptr<SocketHttpStopRaceState> _state)
+			: SingleConnectionSocketHttpServer(baseUrl, port, callback)
+			, state(_state)
+		{
+		}
+
+		~SocketHttpStopRaceServer()
+		{
+			Stop();
+		}
+	};
+
+	class SocketHttpStopThreadScope
+	{
+	private:
+		EventObject*						eventRelease = nullptr;
+		Thread*							first = nullptr;
+		Thread*							second = nullptr;
+		Thread*							third = nullptr;
+
+		static void Join(Thread*& thread)
+		{
+			if (thread)
+			{
+				thread->Wait();
+				delete thread;
+				thread = nullptr;
+			}
+		}
+
+	public:
+		SocketHttpStopThreadScope(EventObject* _eventRelease = nullptr)
+			: eventRelease(_eventRelease)
+		{
+		}
+
+		~SocketHttpStopThreadScope()
+		{
+			if (eventRelease) eventRelease->Signal();
+			Join(first);
+			Join(second);
+			Join(third);
+		}
+
+		void SetFirst(Thread* thread)
+		{
+			first = thread;
+		}
+
+		void SetSecond(Thread* thread)
+		{
+			second = thread;
+		}
+
+		void SetThird(Thread* thread)
+		{
+			third = thread;
+		}
+
+		void JoinAll()
+		{
+			Join(first);
+			Join(second);
+			Join(third);
+		}
+	};
+
+	class SocketHttpReentrantFollowerState : public Object
+	{
+	public:
+		async_tcp_socket::SocketHttpServer*	server = nullptr;
+		EventObject						eventNestedStopReturned;
+		EventObject						eventOuterStopReturned;
+		atomic_vint					disconnectEntered = 0;
+		atomic_vint					disconnectCompleted = 0;
+		atomic_vint					nestedStopCalls = 0;
+		atomic_vint					nestedStopReturns = 0;
+		atomic_vint					outerStopReturns = 0;
+		atomic_vint					nestedSawOtherCompleted = 0;
+		atomic_vint					stopErrors = 0;
+
+		SocketHttpReentrantFollowerState()
+		{
+			CHECK_ERROR(eventNestedStopReturned.CreateManualUnsignal(false), L"Failed to create the reentrant-follower nested-Stop event.");
+			CHECK_ERROR(eventOuterStopReturned.CreateManualUnsignal(false), L"Failed to create the reentrant-follower outer-Stop event.");
+		}
+	};
+
+	class SocketHttpReentrantFollowerCallback : public FocusedProtocolCallback
+	{
+	private:
+		Ptr<SocketHttpReentrantFollowerState>	state;
+
+	public:
+		SocketHttpReentrantFollowerCallback(Ptr<SocketHttpReentrantFollowerState> _state)
+			: state(_state)
+		{
+		}
+
+		void OnReadString(const WString&) override
+		{
+			readCount++;
+		}
+
+		void OnDisconnected() override
+		{
+			auto ordinal = ++state->disconnectEntered;
+			if (ordinal == 1)
+			{
+				state->nestedStopCalls++;
+				try
+				{
+					state->server->Stop();
+					state->nestedStopReturns++;
+					if (state->disconnectCompleted == 1)
+					{
+						state->nestedSawOtherCompleted++;
+					}
+				}
+				catch (...)
+				{
+					state->stopErrors++;
+				}
+				state->eventNestedStopReturned.Signal();
+			}
+
+			FocusedProtocolCallback::OnDisconnected();
+			state->disconnectCompleted++;
+		}
+	};
+
+	class TwoConnectionSocketHttpServer : public async_tcp_socket::SocketHttpServer
+	{
+	private:
+		INetworkProtocolCallback*			callbacks[2] = {};
+		atomic_vint						connectionCount = 0;
+
+	public:
+		TwoConnectionSocketHttpServer(
+			const WString& baseUrl,
+			vint port,
+			INetworkProtocolCallback* firstCallback,
+			INetworkProtocolCallback* secondCallback
+			)
+			: SocketHttpServer(baseUrl, port)
+		{
+			callbacks[0] = firstCallback;
+			callbacks[1] = secondCallback;
+		}
+
+		~TwoConnectionSocketHttpServer()
+		{
+			Stop();
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			auto index = connectionCount++;
+			if (index >= 2) return WaitForClientResult::Reject;
+			connection->InstallCallback(callbacks[index]);
+			connection->BeginReadingLoopUnsafe();
+			return WaitForClientResult::Accept;
+		}
+	};
+
+	async_tcp_socket::HttpField CreateSocketHttpField(const WString& name, const WString& value)
+	{
+		async_tcp_socket::HttpField field;
+		field.name = name;
+		auto utf8 = wtou8(value);
+		field.value.Resize(utf8.Length());
+		for (vint i = 0; i < utf8.Length(); i++)
+		{
+			field.value[i] = (vuint8_t)utf8[i];
+		}
+		return field;
+	}
+
+	void AddSocketHttpBody(async_tcp_socket::HttpBody& body, const WString& value)
+	{
+		auto utf8 = wtou8(value);
+		async_tcp_socket::HttpBodyChunk chunk;
+		chunk.data.Resize(utf8.Length());
+		for (vint i = 0; i < utf8.Length(); i++)
+		{
+			chunk.data[i] = (vuint8_t)utf8[i];
+		}
+		body.chunks.Add(std::move(chunk));
+	}
+
+	Ptr<async_tcp_socket::HttpResponse> CreateSocketHttpResponse(vint statusCode, const WString& body)
+	{
+		auto response = Ptr(new async_tcp_socket::HttpResponse);
+		response->statusCode = statusCode;
+		response->reason = statusCode == 200 ? L"OK" : L"Scripted failure";
+		response->headers.Add(CreateSocketHttpField(L"Content-Type", SocketHttpJsonContentType));
+		if (body != WString::Empty)
+		{
+			AddSocketHttpBody(response->body, body);
+		}
+		return response;
+	}
+
+	WString ReadSocketHttpBody(const async_tcp_socket::HttpBody& body)
+	{
+		vint size = 0;
+		for (auto&& chunk : body.chunks)
+		{
+			size += chunk.data.Count();
+		}
+		if (size == 0) return {};
+		Array<char8_t> buffer(size);
+		vint offset = 0;
+		for (auto&& chunk : body.chunks)
+		{
+			for (auto value : chunk.data)
+			{
+				buffer[offset++] = (char8_t)value;
+			}
+		}
+		return u8tow(U8String::CopyFrom(&buffer[0], size));
+	}
+
+	class SocketHttpQueryState : public Object
+	{
+	private:
+		SpinLock						lock;
+		bool							failed = false;
+		vint							statusCode = 0;
+		WString							body;
+
+	public:
+		EventObject						eventCompleted;
+		atomic_vint					callbackCount = 0;
+
+		SocketHttpQueryState()
+		{
+			CHECK_ERROR(eventCompleted.CreateManualUnsignal(false), L"Failed to create the scripted SocketHttp query event.");
+		}
+
+		void Complete(Variant<windows_http::HttpResponse, windows_http::HttpError> result)
+		{
+			SPIN_LOCK(lock)
+			{
+				if (auto response = result.TryGet<windows_http::HttpResponse>())
+				{
+					failed = false;
+					statusCode = response->statusCode;
+					body = response->GetBodyUtf8();
+				}
+				else
+				{
+					failed = true;
+				}
+			}
+			callbackCount++;
+			eventCompleted.Signal();
+		}
+
+		bool Failed()
+		{
+			SPIN_LOCK(lock)
+			{
+				return failed;
+			}
+			return false;
+		}
+
+		vint StatusCode()
+		{
+			SPIN_LOCK(lock)
+			{
+				return statusCode;
+			}
+			return 0;
+		}
+
+		WString Body()
+		{
+			SPIN_LOCK(lock)
+			{
+				return body;
+			}
+			return {};
+		}
+	};
+
+	void SubmitSocketHttpQuery(
+		Ptr<async_tcp_socket::SocketHttpClientApi> client,
+		const WString& method,
+		const WString& query,
+		const WString& body,
+		vint receiveTimeout,
+		Ptr<SocketHttpQueryState> state
+		)
+	{
+		windows_http::HttpRequest request;
+		request.method = method;
+		request.query = query;
+		request.acceptTypes.Add(SocketHttpJsonContentType);
+		request.receiveTimeout = receiveTimeout;
+		if (body != WString::Empty)
+		{
+			request.contentType = SocketHttpJsonContentType;
+			request.SetBodyUtf8(body);
+		}
+		else if (method == L"POST")
+		{
+			request.extraHeaders.Add(L"Content-Length", L"0");
+		}
+		client->HttpQuery(request, Func<void(Variant<windows_http::HttpResponse, windows_http::HttpError>)>([state](auto result)
+		{
+			state->Complete(std::move(result));
+		}));
+	}
+
+	template<typename TNativeClient>
+	Ptr<async_tcp_socket::SocketHttpClientApi> CreateFocusedSocketHttpApi(vint port)
+	{
+		return Ptr(new async_tcp_socket::SocketHttpClientApi(
+			Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(port)),
+			L"localhost:" + itow(port)
+			));
+	}
+
+	class PollScriptServer : public async_tcp_socket::SocketHttpServerApi
+	{
+	private:
+		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/focused-token";
+		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/focused-token";
+		SpinLock						lockContexts;
+		Ptr<async_tcp_socket::SocketHttpRequestContext>
+									firstPoll;
+		Ptr<async_tcp_socket::SocketHttpRequestContext>
+									replacementPoll;
+
+	protected:
+		void OnHttpRequestReceived(Ptr<async_tcp_socket::SocketHttpRequestContext> context) override
+		{
+			auto path = context->GetRelativePath();
+			if (path == HttpServerUrl_Connect)
+			{
+				connectCount++;
+				context->Respond(CreateSocketHttpResponse(200, requestPath + L";" + responsePath));
+			}
+			else if (path == requestPath)
+			{
+				auto index = ++pollCount;
+				if (index == 1)
+				{
+					SPIN_LOCK(lockContexts)
+					{
+						firstPoll = context;
+					}
+					eventFirstPoll.Signal();
+				}
+				else
+				{
+					SPIN_LOCK(lockContexts)
+					{
+						replacementPoll = context;
+					}
+					eventReplacementPoll.Signal();
+				}
+			}
+			else if (path == responsePath)
+			{
+				responseCount++;
+				responseBody = ReadSocketHttpBody(context->GetRequest()->body);
+				context->Respond(CreateSocketHttpResponse(200, L"piggyback-reply"));
+				eventResponse.Signal();
+			}
+			else
+			{
+				context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+			}
+		}
+
+	public:
+		EventObject						eventFirstPoll;
+		EventObject						eventReplacementPoll;
+		EventObject						eventResponse;
+		atomic_vint					connectCount = 0;
+		atomic_vint					pollCount = 0;
+		atomic_vint					responseCount = 0;
+		WString							responseBody;
+
+		PollScriptServer(const WString& _baseUrl, vint port)
+			: SocketHttpServerApi(L"http://localhost:" + itow(port) + _baseUrl, false)
+		{
+			CHECK_ERROR(eventFirstPoll.CreateManualUnsignal(false), L"Failed to create the first-poll event.");
+			CHECK_ERROR(eventReplacementPoll.CreateManualUnsignal(false), L"Failed to create the replacement-poll event.");
+			CHECK_ERROR(eventResponse.CreateManualUnsignal(false), L"Failed to create the scripted response event.");
+		}
+
+		~PollScriptServer()
+		{
+			Stop();
+		}
+
+		bool RespondFirstPoll(const WString& body)
+		{
+			Ptr<async_tcp_socket::SocketHttpRequestContext> context;
+			SPIN_LOCK(lockContexts)
+			{
+				context = firstPoll;
+				firstPoll = nullptr;
+			}
+			return context && context->Respond(CreateSocketHttpResponse(200, body));
+		}
+	};
+
+	class PollClientCallback : public FocusedProtocolCallback
+	{
+	private:
+		atomic_vint*					receiveSubmissions = nullptr;
+
+	public:
+		EventObject						eventPiggyback;
+		EventObject						eventPollMessage;
+		bool							piggybackExact = false;
+		bool							pollExact = false;
+		bool							replacementBeforeCallback = false;
+
+		PollClientCallback(atomic_vint* _receiveSubmissions)
+			: receiveSubmissions(_receiveSubmissions)
+		{
+			CHECK_ERROR(eventPiggyback.CreateManualUnsignal(false), L"Failed to create the piggyback event.");
+			CHECK_ERROR(eventPollMessage.CreateManualUnsignal(false), L"Failed to create the poll-message event.");
+		}
+
+		void OnReadString(const WString& value) override
+		{
+			readCount++;
+			if (value == L"piggyback-reply")
+			{
+				piggybackExact = true;
+				eventPiggyback.Signal();
+			}
+			else
+			{
+				pollExact = value == L"poll-message";
+				replacementBeforeCallback = *receiveSubmissions >= 2;
+				eventPollMessage.Signal();
+			}
+		}
+	};
+
+	class RetryScriptServer : public async_tcp_socket::SocketHttpServerApi
+	{
+	private:
+		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/stable-token";
+		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/stable-token";
+		SpinLock						lockRecords;
+		List<WString>					bodies;
+		List<WString>					targets;
+
+	protected:
+		void OnHttpRequestReceived(Ptr<async_tcp_socket::SocketHttpRequestContext> context) override
+		{
+			auto path = context->GetRelativePath();
+			if (path == HttpServerUrl_Connect)
+			{
+				connectCount++;
+				context->Respond(CreateSocketHttpResponse(200, requestPath + L";" + responsePath));
+				return;
+			}
+			if (path != responsePath)
+			{
+				context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+				return;
+			}
+
+			auto body = ReadSocketHttpBody(context->GetRequest()->body);
+			vint index = 0;
+			SPIN_LOCK(lockRecords)
+			{
+				bodies.Add(body);
+				targets.Add(path);
+				index = bodies.Count();
+			}
+			if (index == 1)
+			{
+				eventFirstAttempt.Signal();
+				eventReleaseFirstAttempt.WaitForTime(SocketHttpFocusedTimeout);
+				context->Respond(CreateSocketHttpResponse(500, WString::Empty));
+			}
+			else if (index == 4)
+			{
+				context->Cancel();
+			}
+			else if (index >= 6)
+			{
+				context->Respond(CreateSocketHttpResponse(500, WString::Empty));
+				if (index == 8) eventFatalAttempts.Signal();
+			}
+			else
+			{
+				context->Respond(CreateSocketHttpResponse(200, WString::Empty));
+				if (index == 3) eventOrdered.Signal();
+				if (index == 5) eventReplaced.Signal();
+			}
+		}
+
+	public:
+		EventObject						eventFirstAttempt;
+		EventObject						eventReleaseFirstAttempt;
+		EventObject						eventOrdered;
+		EventObject						eventReplaced;
+		EventObject						eventFatalAttempts;
+		atomic_vint					connectCount = 0;
+
+		RetryScriptServer(const WString& baseUrl, vint port)
+			: SocketHttpServerApi(L"http://localhost:" + itow(port) + baseUrl, false)
+		{
+			CHECK_ERROR(eventFirstAttempt.CreateManualUnsignal(false), L"Failed to create the first-attempt event.");
+			CHECK_ERROR(eventReleaseFirstAttempt.CreateManualUnsignal(false), L"Failed to create the release-first-attempt event.");
+			CHECK_ERROR(eventOrdered.CreateManualUnsignal(false), L"Failed to create the ordered-send event.");
+			CHECK_ERROR(eventReplaced.CreateManualUnsignal(false), L"Failed to create the replaced-send event.");
+			CHECK_ERROR(eventFatalAttempts.CreateManualUnsignal(false), L"Failed to create the fatal-attempts event.");
+		}
+
+		~RetryScriptServer()
+		{
+			Stop();
+		}
+
+		vint RecordCount()
+		{
+			SPIN_LOCK(lockRecords)
+			{
+				return bodies.Count();
+			}
+			return 0;
+		}
+
+		WString Body(vint index)
+		{
+			SPIN_LOCK(lockRecords)
+			{
+				return bodies[index];
+			}
+			return {};
+		}
+
+		bool AllTargetsStable()
+		{
+			SPIN_LOCK(lockRecords)
+			{
+				for (auto&& target : targets)
+				{
+					if (target != responsePath) return false;
+				}
+				return true;
+			}
+			return false;
+		}
+	};
+
+	class RetryClientCallback : public FocusedProtocolCallback
+	{
+	public:
+		EventObject						eventFatalError;
+		atomic_vint					localErrors = 0;
+		atomic_vint					fatalErrors = 0;
+		bool						fatalBeforeDisconnected = false;
+
+		RetryClientCallback()
+		{
+			CHECK_ERROR(eventFatalError.CreateManualUnsignal(false), L"Failed to create the fatal-error event.");
+		}
+
+		void OnReadString(const WString&) override
+		{
+			readCount++;
+		}
+
+		void OnLocalError(const WString&, bool fatal) override
+		{
+			localErrors++;
+			if (fatal)
+			{
+				fatalErrors++;
+				eventFatalError.Signal();
+			}
+		}
+
+		void OnDisconnected() override
+		{
+			fatalBeforeDisconnected = fatalErrors == 1;
+			FocusedProtocolCallback::OnDisconnected();
+		}
+	};
+
+	class SocketHttpFatalStopRaceState : public Object
+	{
+	public:
+		EventObject						eventFatalReserved;
+		EventObject						eventReleaseFatal;
+		EventObject						eventStopStarted;
+		EventObject						eventExternalStopReturned;
+		atomic_vint					fatalReservedCount = 0;
+		atomic_vint					fatalReleasedCount = 0;
+		atomic_vint					stopStartedCount = 0;
+		atomic_vint					externalStopReturns = 0;
+		atomic_vint					externalStopErrors = 0;
+
+		SocketHttpFatalStopRaceState()
+		{
+			CHECK_ERROR(eventFatalReserved.CreateManualUnsignal(false), L"Failed to create the fatal-Stop reserved event.");
+			CHECK_ERROR(eventReleaseFatal.CreateManualUnsignal(false), L"Failed to create the fatal-Stop release event.");
+			CHECK_ERROR(eventStopStarted.CreateManualUnsignal(false), L"Failed to create the fatal-Stop started event.");
+			CHECK_ERROR(eventExternalStopReturned.CreateManualUnsignal(false), L"Failed to create the fatal-Stop external-return event.");
+		}
+
+		void FatalReserved()
+		{
+			fatalReservedCount++;
+			eventFatalReserved.Signal();
+			eventReleaseFatal.Wait();
+			fatalReleasedCount++;
+		}
+
+		void StopStarted()
+		{
+			stopStartedCount++;
+			eventStopStarted.Signal();
+		}
+	};
+
+	template<typename TNativeClient>
+	Ptr<INetworkProtocolClient> CreateSocketHttpProtocolClient(const WString& baseUrl, vint port, atomic_vint* factoryCalls = nullptr)
+	{
+		auto factory = async_tcp_socket::SocketHttpClient::NativeClientFactory([factoryCalls](vint nativePort)
+		{
+			if (factoryCalls) (*factoryCalls)++;
+			return Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(nativePort));
+		});
+		return Ptr<INetworkProtocolClient>(new async_tcp_socket::SocketHttpClient(baseUrl, port, factory));
+	}
+
+	WString RepeatSocketHttpCharacter(wchar_t character, vint count)
+	{
+		if (count == 0) return {};
+		auto buffer = new wchar_t[count + 1];
+		for (vint i = 0; i < count; i++) buffer[i] = character;
+		buffer[count] = 0;
+		return WString::TakeOver(buffer, count);
+	}
+
+	class FailedPollHookState : public Object
+	{
+	private:
+		SpinLock						lock;
+		List<WString>					claimedTokens;
+		List<Pair<WString, bool>>		completedTokens;
+
+	public:
+		EventObject						eventClaimed;
+		EventObject						eventReleaseClaim;
+		EventObject						eventFirstCompletion;
+		EventObject						eventSecondCompletion;
+		bool							claimReleased = false;
+
+		FailedPollHookState()
+		{
+			CHECK_ERROR(eventClaimed.CreateManualUnsignal(false), L"Failed to create the poll-claimed event.");
+			CHECK_ERROR(eventReleaseClaim.CreateManualUnsignal(false), L"Failed to create the release-claim event.");
+			CHECK_ERROR(eventFirstCompletion.CreateManualUnsignal(false), L"Failed to create the first poll-completion event.");
+			CHECK_ERROR(eventSecondCompletion.CreateManualUnsignal(false), L"Failed to create the second poll-completion event.");
+		}
+
+		void Claimed(const WString& token)
+		{
+			vint count = 0;
+			SPIN_LOCK(lock)
+			{
+				claimedTokens.Add(token);
+				count = claimedTokens.Count();
+			}
+			if (count == 1)
+			{
+				eventClaimed.Signal();
+				claimReleased = eventReleaseClaim.WaitForTime(SocketHttpFocusedTimeout);
+			}
+		}
+
+		void Completed(const WString& token, bool succeeded)
+		{
+			vint count = 0;
+			SPIN_LOCK(lock)
+			{
+				completedTokens.Add(Pair<WString, bool>(token, succeeded));
+				count = completedTokens.Count();
+			}
+			if (count == 1) eventFirstCompletion.Signal();
+			if (count == 2) eventSecondCompletion.Signal();
+		}
+
+		bool Validate()
+		{
+			SPIN_LOCK(lock)
+			{
+				return
+					claimedTokens.Count() == 2 &&
+					claimedTokens[0] != WString::Empty &&
+					claimedTokens[0] == claimedTokens[1] &&
+					completedTokens.Count() == 2 &&
+					completedTokens[0].key == claimedTokens[0] &&
+					!completedTokens[0].value &&
+					completedTokens[1].key == claimedTokens[0] &&
+					completedTokens[1].value;
+			}
+			return false;
+		}
+	};
+
 #ifdef VCZH_MSVC
 
 	class NamedPipeTextServer : protected TextServerCallbackHost, public NamedPipeServer
@@ -977,6 +2070,631 @@ void RunAsyncSocketNetworkProtocolTestCases(bool synchronizeServerStartup)
 	});
 }
 
+template<typename TNativeServer, typename TNativeClient>
+void RunSocketHttpNetworkProtocolTestCases()
+{
+	TEST_CASE(L"SocketHttp portable pair (NetworkProtocol)")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39000 + i;
+			const WString baseUrl = L"/VlppOSTestSocketHttpProtocol";
+			RunTextNetworkProtocol(
+				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				true
+			);
+		}
+	});
+
+	TEST_CASE(L"SocketHttp portable pair (Channel)")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39100 + i;
+			const WString baseUrl = L"/VlppOSTestSocketHttpChannel";
+			RunNetworkProtocolChannel(
+				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				true
+			);
+		}
+	});
+}
+
+#ifdef VCZH_MSVC
+template<typename TNativeServer, typename TNativeClient>
+void RunSocketHttpWindowsInteropTestCases()
+{
+	TEST_CASE(L"SocketHttpServer with Windows HttpClient (NetworkProtocol)")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39200 + i;
+			const WString baseUrl = L"/VlppOSTestSocketHttpWinClientProtocol";
+			RunTextNetworkProtocol(
+				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port)); },
+				true
+			);
+		}
+	});
+
+	TEST_CASE(L"SocketHttpServer with Windows HttpClient (Channel)")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39300 + i;
+			const WString baseUrl = L"/VlppOSTestSocketHttpWinClientChannel";
+			RunNetworkProtocolChannel(
+				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port)); },
+				true
+			);
+		}
+	});
+
+	TEST_CASE(L"Windows HttpServer with SocketHttpClient (NetworkProtocol)")
+	{
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39400 + i;
+			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpProtocol";
+			RunTextNetworkProtocol(
+				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				true
+			);
+		}
+	});
+
+	TEST_CASE(L"Windows HttpServer with SocketHttpClient (Channel)")
+	{
+		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
+		{
+			const vint port = 39500 + i;
+			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpChannel";
+			RunNetworkProtocolChannel(
+				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, baseUrl, port)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				true
+			);
+		}
+	});
+}
+#endif
+
+template<typename TNativeServer, typename TNativeClient>
+void RunSocketHttpFocusedTestCases()
+{
+	TEST_CASE(L"SocketHttp replacement poll precedes callback and Response reply is piggybacked")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		const vint port = 39600;
+		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedPoll";
+		atomic_vint receiveSubmissions = 0;
+		SocketHttpReceiveSubmissionHookScope receiveSubmissionHook(Func<void()>([&receiveSubmissions]() { receiveSubmissions++; }));
+		auto server = Ptr(new PollScriptServer(baseUrl, port));
+		server->Start();
+		PollClientCallback callback(&receiveSubmissions);
+		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(server->eventFirstPoll.WaitForTime(SocketHttpFocusedTimeout));
+
+		client->GetConnection()->SendString(L"inbound-response");
+		TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.eventPiggyback.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(server->pollCount == 1);
+		TEST_ASSERT(server->responseBody == L"inbound-response");
+		TEST_ASSERT(callback.piggybackExact);
+
+		TEST_ASSERT(server->RespondFirstPoll(L"poll-message"));
+		TEST_ASSERT(callback.eventPollMessage.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(server->eventReplacementPoll.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.pollExact);
+		TEST_ASSERT(callback.replacementBeforeCallback);
+		TEST_ASSERT(server->pollCount >= 2);
+		client->GetConnection()->Stop();
+		server->Stop();
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(server->responseCount == 1);
+
+		const vint piggybackPort = 39607;
+		const WString piggybackBaseUrl = L"/VlppOSTestSocketHttpFocusedServerPiggyback";
+		ExactMessageCallback piggybackServerCallback(L"inbound-response", L"server-piggyback");
+		auto piggybackServer = Ptr(new SingleConnectionSocketHttpServer(piggybackBaseUrl, piggybackPort, &piggybackServerCallback));
+		piggybackServer->Start();
+		auto piggybackClient = CreateFocusedSocketHttpApi<TNativeClient>(piggybackPort);
+		piggybackClient->WaitForServer();
+
+		auto connectState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(piggybackClient, L"GET", piggybackBaseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
+		TEST_ASSERT(connectState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(!connectState->Failed());
+		TEST_ASSERT(connectState->StatusCode() == 200);
+		TEST_ASSERT(piggybackServerCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+		auto connectBody = connectState->Body();
+		auto separator = connectBody.IndexOf(L';');
+		TEST_ASSERT(separator > 0 && separator + 1 < connectBody.Length());
+		auto responsePath = connectBody.Sub(separator + 1, connectBody.Length() - separator - 1);
+
+		auto responseState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(piggybackClient, L"POST", piggybackBaseUrl + responsePath, L"inbound-response", SocketHttpFocusedTimeout, responseState);
+		TEST_ASSERT(responseState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(piggybackServerCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(!responseState->Failed());
+		TEST_ASSERT(responseState->StatusCode() == 200);
+		TEST_ASSERT(responseState->Body() == L"server-piggyback");
+		TEST_ASSERT(piggybackServerCallback.exact);
+		piggybackClient->Stop();
+		piggybackServer->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp send FIFO retries its head, replaces one physical lane, and disconnects after attempt three")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		const vint port = 39601;
+		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRetry";
+		auto server = Ptr(new RetryScriptServer(baseUrl, port));
+		server->Start();
+		atomic_vint factoryCalls = 0;
+		RetryClientCallback callback;
+		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		TEST_ASSERT(factoryCalls == 2);
+		SignalSocketHttpEventOnExit releaseFirstAttempt(server->eventReleaseFirstAttempt);
+
+		client->GetConnection()->SendString(L"first");
+		TEST_ASSERT(server->eventFirstAttempt.WaitForTime(SocketHttpFocusedTimeout));
+		client->GetConnection()->SendString(L"second");
+		server->eventReleaseFirstAttempt.Signal();
+		TEST_ASSERT(server->eventOrdered.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(server->RecordCount() == 3);
+		TEST_ASSERT(server->Body(0) == L"first");
+		TEST_ASSERT(server->Body(1) == L"first");
+		TEST_ASSERT(server->Body(2) == L"second");
+
+		client->GetConnection()->SendString(L"replace");
+		TEST_ASSERT(server->eventReplaced.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(server->RecordCount() == 5);
+		TEST_ASSERT(server->Body(3) == L"replace");
+		TEST_ASSERT(server->Body(4) == L"replace");
+		TEST_ASSERT(server->AllTargetsStable());
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(factoryCalls >= 3);
+		TEST_ASSERT(callback.localErrors >= 2);
+		TEST_ASSERT(callback.fatalErrors == 0);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+
+		auto fatalStopState = Ptr(new SocketHttpFatalStopRaceState);
+		SocketHttpFatalStopHookScope fatalStopHooks(
+			Func<void()>([fatalStopState]() { fatalStopState->FatalReserved(); }),
+			Func<void()>([fatalStopState]() { fatalStopState->StopStarted(); })
+			);
+		SocketHttpStopThreadScope fatalStopThreadScope(&fatalStopState->eventReleaseFatal);
+		client->GetConnection()->SendString(L"fatal");
+		TEST_ASSERT(server->eventFatalAttempts.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(fatalStopState->eventFatalReserved.WaitForTime(SocketHttpFocusedTimeout));
+
+		auto externalStopThread = Thread::CreateAndStart([fatalStopState, connection = client->GetConnection()]()
+		{
+			try
+			{
+				connection->Stop();
+				fatalStopState->externalStopReturns++;
+			}
+			catch (...)
+			{
+				fatalStopState->externalStopErrors++;
+			}
+			fatalStopState->eventExternalStopReturned.Signal();
+		}, false);
+		fatalStopThreadScope.SetFirst(externalStopThread);
+		TEST_ASSERT(fatalStopState->eventStopStarted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.fatalErrors == 0);
+		TEST_ASSERT(!callback.eventDisconnected.WaitForTime(0));
+		TEST_ASSERT(!fatalStopState->eventExternalStopReturned.WaitForTime(0));
+
+		fatalStopState->eventReleaseFatal.Signal();
+		TEST_ASSERT(callback.eventFatalError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(fatalStopState->eventExternalStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+		fatalStopThreadScope.JoinAll();
+		TEST_ASSERT(server->RecordCount() == 8);
+		TEST_ASSERT(server->Body(5) == L"fatal");
+		TEST_ASSERT(server->Body(6) == L"fatal");
+		TEST_ASSERT(server->Body(7) == L"fatal");
+		TEST_ASSERT(server->AllTargetsStable());
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(callback.localErrors >= 5);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.fatalBeforeDisconnected);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(fatalStopState->fatalReservedCount == 1);
+		TEST_ASSERT(fatalStopState->fatalReleasedCount == 1);
+		TEST_ASSERT(fatalStopState->stopStartedCount == 1);
+		TEST_ASSERT(fatalStopState->externalStopReturns == 1);
+		TEST_ASSERT(fatalStopState->externalStopErrors == 0);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		client->GetConnection()->Stop();
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp preserves non-ASCII WString values and a synchronous server reply")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		const vint port = 39602;
+		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedUnicode";
+		const WString request = L"Client: \x4F60\x597D, \x4E16\x754C";
+		const WString reply = L"Server: \x3053\x3093\x306B\x3061\x306F";
+		ExactMessageCallback serverCallback(request, reply);
+		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		server->Start();
+		ExactMessageCallback clientCallback(reply);
+		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		client->GetConnection()->InstallCallback(&clientCallback);
+		client->WaitForServer();
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		client->GetConnection()->SendString(request);
+		TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.exact);
+		TEST_ASSERT(clientCallback.exact);
+		TEST_ASSERT(serverCallback.readCount == 1);
+		TEST_ASSERT(clientCallback.readCount == 1);
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp accepts the UTF-8 body limit and rejects one encoded byte beyond each FIFO")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		const vint port = 39603;
+		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedLimit";
+		auto exact = RepeatSocketHttpCharacter(L'a', async_tcp_socket::HttpBodySizeLimit - 3) + L"\x4F60";
+		auto oversized = exact + L"x";
+		TEST_ASSERT(wtou8(exact).Length() == async_tcp_socket::HttpBodySizeLimit);
+		TEST_ASSERT(wtou8(oversized).Length() == async_tcp_socket::HttpBodySizeLimit + 1);
+
+		ExactMessageCallback serverCallback(exact);
+		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		server->Start();
+		ExactMessageCallback clientCallback(exact);
+		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		client->GetConnection()->InstallCallback(&clientCallback);
+		client->WaitForServer();
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+
+		TEST_ERROR(client->GetConnection()->SendString(oversized));
+		client->GetConnection()->SendString(exact);
+		TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.exact);
+		TEST_ASSERT(serverCallback.readCount == 1);
+
+		TEST_ERROR(serverCallback.Connection()->SendString(oversized));
+		serverCallback.Connection()->SendString(exact);
+		TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(clientCallback.exact);
+		TEST_ASSERT(clientCallback.readCount == 1);
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp failed poll delivery is requeued before a replacement poll")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		const vint port = 39606;
+		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRequeue";
+		auto hookState = Ptr(new FailedPollHookState);
+		SocketHttpPollHookScope pollHooks(
+			Func<void(const WString&)>([hookState](const WString& token) { hookState->Claimed(token); }),
+			Func<void(const WString&, bool)>([hookState](const WString& token, bool succeeded) { hookState->Completed(token, succeeded); })
+			);
+		ExactMessageCallback serverCallback(L"unused");
+		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		server->Start();
+
+		auto connectClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		connectClient->WaitForServer();
+		auto connectState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(connectClient, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
+		TEST_ASSERT(connectState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(!connectState->Failed());
+		TEST_ASSERT(connectState->StatusCode() == 200);
+		TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+		auto connectBody = connectState->Body();
+		auto separator = connectBody.IndexOf(L';');
+		TEST_ASSERT(separator > 0 && separator + 1 < connectBody.Length());
+		auto requestPath = connectBody.Left(separator);
+		connectClient->Stop();
+
+		serverCallback.Connection()->SendString(L"requeue-message");
+		auto firstPoll = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		firstPoll->WaitForServer();
+		auto firstPollState = Ptr(new SocketHttpQueryState);
+		SignalSocketHttpEventOnExit releaseClaim(hookState->eventReleaseClaim);
+		SubmitSocketHttpQuery(firstPoll, L"POST", baseUrl + requestPath, WString::Empty, 0, firstPollState);
+		TEST_ASSERT(hookState->eventClaimed.WaitForTime(SocketHttpFocusedTimeout));
+		firstPoll->Stop();
+		hookState->eventReleaseClaim.Signal();
+		TEST_ASSERT(firstPollState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(firstPollState->Failed());
+		TEST_ASSERT(hookState->eventFirstCompletion.WaitForTime(SocketHttpFocusedTimeout));
+
+		auto replacementPoll = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		replacementPoll->WaitForServer();
+		auto replacementState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(replacementPoll, L"POST", baseUrl + requestPath, WString::Empty, 0, replacementState);
+		TEST_ASSERT(replacementState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(hookState->eventSecondCompletion.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(!replacementState->Failed());
+		TEST_ASSERT(replacementState->StatusCode() == 200);
+		TEST_ASSERT(replacementState->Body() == L"requeue-message");
+		TEST_ASSERT(hookState->claimReleased);
+		TEST_ASSERT(hookState->Validate());
+		replacementPoll->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp Stop is callback-reentrant for client and whole server")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		{
+			const vint port = 39604;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedClientStop";
+			ExactMessageCallback serverCallback(L"trigger-client-stop", L"stop-client");
+			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			server->Start();
+			StopActionCallback clientCallback(L"stop-client");
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			clientCallback.SetStopAction(Func<void()>([connection = client->GetConnection()]() { connection->Stop(); }));
+			client->GetConnection()->InstallCallback(&clientCallback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			client->GetConnection()->SendString(L"trigger-client-stop");
+			TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(clientCallback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(clientCallback.exact);
+			TEST_ASSERT(clientCallback.stopReturned);
+			TEST_ASSERT(clientCallback.disconnectedCount == 1);
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			server->Stop();
+		}
+		{
+			const vint port = 39605;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedServerStop";
+			StopActionCallback serverCallback(L"trigger-server-stop");
+			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			serverCallback.SetStopAction(Func<void()>([&server]() { server->Stop(); }));
+			server->Start();
+			ExactMessageCallback clientCallback(L"unused");
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			client->GetConnection()->InstallCallback(&clientCallback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			client->GetConnection()->SendString(L"trigger-server-stop");
+			TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.exact);
+			TEST_ASSERT(serverCallback.stopReturned);
+			TEST_ASSERT(serverCallback.disconnectedCount == 1);
+			TEST_ASSERT(server->IsStopped());
+			client->GetConnection()->Stop();
+		}
+		{
+			const vint port = 39610;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedThrowingDisconnect";
+			ExactMessageCallback serverCallback(L"unused");
+			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			server->Start();
+			ThrowingDisconnectCallback clientCallback;
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			client->GetConnection()->InstallCallback(&clientCallback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+
+			TEST_ERROR(client->GetConnection()->Stop());
+			TEST_ASSERT(clientCallback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(clientCallback.disconnectThrows == 1);
+			TEST_ASSERT(clientCallback.disconnectedCount == 1);
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+
+			SocketHttpStopThreadScope threadScope;
+			auto secondStopThread = Thread::CreateAndStart([connection = client->GetConnection(), &clientCallback]()
+			{
+				try
+				{
+					connection->Stop();
+					clientCallback.secondStopReturns++;
+				}
+				catch (...)
+				{
+					clientCallback.secondStopErrors++;
+				}
+				clientCallback.eventSecondStopReturned.Signal();
+			}, false);
+			threadScope.SetFirst(secondStopThread);
+			TEST_ASSERT(clientCallback.eventSecondStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+			threadScope.JoinAll();
+			TEST_ASSERT(clientCallback.secondStopReturns == 1);
+			TEST_ASSERT(clientCallback.secondStopErrors == 0);
+			TEST_ASSERT(clientCallback.disconnectThrows == 1);
+			TEST_ASSERT(clientCallback.disconnectedCount == 1);
+			server->Stop();
+		}
+		{
+			const vint port = 39608;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedStopPollRace";
+			auto state = Ptr(new SocketHttpStopRaceState);
+			SocketHttpPollHookScope pollHooks(
+				Func<void(const WString&)>([state](const WString&) { state->PollClaimed(); }),
+				Func<void(const WString&, bool)>([state](const WString&, bool) { state->PollCompleted(); }),
+				Func<void(const WString&)>([state](const WString&) { state->PollRegistered(); })
+				);
+			ExactMessageCallback serverCallback(L"unused");
+			auto server = Ptr(new SocketHttpStopRaceServer(baseUrl, port, &serverCallback, state));
+			server->Start();
+
+			auto connectClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+			connectClient->WaitForServer();
+			auto connectState = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(connectClient, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
+			TEST_ASSERT(connectState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!connectState->Failed());
+			TEST_ASSERT(connectState->StatusCode() == 200);
+			TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+			auto connectBody = connectState->Body();
+			auto separator = connectBody.IndexOf(L';');
+			TEST_ASSERT(separator > 0 && separator + 1 < connectBody.Length());
+			auto requestPath = connectBody.Left(separator);
+			connectClient->Stop();
+
+			auto pollClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+			pollClient->WaitForServer();
+			auto pollState = Ptr(new SocketHttpQueryState);
+			SocketHttpStopThreadScope threadScope(&state->eventReleasePoll);
+			SubmitSocketHttpQuery(pollClient, L"POST", baseUrl + requestPath, WString::Empty, 0, pollState);
+			TEST_ASSERT(state->eventPollRegistered.WaitForTime(SocketHttpFocusedTimeout));
+
+			auto connection = serverCallback.Connection();
+			auto sendThread = Thread::CreateAndStart([state, connection]()
+			{
+				try
+				{
+					connection->SendString(L"held-poll");
+					state->sendReturns++;
+				}
+				catch (...)
+				{
+					state->stopErrors++;
+				}
+			}, false);
+			threadScope.SetFirst(sendThread);
+			TEST_ASSERT(state->eventPollClaimed.WaitForTime(SocketHttpFocusedTimeout));
+
+			auto localStopThread = Thread::CreateAndStart([state, connection]()
+			{
+				try
+				{
+					connection->Stop();
+					state->localStopReturns++;
+				}
+				catch (...)
+				{
+					state->stopErrors++;
+				}
+				state->eventLocalStopReturned.Signal();
+			}, false);
+			threadScope.SetSecond(localStopThread);
+			TEST_ASSERT(serverCallback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.disconnectedCount == 1);
+			TEST_ASSERT(!state->eventLocalStopReturned.WaitForTime(0));
+
+			auto wholeStopThread = Thread::CreateAndStart([state, server]()
+			{
+				try
+				{
+					server->Stop();
+					state->wholeStopReturns++;
+				}
+				catch (...)
+				{
+					state->stopErrors++;
+				}
+				state->eventWholeStopReturned.Signal();
+			}, false);
+			threadScope.SetThird(wholeStopThread);
+			TEST_ASSERT(state->eventWholeStopEntered.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!state->eventWholeStopReturned.WaitForTime(0));
+
+			state->eventReleasePoll.Signal();
+			TEST_ASSERT(state->eventLocalStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(state->eventWholeStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(pollState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			threadScope.JoinAll();
+			TEST_ASSERT(state->pollRegisteredCount == 1);
+			TEST_ASSERT(state->pollClaimedCount == 1);
+			TEST_ASSERT(state->pollReleasedCount == 1);
+			TEST_ASSERT(state->pollCompletedCount == 1);
+			TEST_ASSERT(pollState->callbackCount == 1);
+			TEST_ASSERT(state->localStopReturns == 1);
+			TEST_ASSERT(state->wholeStopReturns == 1);
+			TEST_ASSERT(state->sendReturns == 1);
+			TEST_ASSERT(state->stopErrors == 0);
+			TEST_ASSERT(serverCallback.disconnectedCount == 1);
+			TEST_ASSERT(server->IsStopped());
+			pollClient->Stop();
+		}
+		{
+			const vint port = 39609;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedReentrantFollower";
+			auto state = Ptr(new SocketHttpReentrantFollowerState);
+			SocketHttpReentrantFollowerCallback firstServerCallback(state);
+			SocketHttpReentrantFollowerCallback secondServerCallback(state);
+			auto server = Ptr(new TwoConnectionSocketHttpServer(baseUrl, port, &firstServerCallback, &secondServerCallback));
+			state->server = server.Obj();
+			server->Start();
+
+			ExactMessageCallback firstClientCallback(L"unused");
+			auto firstClient = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			firstClient->GetConnection()->InstallCallback(&firstClientCallback);
+			firstClient->WaitForServer();
+			firstClient->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(firstServerCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+
+			ExactMessageCallback secondClientCallback(L"unused");
+			auto secondClient = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			secondClient->GetConnection()->InstallCallback(&secondClientCallback);
+			secondClient->WaitForServer();
+			secondClient->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(secondServerCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+
+			SocketHttpStopThreadScope threadScope;
+			auto outerStopThread = Thread::CreateAndStart([state, server]()
+			{
+				try
+				{
+					server->Stop();
+					state->outerStopReturns++;
+				}
+				catch (...)
+				{
+					state->stopErrors++;
+				}
+				state->eventOuterStopReturned.Signal();
+			}, false);
+			threadScope.SetFirst(outerStopThread);
+			TEST_ASSERT(state->eventNestedStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(state->eventOuterStopReturned.WaitForTime(SocketHttpFocusedTimeout));
+			threadScope.JoinAll();
+			TEST_ASSERT(state->disconnectEntered == 2);
+			TEST_ASSERT(state->disconnectCompleted == 2);
+			TEST_ASSERT(state->nestedStopCalls == 1);
+			TEST_ASSERT(state->nestedStopReturns == 1);
+			TEST_ASSERT(state->outerStopReturns == 1);
+			TEST_ASSERT(state->nestedSawOtherCompleted == 1);
+			TEST_ASSERT(state->stopErrors == 0);
+			TEST_ASSERT(firstServerCallback.disconnectedCount == 1);
+			TEST_ASSERT(secondServerCallback.disconnectedCount == 1);
+			TEST_ASSERT(server->IsStopped());
+			firstClient->GetConnection()->Stop();
+			secondClient->GetConnection()->Stop();
+		}
+	});
+}
+
 TEST_FILE
 {
 	TEST_CASE(L"NetworkPackage ExtraClientIds")
@@ -1025,6 +2743,18 @@ TEST_FILE
 		async_tcp_socket::windows_socket::AsyncSocketServer,
 		async_tcp_socket::windows_socket::AsyncSocketClient
 	>(true);
+	RunSocketHttpNetworkProtocolTestCases<
+		async_tcp_socket::windows_socket::AsyncSocketServer,
+		async_tcp_socket::windows_socket::AsyncSocketClient
+	>();
+	RunSocketHttpWindowsInteropTestCases<
+		async_tcp_socket::windows_socket::AsyncSocketServer,
+		async_tcp_socket::windows_socket::AsyncSocketClient
+	>();
+	RunSocketHttpFocusedTestCases<
+		async_tcp_socket::windows_socket::AsyncSocketServer,
+		async_tcp_socket::windows_socket::AsyncSocketClient
+	>();
 
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
@@ -1074,10 +2804,26 @@ TEST_FILE
 		async_tcp_socket::macos_socket::AsyncSocketServer,
 		async_tcp_socket::macos_socket::AsyncSocketClient
 	>(false);
+	RunSocketHttpNetworkProtocolTestCases<
+		async_tcp_socket::macos_socket::AsyncSocketServer,
+		async_tcp_socket::macos_socket::AsyncSocketClient
+	>();
+	RunSocketHttpFocusedTestCases<
+		async_tcp_socket::macos_socket::AsyncSocketServer,
+		async_tcp_socket::macos_socket::AsyncSocketClient
+	>();
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::linux_socket::AsyncSocketServer,
 		async_tcp_socket::linux_socket::AsyncSocketClient
 	>(true);
+	RunSocketHttpNetworkProtocolTestCases<
+		async_tcp_socket::linux_socket::AsyncSocketServer,
+		async_tcp_socket::linux_socket::AsyncSocketClient
+	>();
+	RunSocketHttpFocusedTestCases<
+		async_tcp_socket::linux_socket::AsyncSocketServer,
+		async_tcp_socket::linux_socket::AsyncSocketClient
+	>();
 #endif
 }

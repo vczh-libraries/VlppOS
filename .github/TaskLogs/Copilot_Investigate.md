@@ -4,267 +4,326 @@
 
 investigate repro
 
-# Browser test application for SocketHttpServerApi
+# Socket HTTP network protocol adapter
 
-After [TODO_Task_MiniHttpApi.md](./TODO_Task_MiniHttpApi.md) is complete, add a portable `MiniHttpServer` CLI project and deterministic website fixtures to verify `vl::inter_process::async_tcp_socket::SocketHttpServerApi` in real browsers.
+Implement the portable `INetworkProtocol*` compatibility adapter described by [TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md](./TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md) on top of the completed `vl::inter_process::async_tcp_socket::SocketHttpServerApi` and `vl::inter_process::async_tcp_socket::SocketHttpClientApi`.
 
-`MiniHttpServer` is the project/executable name. Do not invent a `MiniHttpServerApi` product class; consume `SocketHttpServerApi` exactly as implemented by the prerequisite task.
+The public adapter types are `vl::inter_process::async_tcp_socket::SocketHttpServer` and `vl::inter_process::async_tcp_socket::SocketHttpClient`. Implement them in:
 
-## Required outcome
+- `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.h/.cpp`
+- `Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.h/.cpp`
 
-- Add `MiniHttpServer.vcxproj` to `Test/UnitTest/UnitTest.sln`.
-- Launch the executable with two physical-folder arguments.
-- Host the first folder at normalized prefix `http://localhost:8888`.
-- Host the second folder at normalized prefix `http://localhost:8889/Assets`.
-- Put every JavaScript file in the second folder so the page on port 8888 loads and calls cross-origin resources on port 8889.
-- Call browser control to verify the website in Chrome on Windows, Firefox on Linux, and Safari on macOS. A native HTTP client, `curl`, raw sockets, code inspection, or merely shell-opening a URL does not satisfy the browser gate.
-- Move the existing `Test/Linux` UnitTest configuration into `Test/Linux/UnitTest` and add `Test/Linux/MiniHttpServer` for Linux and macOS builds.
-- Update `Project.md` as part of executing this future task. Do not treat the current creation of this TODO document as authorization to update `Project.md` early.
+This is the final unchecked item in [TODO_SocketHttp.md](./TODO_SocketHttp.md). It must preserve the successful legacy Windows HTTP wire protocol while using the portable MiniHttp stack and native async-socket implementations on Windows, Linux, and macOS.
 
-The feature referred to as “XSS” in the request is cross-origin/CORS behavior. Do not create an XSS vulnerability. Use a module script and a cross-origin fetch so the browser must enforce CORS.
+## Authoritative corrections from the completed dependencies
 
-## Project and solution layout
+Treat `TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md` as the wire-level source of truth, with these corrections for the code that actually landed:
 
-Create:
+- The portable application layer is named `SocketHttpServerApi`, `SocketHttpClientApi`, and `SocketHttpRequestContext`; the old proposed `SocketHttpServer` / `SocketHttpClient` names are now available for this `INetworkProtocol*` adapter.
+- The request layer has concrete `HttpRequestServer` and `HttpRequestClient` wrappers over `IHttpRequestConnection`; there are no `IHttpRequestServer` or `IHttpRequestClient` interfaces.
+- `Source/InterProcess/NetworkProtocolHttp.h/.cpp` already contains the shared route constants, Windows-shaped `windows_http::HttpRequest` / `HttpResponse` / `HttpError` values, UTF-8 body helpers, and URL query helpers. Do not recreate or move them.
+- `SocketHttpServerApi` takes an absolute URL prefix and owns shared native-listener selection internally. It intentionally has no public `IAsyncSocketServer` injection constructor. Tests bind the requested native server through the existing private `SetSocketHttpServerListenerFactoryForTesting` seam.
+- One `SocketHttpClientApi` owns one `HttpRequestClient`, serializes one physical connection, and becomes terminal after a transport/framing/timeout failure. The adapter therefore needs two live client APIs and a way to create replacements; two fixed `Ptr<IAsyncSocketClient>` objects are insufficient for the documented retry policy.
+- `SocketHttpRequestContext::Respond` is one-shot and reports physical delivery through `Func<void(bool)>`; `Cancel` is the supported way to abandon an outdated long poll and closes that physical connection.
+- The completed MiniHttp layer already owns HTTP parsing, fixed response framing, `Date`, no-cache policy, CORS, `OPTIONS`, response deadlines, prefix dispatch, listener sharing, and callback draining. Reuse these behaviors rather than adding another parser or another server registry.
+
+Do not use the direct length-framed `async_tcp_socket::NetworkProtocolServer<TAsyncSocketServer>` / `NetworkProtocolClient<TAsyncSocketClient>` implementation for this adapter. It remains a separate portable transport and is only a test-pattern reference.
+
+## Public adapter surface
+
+Use this public shape unless implementation evidence requires a small signature correction, in which case record the correction before coding:
+
+```cpp
+namespace vl::inter_process::async_tcp_socket
+{
+	class SocketHttpServer
+		: public SocketHttpServerApi
+		, public virtual INetworkProtocolServer
+	{
+	protected:
+		void                                OnHttpRequestReceived(Ptr<SocketHttpRequestContext> context) override;
+		void                                OnHttpServerStopping() override;
+
+	public:
+		SocketHttpServer(const WString& baseUrl, vint port);
+		~SocketHttpServer();
+
+		virtual WaitForClientResult          OnClientConnected(INetworkProtocolConnection* connection) override;
+		void                                Start() override;
+		void                                Stop() override;
+		bool                                IsStopped() override;
+	};
+
+	class SocketHttpClient
+		: public Object
+		, public virtual INetworkProtocolClient
+		, public virtual INetworkProtocolConnection
+	{
+	public:
+		using NativeClientFactory = Func<Ptr<IAsyncSocketClient>(vint)>;
+
+		SocketHttpClient(const WString& baseUrl, vint port);
+		SocketHttpClient(const WString& baseUrl, vint port, NativeClientFactory clientFactory);
+		~SocketHttpClient();
+
+		INetworkProtocolConnection*         GetConnection() override;
+		void                                WaitForServer() override;
+		ClientStatus                        GetStatus() override;
+		void                                InstallCallback(INetworkProtocolCallback* callback) override;
+		void                                BeginReadingLoopUnsafe() override;
+		void                                SendString(const WString& str) override;
+		void                                Stop() override;
+	};
+}
+```
+
+The two-argument client constructor uses a private platform-guarded default factory for `windows_socket::AsyncSocketClient`, `linux_socket::AsyncSocketClient`, or `macos_socket::AsyncSocketClient`. The factory overload is per instance and must be used by the shared tests to select the exact native client type. Every call to the factory creates a fresh client for a new physical connection; validate that it returns a non-null object. Do not add mutable global client-factory state when the per-instance factory solves retries and testing directly.
+
+Both adapter classes are non-copyable and non-movable. `SocketHttpServer` must remain inheritable so `NetworkProtocolChannelServer<..., SocketHttpServer>` and the test callback host can derive from it. Construction initializes state only; `Start` begins callbacks after the most-derived object exists. Every most-derived server destructor must call `Stop` before destroying fields visible to `OnClientConnected` or connection callbacks, even though `SocketHttpServer` also performs a final safety stop.
+
+Validate `baseUrl` before starting asynchronous work. It is either empty or a legal ASCII origin-form path prefix that begins with `/`, has no trailing `/`, query, fragment, backslash, NUL, raw non-ASCII, malformed percent escape, or percent-encoded path separator or NUL. A caller that needs non-ASCII path text supplies its canonical percent-encoded UTF-8 bytes. At construction, validate the fixed `{baseUrl}{HttpServerUrl_Connect}` target against `HttpRequestLineSizeLimit`, including HTTP start-line overhead; the server must also reserve the documented maximum locally generated token length for both token-bearing routes. The client cannot know a remote server's opaque paths yet, so after every `/Connect` response validate both actual `{baseUrl}{returnedPath}` targets as legal ASCII origin forms within the same start-line limit before entering `Connected`. An illegal or oversized returned path is a malformed `/Connect` attempt handled by its retry policy. Use the empty string for the origin root. Construct the server prefix as `http://localhost:{port}{baseUrl}` and every client authority as `localhost:{port}`. The TCP client still connects to `127.0.0.1`; the exact `localhost` HTTP authority is required for HTTP.sys interoperability.
+
+## Logical connection and physical connection model
+
+One opaque GUID-like token identifies one logical `INetworkProtocolConnection`. A TCP connection or `SocketHttpRequestContext` does not.
 
 ```text
-Test/UnitTest/MiniHttpServer/
-|- MiniHttpServer.vcxproj
-|- MiniHttpServer.vcxproj.filters
-`- Main.cpp
+logical connection {token}
+|- receive lane: one SocketHttpClientApi with one pending POST /Request/{token}
+`- control/send lane: one SocketHttpClientApi for GET /Connect, then FIFO POST /Response/{token}
 ```
 
-Add the project to `Test/UnitTest/UnitTest.sln` with a new project GUID and all four `Debug|Win32`, `Debug|x64`, `Release|Win32`, and `Release|x64` active/build mappings.
+- The server owns the token-to-logical-connection map above every physical HTTP request context.
+- The client maintains at least the two lanes above because a FIFO HTTP/1.1 connection cannot send `/Response` while its infinite `/Request` exchange is pending.
+- A terminal transport error replaces only the affected physical lane through `NativeClientFactory`; it does not create a new logical token except while retrying `/Connect` before logical connection succeeds.
+- EOF, cancellation, or replacement of one physical HTTP connection must not remove the logical server connection.
+- There is no disconnect route, heartbeat, acknowledgement, deduplication, or abandoned-token reclamation. A logical server connection is removed only by its local `Stop` or whole-server shutdown. Preserve the documented possibility of both duplicate delivery and loss around retries and lost HTTP responses; do not claim exactly-once or unconditional at-least-once delivery.
+- Receive-lane, send-lane, and server callbacks may run concurrently and have no total cross-lane ordering.
 
-Follow `.github/Guidelines/SourceFileManagement.md`: copy the existing UnitTest project as the configuration baseline, then remove unit-test-only sources and enumerate every retained product/source file explicitly. Wildcards are forbidden.
+Generate a fresh fixed-length, URL-safe token for every accepted `/Connect`; a canonical 36-character lowercase UUID form keeps the legacy bound. It must be unique among active connections and treated as opaque by both peers. Do not introduce a Windows RPC dependency into common code; generate the bounded GUID-format value portably and collision-check it against the connection map.
 
-- Keep standard `Header Files`, `Resource Files`, and `Source Files` filters. Header Files may remain empty as required by repository convention.
-- Compile the portable VlppOS file/stream/threading, async-socket request, and MiniHttp API sources needed by the application. Include Windows/Linux/macOS native socket sources with the same platform exclusions used by UnitTest.
-- Define `VCZH_DEBUG_NO_REFLECTION` in every configuration and `VCZH_CHECK_MEMORY_LEAKS` in Debug configurations.
-- List website fixtures as explicit `None` items under `Resource Files` for discoverability, but do not embed or copy them into the binary. Runtime roots must come from the CLI.
-- Do not commit `MiniHttpServer.vcxproj.user`.
+## HTTP wire construction
 
-## CLI and server lifecycle
+Use `HttpServerUrl_Connect`, `HttpServerUrl_Request`, and `HttpServerUrl_Response` from `NetworkProtocolHttp.h`. Route server requests with `SocketHttpRequestContext::GetRelativePath()`; it is already prefix-relative and UTF-8 decoded. Do not decode it again. The paths returned by `/Connect` intentionally exclude `baseUrl`, and the client prepends its validated `baseUrl` exactly once.
 
-Use this command-line contract:
+Use the exact legacy media type everywhere it is required:
 
 ```text
-MiniHttpServer <WebsiteFolder> <AssetsFolder>
+application/json; charset=utf8
 ```
 
-- Require exactly two arguments and verify that both resolve to existing folders. Print a short usage/error message and return nonzero on invalid input.
-- Derive a small physical-folder handler from `SocketHttpServerApi`. Construct one instance with `http://localhost:8888` for the Website argument and another with `http://localhost:8889/Assets` for the Assets argument, passing `respondToOptions = true` to both so the mandatory browser preflight is handled.
-- Start both APIs, print the two ready URLs, and wait for an explicit Enter/stop command. Do not busy-wait.
-- On exit, stop both APIs in reverse startup order, drain callbacks, release resources, call `FinalizeGlobalStorage`, and return zero. The derived physical-folder handler's destructor must also call `Stop` before its fields are destroyed, even though normal `main` cleanup already stopped it.
-- Ensure Ctrl+C, application errors, and partial startup do not leave either port bound.
+- Each logical message is one nonempty `WString` encoded directly as UTF-8 bytes, without BOM, terminator, JSON quoting, compression, chunks at the logical layer, or trailers. Before either server or client accepts a send, reject embedded NUL characters and reject an encoded byte count greater than the existing `HttpBodySizeLimit`. This is a synchronous contract failure, not an HTTP attempt to retry.
+- `GET {baseUrl}/VlppInterProcess/Connect` has an empty body and sends `Accept` with the exact legacy media type.
+- `POST {baseUrl}/VlppInterProcess/Request/{token}` has an empty body, exact `Accept`, explicit `Content-Length: 0`, and infinite `receiveTimeout`.
+- `POST {baseUrl}/VlppInterProcess/Response/{token}` has exact `Accept` and `Content-Type`, a fixed positive UTF-8 byte `Content-Length`, and exactly one message body.
+- Every successful route response is `200 OK` with the exact legacy `Content-Type`, including successful empty `/Request` or `/Response` bodies. Build `async_tcp_socket::HttpResponse` objects and let `SocketHttpServerApi` add legal `Content-Length`, `Date`, cache, and CORS fields.
+- A successful empty response means no logical message and never calls `OnReadString`.
+- Validate a `/Connect` response as exactly two nonempty semicolon-separated origin-form paths before entering the connected state. Keep their token/path components otherwise opaque.
+- On `/Response`, require exactly one legal fixed `Content-Length` greater than zero, no `Transfer-Encoding`, the exact content type, a complete body of that byte size, valid UTF-8, and no NUL. Return a non-`200` response for invalid input.
 
-The app uses two different ports and therefore does not need to retest same-port sharing. Same-port listener sharing is covered by the prerequisite product unit tests.
+The completed MiniHttp policy has two harmless differences from the old HTTP.sys route dispatcher:
 
-## Physical-folder handler belongs in Main.cpp
+- methods outside `GET`, `HEAD`, `POST`, and `OPTIONS` receive MiniHttp's global `501` before adapter dispatch instead of the legacy route-level `404`;
+- `respondToOptions = true` returns MiniHttp's compatible CORS/`OPTIONS` superset, which also advertises `HEAD` and `Accept`.
 
-Implement the tiny static handler in the application, not in `SocketHttpServerApi` or another product source file.
+Do not fork or weaken the completed MiniHttp policy to reproduce those negative-path details. Successful routes and the exact media type/body convention remain wire-compatible with `windows_http::HttpServer` and `windows_http::HttpClient`.
 
-- Map an exact prefix or relative `/` to `index.html`. A relative path ending in `/` may map to that directory's `index.html`; other paths map to regular files below the supplied root.
-- Use the context's already UTF-8-decoded prefix-relative path and ignore its separate raw query for file lookup. Normalize platform separators, reject NUL, separators/traversal, and require the result to stay below the physical root; never decode a second time.
-- Support browser `GET` and `HEAD`. Return `404` for missing paths and never generate a directory listing.
-- Read exact file bytes. Construct `async_tcp_socket::HttpResponse` in application code with status, reason, fields, body, and correct `Content-Type`.
-- Provide only the fixture metadata needed here: HTML, CSS, JavaScript modules, JSON, SVG, and an `application/octet-stream` fallback. This mapping is application policy and must not be moved into MiniHttp product APIs.
-- Let `SocketHttpServerApi` supply its normal CORS, `OPTIONS`, framing, `HEAD`, date, cache, and shutdown behavior.
+## Server logical-connection behavior
 
-## Deterministic website fixtures
+Implement each logical server connection as an internal `INetworkProtocolConnection` object owned by the server map. `BeginReadingLoopUnsafe` is a no-op because `SocketHttpServerApi` already dispatches completed requests.
 
-Create this minimum fixture tree:
+### `GET /Connect`
 
-```text
-Test/MiniHttpServer/
-|- Website/
-|  |- index.html
-|  |- second.html
-|  |- site.css
-|  `- image.svg
-`- Assets/
-   |- index.html
-   |- app.js
-   `- message.json
-```
+1. Create the token and logical connection and publish it in the map before calling `SocketHttpServer::OnClientConnected` outside all internal locks.
+2. If accepted, respond with `{HttpServerUrl_Request}/{token};{HttpServerUrl_Response}/{token}` as direct UTF-8 text with the exact success media type.
+3. If rejected or the callback throws, remove and detach the connection, cancel any retained work, and return `404 Connection rejected` without reporting a successful connection.
+4. A lost accepted response may leave an abandoned logical connection, matching the legacy retry behavior. Do not merge repeated `/Connect` calls or enforce the obsolete comment that it can be called only once.
 
-No `.js` file may exist below `Website`.
+### `POST /Request/{token}`
 
-The fixtures must visibly prove:
+- Look up the token exactly. Unknown tokens and malformed adapter paths receive `404`.
+- Retain at most one pending long-poll context and allow at most one in-flight long-poll `Respond` per logical connection. Cancel an older still-pending context outside the connection lock before retaining a newer one.
+- If no response is in flight and an outbound string is already queued, claim the oldest and respond through the pending context immediately. If a replacement poll or another send arrives while a prior response is in flight, retain/queue it but do not service it yet; otherwise a later message could overtake the claimed one.
+- Keep ownership of an in-flight outbound string until the `Respond` completion reports success. On success, service the retained poll from the next queued message. If `Respond` loses the race or its completion reports `false`, clear the stale in-flight state, restore that string at the front of the FIFO, and only then service the retained poll.
+- A client normally issues the replacement poll only after the previous response, but the server must still handle deterministic poll replacement without holding locks across `Cancel`, `Respond`, or completion callbacks.
 
-- `index.html` has a normal link to `second.html`; `second.html` links back.
-- Both Website pages load only `http://localhost:8889/Assets/app.js` with `<script type="module">`. Module loading is intentional because it is CORS checked.
-- `index.html` renders `image.svg` through `<img>` and includes deterministic initial/status text plus a button.
-- `app.js` changes the visible status after module load, wires the button to another visible text change, and fetches `http://localhost:8889/Assets/message.json`.
-- Make the fetch trigger a real preflight, for example by supplying `Content-Type: application/json` on the cross-origin request. Display either the returned deterministic JSON message or a clear failure marker in the DOM.
-- `Assets/index.html` is simple but browseable at the exact `/Assets` prefix so exact-prefix behavior can be checked independently.
+### `POST /Response/{token}`
 
-Keep all content deterministic and offline. Do not reference CDN scripts, web fonts, analytics, or external images.
+- Validate and decode the entire fixed body before invoking user code. Deliver it exactly once through `OnReadString`, or queue it until callback installation if no callback exists yet.
+- `InstallCallback` calls `OnInstalled` before any queued `OnReadString`, installs only one callback at a time, supports `nullptr` uninstallation, and replays queued strings outside locks. Prevent a concurrent inbound dispatch from overtaking `OnInstalled`.
+- Application code may synchronously call `SendString` on the same logical connection from its inbound callback. Track that condition with a callback-frame/thread-local association, not a connection-wide boolean that could steal a concurrent send from another thread.
+- Return the first synchronously generated string in this `/Response` HTTP response, queue any additional generated strings FIFO, and use one previously queued outbound string only when the callback generated none. A send on another logical connection follows that other connection's normal long-poll path.
+- A piggybacked message is not application-acknowledged. Do not add exactly-once bookkeeping or requeue it merely because the HTTP response may have been lost after submission.
 
-## Linux and macOS layout preparation
+### Server sends and shutdown
 
-Move the existing tracked files:
+- `SendString` outside a matching `/Response` callback immediately satisfies a pending poll when possible; otherwise it queues FIFO.
+- Never invoke `OnClientConnected`, `OnInstalled`, `OnReadString`, `OnLocalError`, `OnDisconnected`, `Respond` completion, or `SocketHttpServerApi` callbacks while holding connection, queue, map, or lifecycle locks.
+- Logical connection `Stop` removes its token once, cancels its pending poll, drains entered callbacks, detaches it from the server, and calls `OnDisconnected` exactly once. It does not attempt an HTTP disconnect request.
+- Whole-server `Stop` and unexpected native listener failure detach the complete map, cancel all pending contexts, drain all logical callbacks, and report one disconnection per accepted connection before returning from the hard shutdown boundary.
+- External connection/server `Stop` calls are hard drains. If either is called reentrantly from `OnClientConnected`, `OnInstalled`, `OnReadString`, or `OnDisconnected`, wait for other entered callback frames but never for the current frame itself; keep the detached lifecycle state alive until that frame exits. Apply the same rule when a callback stops the whole server.
+- Reuse `NetworkProtocolCallbackDomain` and the existing inter-process callback-frame/drain patterns where they fit instead of relying on callback owners being heap allocated or adding sleeps.
 
-```text
-Test/Linux/Main.cpp
-Test/Linux/vmake
-Test/Linux/vmake.txt
-Test/Linux/makefile
-```
+## Client state machine, retries, and ordering
 
-to:
+`SocketHttpClient` implements both `INetworkProtocolClient` and its single logical `INetworkProtocolConnection`; `GetConnection()` returns `this`.
 
-```text
-Test/Linux/UnitTest/Main.cpp
-Test/Linux/UnitTest/vmake
-Test/Linux/UnitTest/vmake.txt
-Test/Linux/UnitTest/makefile
-```
+### Connect and start reading
 
-Update only the hand-authored `Test/Linux/UnitTest/Main.cpp` and `vmake` for the extra directory level. In particular, the project path becomes `../../UnitTest/UnitTest/UnitTest.vcxproj`, source/import removal paths gain one `..`, and resource/output paths still resolve to `Test/Resources` and `Test/Output`.
+- `GetStatus` reports `Ready`, `WaitingForServer`, `Connected`, and `Disconnected` from adapter state, not from one physical lane alone.
+- `WaitForServer` can be called once. It creates the control/send API, waits for its native connection, performs `/Connect`, validates the two returned paths, then establishes the independent receive API before changing to `Connected` and invoking `OnConnected` outside locks. A failure while establishing that second physical connection is a silent receive-lane failure: publish each fresh bootstrap API before its blocking native wait so `Stop` can cancel it, retry with fresh APIs indefinitely while running, and never repeat `/Connect` or replace the logical token. `Stop` must unblock every in-progress wait.
+- `BeginReadingLoopUnsafe` can begin once after logical connection. It only submits one infinite `/Request` on the already-connected receive API and must not perform a blocking native connection attempt.
+- After every successful poll, enqueue/start its replacement on that same FIFO API from the response callback before delivering a nonempty body to `OnReadString`. This uses the completed `SocketHttpClientApi` callback-reentrant queue behavior and avoids a receive gap.
+- A terminal `HttpError` on either lane schedules replacement worker work and returns from the lower HTTP/socket callback without blocking. The worker owns cleanup of the dead API, creates and publishes the replacement as the lane's current reconnecting API before blocking in its native `WaitForServer` so concurrent `Stop` can cancel/unblock it, retains the logical token, and retries only the operation owned by that lane. Track and drain every replacement worker and old API during `Stop`.
+- Catch factory exceptions, null factory results, API-construction failures, and native `WaitForServer` failures inside every bootstrap/replacement worker. Convert each into the owning operation's silent retry or counted local-error/fatal transition, always complete the tracked worker state, and never let an exception escape into `ThreadPoolLite` and strand a lane in `reconnecting`.
 
-Create `Test/Linux/MiniHttpServer/vmake` from the repository's CLI-project pattern:
+### Send lane
 
-- Use `CPP_TARGET=./Bin/MiniHttpServer`.
-- Read `../../UnitTest/MiniHttpServer/MiniHttpServer.vcxproj`.
-- Remove Windows-only sources and retain the Linux/macOS source selected by platform guards.
-- Use correct `../../../Import` and `../../../Source` depth where explicit paths are needed.
+- Reject empty or NUL-containing strings before queuing them. Encode one accepted string into one `/Response` body.
+- Maintain an adapter-level FIFO with at most one active `/Response`. Do not submit every message directly to the lower API: a retry of the head message must not be overtaken by later accepted messages already queued in `SocketHttpClientApi`.
+- On success, remove the head, start the next accepted send, then deliver any nonempty piggybacked response through `OnReadString`. Concurrent and callback-reentrant `SendString` calls append in deterministic acceptance order.
+- `Stop` first rejects new sends and cancels the infinite poll. Give already accepted send-lane messages a bounded drain opportunity, including consecutive final messages used by `TestInterProcess.cpp`; then cancel any remainder and drain all lower callbacks. Use condition/event coordination, not sleeps or polling, and do not set the unsupported `windows_http::HttpRequest::keepAliveOnStop` flag.
 
-Never hand-edit `vmake.txt` or `makefile`. Run the absolute `.github/Ubuntu/build.sh` from each new project directory to regenerate them, inspect the generated source lists, and commit the generated files only after the build script produces them.
+### Retry policy
 
-This two-project directory layout is used for both Linux and macOS verification.
+Preserve the legacy attempt policy, counting HTTP status/content-type failures and terminal transport failures consistently:
 
-## Deferred documentation updates
+| Operation | Required behavior |
+| --- | --- |
+| `/Connect` | At most three immediate attempts. Attempts one and two call `OnLocalError(..., false)`; attempt three calls `OnLocalError(..., true)` and disconnects/unblocks `WaitForServer`. |
+| `/Request/{token}` | Retry immediately and indefinitely while running, without a local-error callback. |
+| `/Response/{token}` | Retry the same head body for at most three immediate attempts. Attempts one and two call `OnLocalError(..., false)`; attempt three calls `OnLocalError(..., true)` and disconnects. |
 
-During execution of this task, update `Project.md` to:
+- Reuse a healthy API after a non-`200` or wrong-content-type HTTP response. Replace the affected API through `NativeClientFactory` after a terminal `HttpError` or physical disconnect.
+- Keep the long poll infinite. Use the normal bounded response timeout for `/Connect` and `/Response`; do not apply that timeout to `/Request`.
+- Validate every successful response before consuming it: `/Connect` must contain valid UTF-8, no NUL, and exactly the two legal paths; nonempty `/Request` and `/Response` bodies must contain valid UTF-8 and no NUL. Treat any malformed success body as a failed attempt owned by that operation, with the same retry, local-error, and fatal policy as a non-`200` or wrong-content-type response. Never let `CHECK_ERROR` escape from an asynchronous callback and never deliver malformed text.
+- There is deliberately no retry delay, message id, acknowledgement id, or deduplication. A lost `/Response` reply can make the retried client message arrive twice.
+- A fatal local error is delivered before `OnDisconnected`. `OnDisconnected` occurs exactly once. No protocol callback may touch the client after external `Stop` returns.
+- Make `Stop` idempotent and reentrant from an adapter callback. Wait for other entered callbacks, but never wait for the current callback frame to unwind from inside itself; retain detached lifecycle state until it does.
 
-- list both `UnitTest.vcxproj` and `MiniHttpServer.vcxproj` in `Test/UnitTest/UnitTest.sln`;
-- describe `MiniHttpServer` as the CLI/browser verification project and record its two folder arguments;
-- change the UnitTest Unix build location to `Test/Linux/UnitTest`;
-- add `Test/Linux/MiniHttpServer` as the MiniHttpServer Unix build location; and
-- retain the rule that relevant unit tests are required when shared product source changes.
+## Shared verification in `TestInterProcess.cpp`
 
-Also update the active Linux instruction in `README.md` from `Test/Linux/makefile` to `Test/Linux/UnitTest/makefile`. Do not rewrite historical completed TODOs solely because their old Linux path appears in recorded history.
+Add all adapter verification to the existing [TestInterProcess.cpp](./Test/Source/TestInterProcess.cpp). Do not create another test file and do not modify the `MiniHttpServer` browser application.
 
-## Launch instructions
+Reuse the existing `RunTextNetworkProtocol` and `RunNetworkProtocolChannel` helpers. They already verify two logical clients, connection statuses, callback installation, consecutive sends, raw routing, channel handshake/direct/broadcast/local-client behavior, explicit client/server shutdown, a five-second deadlock boundary, and `InterProcessTestRepeatCount` repetition.
 
-### Windows and Chrome
+Add common `AsyncSocket_HttpServer.h` / `AsyncSocket_HttpClient.h` includes, a `SocketHttpTextServer` callback host, a `SocketHttpChannelServer`, and one shared runner such as `RunSocketHttpNetworkProtocolTestCases<TNativeServer, TNativeClient>()`. Register the same raw-protocol and channel cases once; only native type binding varies by guard:
 
-Create an ignored `Test/UnitTest/MiniHttpServer/MiniHttpServer.vcxproj.user` for local Debug x64 execution with:
+| Guard | Native server | Native client |
+| --- | --- | --- |
+| `VCZH_MSVC` | `async_tcp_socket::windows_socket::AsyncSocketServer` | `async_tcp_socket::windows_socket::AsyncSocketClient` |
+| `VCZH_GCC && VCZH_APPLE` | `async_tcp_socket::macos_socket::AsyncSocketServer` | `async_tcp_socket::macos_socket::AsyncSocketClient` |
+| `VCZH_GCC && !VCZH_APPLE` | `async_tcp_socket::linux_socket::AsyncSocketServer` | `async_tcp_socket::linux_socket::AsyncSocketClient` |
 
-```text
-"..\MiniHttpServer\Website" "..\MiniHttpServer\Assets"
-```
+- Mirror `TestInterProcess_AsyncSocket_MiniHttpApi.cpp`: declare the existing server listener factory functions only in the test and keep an RAII `TNativeServer` factory scope alive until every server and callback drains.
+- Construct `SocketHttpClient` with its per-instance `NativeClientFactory`, returning a fresh `TNativeClient(port)` for every lane or retry.
+- Use `localhost:{port}` through the adapter and a leading/no-trailing-slash base URL.
+- Pass `synchronizeServerStartup = true` on Windows, Linux, and macOS. These cases test protocol behavior, not the native client's separate retry-before-listen policy.
+- Run portable `SocketHttpServer` against portable `SocketHttpClient` through both the raw and channel helpers on every platform.
+- On Windows, add four dedicated cases in this file by running both successful cross-stack directions through both the raw and channel helpers:
+  - socket-backed portable `SocketHttpServer` against the existing WinHTTP-backed `windows_http::HttpClient`;
+  - existing HTTP.sys-backed `windows_http::HttpServer` against the socket-backed portable `SocketHttpClient`.
+- Implement this `INetworkProtocol*` matrix again in `TestInterProcess.cpp`. Similar request/API coverage in [TestInterProcess_HttpRequest.cpp](./Test/Source/TestInterProcess_HttpRequest.cpp) and [TestInterProcess_AsyncSocket_MiniHttpApi.cpp](./Test/Source/TestInterProcess_AsyncSocket_MiniHttpApi.cpp) is lower-layer evidence and does not substitute for any of these four new raw/channel cases.
+- Preserve all existing direct async-socket, NamedPipe, and legacy Windows HTTP cases. Use distinct, non-overlapping port ranges above the currently occupied `38000..38912` test range; for example `39000..39519` for the six new repeated matrices.
+- Do not sleep. Use the existing events, startup barrier, timeout thread, repeated cases, and callback-thread failure reporting. The final consecutive sends must reach the server even when each client calls `Stop` immediately afterwards, proving the bounded send drain.
 
-as `LocalDebuggerCommandArguments`. From `Test/UnitTest`, start the server in an interactive/asynchronous terminal through the required wrapper:
+Also add mandatory deterministic focused cases in this same file. Use event/barrier-controlled scripted MiniHttp peers and the existing native listener factory; if an internal transition cannot be observed through the public APIs, add the smallest test-only seam beside the existing listener-factory seam and declare it only in the test. Do not use sleeps, duplicate the complete chat/channel scenarios, or repeat lower MiniHttp parser tests.
 
-```powershell
-& REPO-ROOT\.github\Scripts\copilotExecute.ps1 -Mode CLI -Executable MiniHttpServer -Configuration Debug -Platform x64
-```
+- Send a non-ASCII `WString` in each direction and verify the exact logical value after the UTF-8 request/response round trip, including the synchronous server reply path.
+- Observe the receive-lane submission boundary and prove that the replacement `/Request` is enqueued before `OnReadString` is entered. In the same controlled exchange, call server `SendString` synchronously from the inbound `/Response` callback and prove that the first reply is piggybacked on that HTTP response rather than waiting for the poll.
+- Script the first `/Response` attempt to fail and the retry to succeed while a second send is already accepted. Record request bodies and callback order as `first`, `first`, `second`; also force a terminal send-lane transport failure so the native-client factory count proves that a new physical API is connected without changing the logical token.
+- Close a registered long-poll connection only after the server has claimed a queued message, wait for its `Respond` completion to report failure, then issue the replacement poll and prove it receives the original message. This validates failed-poll requeue without timing assumptions.
+- Exercise both server and client outbound validation at `HttpBodySizeLimit` and one encoded byte beyond it, including a multibyte UTF-8 boundary. Prove that the limit is accepted and the oversized value fails synchronously before entering either adapter FIFO; do not put 16 MiB payloads into every repeated interoperability case.
 
-Keep that terminal alive after both ready messages. Call browser control, select/drive Chrome, and navigate to `http://localhost:8888/`.
+## Source, project, and generated-file integration
 
-### Linux and Firefox
+- Add the four new product files explicitly to `Test/UnitTest/UnitTest/UnitTest.vcxproj`; wildcards are forbidden.
+- Put all four under `Common\InterProcess\AsyncSocket` in `Test/UnitTest/UnitTest/UnitTest.vcxproj.filters`.
+- `TestInterProcess.cpp` is already registered, so no new test source entry or solution project is required.
+- The current Unix UnitTest directory is `Test/Linux/UnitTest`, not the historical `Test/Linux` root. Let its MSBuild-derived source list acquire the common `.cpp` files, and regenerate `vmake.txt` / `makefile` only through the absolute `.github/Ubuntu/build.sh`. Never hand-edit generated Unix files; commit the regenerated tracked `Test/Linux/UnitTest/vmake.txt` and `Test/Linux/UnitTest/makefile` with the implementation when that script changes them.
+- Do not add the adapter sources to `MiniHttpServer.vcxproj`; that CLI consumes only `SocketHttpServerApi` and does not need `INetworkProtocol*`.
+- Do not hand-edit `Release` outputs. Update only source/release-generation inputs if the repository's generator requires explicit registration.
+- `Project.md` and `UnitTest.sln` need no structural change because no project is added.
 
-From `Test/Linux/MiniHttpServer`, build with the absolute `REPO-ROOT/.github/Ubuntu/build.sh`, then start the binary asynchronously from the same directory:
+## Documentation and knowledge-base reconciliation
 
-```text
-./Bin/MiniHttpServer ../../MiniHttpServer/Website ../../MiniHttpServer/Assets
-```
+Complete these updates with the implementation so documentation matches the new portable transport:
 
-Call browser control, select/drive Firefox, and navigate to `http://localhost:8888/`.
+- Fix the stale source-of-truth reference in `TODO_SocketHttp_MiniHttpApi_NetworkProtocol.md`: `NetworkProtocolHttp.h` already exists and the deleted `TODO_Task_MiniHttpApi.md` is no longer a future dependency.
+- Correct the route comments in `Source/InterProcess/NetworkProtocolHttp.h`: `/Connect` is not `GET /Request`, repeated calls create separate logical connections, and `/Response` may return one piggybacked message.
+- Mark the final adapter item in `TODO_SocketHttp.md` complete only after all implementation verification succeeds.
+- Update `.github/KnowledgeBase/Index.md`, `.github/KnowledgeBase/Index_VlppOS.md`, `.github/KnowledgeBase/KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md`, and `.github/KnowledgeBase/manual/vlppos/using-inter-process.md` to distinguish:
+  - the portable direct length-framed `NetworkProtocolServer<T>` / `NetworkProtocolClient<T>` adapter;
+  - the new portable HTTP-compatible `SocketHttpServer` / `SocketHttpClient` adapter;
+  - the legacy Windows-only `windows_http::HttpServer` / `windows_http::HttpClient` reference implementation; and
+  - the lower `SocketHttp*Api` and Windows `Http*Api` request/response helpers.
+- Record the final public signatures, native-client factory choice, two-lane state machine, callback/shutdown ownership, retry behavior, Windows interoperability, project integration, and actual platform verification in `.github/TaskLogs/Copilot_Investigate.md`.
 
-### macOS and Safari
+## Explicitly out of scope
 
-Use the same `Test/Linux/MiniHttpServer` build directory, build through the absolute `.github/Ubuntu/build.sh`, and launch with the same relative arguments. Call browser control, select/drive Safari, and navigate to `http://localhost:8888/`.
+- Changing native `IAsyncSocket*` interfaces, retry constants, or port-only concrete constructors.
+- Reworking the direct length-framed `NetworkProtocolServer<T>` / `NetworkProtocolClient<T>` transport.
+- Adding another HTTP parser, changing MiniHttp prefix/listener architecture, or adding public server-listener injection.
+- Changing the `MiniHttpServer` CLI, browser fixtures, CORS browser workflow, or `Project.md` project list.
+- Refactoring the legacy Windows HTTP transport except for necessary common comments/includes or a root-cause fix exposed by interoperability.
+- Authentication, TLS/HTTPS, HTTP/2 or HTTP/3, proxying, cookies, compression, WebSocket, Server-Sent Events, binary logical messages, or REST semantics.
+- A disconnect route, heartbeat, lease, abandoned-token collector, acknowledgement, deduplication, or exactly-once delivery.
 
-On every platform, leave the server running until browser checks finish, then send the explicit stop command/Enter and verify a clean exit and released ports.
+## Verification and acceptance
 
-## Mandatory browser verification
+Follow `.github/copilot-instructions.md`, `Project.md`, and all referenced coding, multithreading, source-file, build, unit-test, and native-dialog guidance.
 
-Browser control must perform and record all of the following in the named browser for each platform:
+- Establish a clean Debug x64 build and `TestInterProcess.cpp` baseline before product changes.
+- Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64. Require zero errors and resolve new warnings.
+- Run focused `TestInterProcess.cpp` in Debug x64 through `.github/Scripts/copilotExecute.ps1`, then run the complete Debug x64 UnitTest suite.
+- Inspect `Build.log` and `Execute.log` only after the wrappers finish. Require complete pass summaries and no post-summary Debug CRT memory-leak report.
+- On Linux and macOS, build only from `Test/Linux/UnitTest` through the absolute `.github/Ubuntu/build.sh`, run the focused `/F:TestInterProcess.cpp /C` scenario asynchronously, then run the complete suite. Report only operating systems actually exercised; never infer one platform from another.
+- Textually audit common headers for platform-specific leakage, the exact HTTP fields/body bytes, base URL and route construction, token-map ownership, callback installation ordering, callbacks outside locks, two-lane replacement, FIFO retry ownership, bounded send draining, reentrant hard shutdown, project/filter entries, and documentation consistency.
+- Remove temporary diagnostics and test filters that were added only for investigation. Commit only intentional implementation, tests, project metadata, documentation, knowledge-base, and investigation evidence, then push the current branch.
 
-1. Open `http://localhost:8888/` and verify the expected title, heading, initial content, and CSS styling.
-2. Verify the SVG is visibly rendered and loaded, using rendered state such as nonzero `naturalWidth` plus a screenshot when available.
-3. Verify the module-loaded status produced by `http://localhost:8889/Assets/app.js`.
-4. Verify the cross-origin/preflight JSON fetch changes the DOM to the expected success message and does not produce a CORS failure.
-5. Click the button and verify its JavaScript reaction.
-6. Follow the link to `second.html`, verify that page, and navigate back.
-7. Directly browse `http://localhost:8889/Assets` and verify the second folder's index page.
-8. Verify `http://localhost:8889/app.js` and `http://localhost:8889/AssetsExtra/app.js` are not served by the `/Assets` API.
+Acceptance requires `SocketHttpServer` and `SocketHttpClient` in the requested files; exact successful wire interoperability with the Windows HTTP transport; two replaceable physical client lanes; deterministic send FIFO and retry ownership; mandatory deterministic coverage of non-ASCII UTF-8, long-poll replacement before callback delivery, same-response piggybacking, terminal lane replacement, send-head retry ordering, and pending-poll failure requeue; no callbacks under internal locks or after `Stop`; the same raw and channel scenarios bound to Windows, Linux, and macOS native socket types in `TestInterProcess.cpp`; all four dedicated Windows raw/channel cases across socket server with WinHTTP client and HTTP.sys server with socket client; clean builds/tests without leaks or deadlocks; and reconciled source/knowledge documentation.
 
-Record only browsers and operating systems actually exercised. If one required platform is unavailable in the current environment, mark it explicitly unverified; do not infer Safari/Firefox behavior from Chrome or claim completion of the overall three-platform gate.
-
-## Build and acceptance
-
-- Build `Test/UnitTest/UnitTest.sln` through `.github/Scripts/copilotBuild.ps1` for Debug/Release and Win32/x64 after adding the project. Require zero errors and resolve new warnings.
-- On Windows, run the Debug x64 CLI and complete the Chrome browser workflow, then stop cleanly.
-- On Linux and macOS, build from both `Test/Linux/UnitTest` and `Test/Linux/MiniHttpServer`, run the server, and complete the Firefox or Safari workflow respectively.
-- If fixing a discovered issue changes shared product source, run the focused MiniHttp tests and the full relevant UnitTest suite on that platform.
-- Inspect console/browser errors and ensure no memory leaks, crashes, blocked native dialogs, stale processes, or occupied ports remain.
-- Update `Project.md` and `README.md`, remove temporary diagnostics, commit all intentional project/layout/fixture/documentation/evidence changes, and push the current branch.
-
-Acceptance requires the new solution project, two CLI folder roots, exact `8888` and `8889/Assets` prefixes, all JavaScript in Assets, visible navigation/reaction/image behavior, genuine CORS/preflight success, browser-control evidence from Chrome/Firefox/Safari on their named platforms, the reorganized Unix project layout, updated project documentation, clean builds, and clean shutdown.
 
 # UPDATES
 
 # TEST [CONFIRMED]
 
-Confirm the missing browser-test application first by checking that the repository has no `MiniHttpServer` project, executable source, fixture tree, or solution entry. The existing `SocketHttpServerApi` prerequisite and its focused MiniHttp unit tests must already be present; this investigation adds a browser-facing consumer and does not duplicate the product API.
+Confirm the missing adapter first without changing product source:
 
-Verification after implementation consists of:
+- Verify that `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.h/.cpp` and `AsyncSocket_HttpClient.h/.cpp` are absent, that the final `TODO_SocketHttp.md` adapter item is unchecked, and that the UnitTest project/filter do not already register those files.
+- Establish the required healthy Windows Debug x64 baseline by building `Test/UnitTest/UnitTest.sln` through `copilotBuild.ps1` and running the existing `TestInterProcess.cpp` cases through `copilotExecute.ps1`. The build must finish with zero warnings and zero errors; all selected test files/cases must pass and the end of `Execute.log` must contain no Debug CRT leak report.
 
-- Static project/layout checks: the solution contains the new project and all four build mappings; the project and filters enumerate every source and fixture without wildcards; Website contains no JavaScript; the Unix UnitTest files are moved one directory deeper; generated Unix source lists match the project metadata; documentation and debugger arguments use the required paths.
-- Windows builds: build `Test/UnitTest/UnitTest.sln` through `copilotBuild.ps1` in Debug/Release and Win32/x64, requiring zero errors and resolving new warnings.
-- CLI contract checks: invalid argument counts and nonexistent folders return nonzero with a short diagnostic; valid roots start exactly `http://localhost:8888` and `http://localhost:8889/Assets`; explicit input, Ctrl+C/error cleanup, and partial startup release both ports without polling, leaks, crashes, or stale processes.
-- Windows browser gate: keep Debug x64 `MiniHttpServer` running through `copilotExecute.ps1`, drive Chrome with browser control, and perform all eight mandatory checks from the request. Inspect rendered DOM/state, CSS, SVG `naturalWidth`, module/fetch success, button behavior, navigation, direct Assets index, negative prefix routes, browser console, and screenshots where useful.
-- Unix builds and browser gates: from `Test/Linux/UnitTest` and `Test/Linux/MiniHttpServer`, run the absolute `build.sh`, then drive Firefox on Linux and Safari on macOS through browser control when those operating systems are actually available. Never infer an unavailable platform result; explicitly record it as unverified and leave the overall three-platform browser gate incomplete.
-- Regression: because only application/project/fixture/documentation files should change, the existing focused MiniHttp product tests must remain available and the full relevant UnitTest suite must pass on every exercised platform. Check Debug execution logs for post-summary memory leaks.
+After implementation, add all adapter tests to the existing `TestInterProcess.cpp` and require:
 
-The feature succeeds only if every implemented static/build/runtime check passes and each browser/operating-system pair is reported truthfully. The current host can confirm the missing-project baseline and is expected to exercise Windows/Chrome; Linux/Firefox and macOS/Safari remain mandatory acceptance gates but may only be marked verified when actually run.
+- The shared raw-protocol and channel helpers pass for socket-backed `SocketHttpServer` with socket-backed `SocketHttpClient` on each compiled platform binding, with synchronized server startup and repeated immediate-stop/consecutive-send coverage.
+- On Windows, the same raw and channel helpers pass in both cross-stack directions: portable socket server with legacy WinHTTP client, and legacy HTTP.sys server with portable socket client.
+- Deterministic event/barrier-controlled cases verify exact non-ASCII UTF-8 in both directions, replacement long-poll submission before `OnReadString`, synchronous `/Response` piggybacking, send-head retry ordering `first`, `first`, `second`, physical send-lane replacement without token replacement, failed long-poll response requeue, and server/client body-size validation at and one encoded byte beyond `HttpBodySizeLimit` including a multibyte boundary.
+- Callback and shutdown assertions prove one `OnDisconnected`, fatal local error before disconnection, no callback after external `Stop`, callback-reentrant `Stop` without self-deadlock, bounded accepted-send draining, and no sleeps or polling.
 
-The baseline is confirmed on Windows at source commit `4f609f9`. `Test/UnitTest/MiniHttpServer`, `Test/MiniHttpServer`, `Test/Linux/UnitTest`, and `Test/Linux/MiniHttpServer` do not exist; `UnitTest.sln` has no `MiniHttpServer` entry; and neither port 8888 nor 8889 is listening. In contrast, `SocketHttpServerApi`, its portable sources, and `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` are present. The existing Debug x64 solution built with 0 warnings and 0 errors, and the complete UnitTest run passed 15/15 files and 181/181 cases, including all 15 focused MiniHttp cases, with no post-summary memory-leak report. This proves the prerequisite is healthy and isolates the reproduced gap to the absent application, fixtures, layouts, and browser workflow requested here.
+Verification succeeds only when all four Windows `Debug|x64`, `Debug|Win32`, `Release|x64`, and `Release|Win32` solution builds complete with zero warnings/errors, the focused Windows Debug x64 `TestInterProcess.cpp` run and complete Debug x64 UnitTest suite pass with no post-summary leak report, project/filter and generated Unix source lists contain the four files correctly, and the requested source/TODO/knowledge/manual descriptions agree with the final public API and state machine. Linux and macOS build/test results are recorded only when those operating systems are actually exercised; no platform result may be inferred from Windows.
+
+The missing-feature baseline is confirmed on Windows at source commit `9127a33`. All four requested adapter files are absent, the UnitTest project and filters have no entries for them, and the final `TODO_SocketHttp.md` adapter item is unchecked. The unchanged Debug x64 solution built through `copilotBuild.ps1` with 0 warnings and 0 errors. The existing focused `TestInterProcess.cpp` run through `copilotExecute.ps1` passed 1/1 selected file and 7/7 cases, including direct async socket, NamedPipe, and legacy Windows HTTP raw/channel scenarios, with no post-summary Debug CRT leak report. This isolates the reproduced gap to the missing adapter, its adapter-level test matrix, project/generated-file registration, and documentation reconciliation rather than a pre-existing inter-process regression.
 
 # PROPOSALS
 
-- No.1 Add the portable physical-folder browser server [CONFIRMED]
+- No.1 Add a portable HTTP-compatible raw protocol adapter
 
-## No.1 Add the portable physical-folder browser server
+## No.1 Add a portable HTTP-compatible raw protocol adapter
 
-Add one application-level consumer of `vl::inter_process::async_tcp_socket::SocketHttpServerApi`; do not change or wrap the product API. A `PhysicalFolderHttpServer` class in `MiniHttpServer/Main.cpp` will own a normalized `FilePath` root and override `OnHttpRequestReceived`. Its destructor will call `Stop()` while the root field is still alive. The application will create Website and Assets instances on the stack, start them in order, wait once on console input, and stop them in reverse order. Stack unwinding makes invalid input, a failed second startup, and other application errors release either started server; normal process termination on Ctrl+C releases the native listeners, and verification will confirm both ports are reusable.
+Implement the requested `SocketHttpServer` and `SocketHttpClient` as focused stateful adapters over the completed `SocketHttpServerApi` and `SocketHttpClientApi`; keep the direct length-framed async-socket transport unchanged and alter the legacy Windows transport only if the required cross-stack stress run exposes a root-cause lifetime defect. Both public classes use private implementation state, remain noncopyable/nonmovable, validate the base URL and all locally generated or remotely returned request targets before starting asynchronous work, and strictly validate UTF-8/NUL/body-size boundaries before accepting or delivering a logical message.
 
-The handler will consume only the already-decoded `SocketHttpRequestContext::GetRelativePath()` and will ignore `GetQuery()` for lookup. It will normalize slash and backslash separators into path components, reject NUL, empty interior components, `.`/`..`, colon-bearing or otherwise separator-bearing components, reject per-component symbolic links or Windows reparse points, and reject any `FilePath` whose root-relative result is absolute or begins with a parent component. `/` and trailing `/` map to `index.html`. Only existing regular files are read, using `stream::FileStream` until the exact byte count is obtained; directories and unsafe/missing/unreadable paths return 404 without listings. GET and HEAD receive the same application body metadata so `SocketHttpServerApi` can apply its normal HEAD suppression; other application-visible methods receive 405. The response itself will be built in `Main.cpp` with status/reason, one `Content-Type` field, and an exact byte chunk. The MIME table is limited to HTML, CSS, JavaScript, JSON, SVG, and `application/octet-stream`.
+The server implementation owns a token-to-logical-connection map above every physical request context. It generates collision-checked fixed 36-character lowercase UUID-shaped tokens without Windows RPC, publishes a candidate before calling `OnClientConnected` outside locks, and marks it accepted only if the hook returns `Accept` while the candidate remains active. Each connection separately owns callback installation/replay, inbound strings, outbound FIFO state, one pending poll, and one claimed in-flight poll response. A send claims but does not remove the FIFO head until `SocketHttpRequestContext::Respond` completion reports success; immediate or asynchronous failure restores the head before servicing a replacement poll. During `/Response`, a thread-local dispatch frame associates only same-thread/same-connection synchronous `SendString` calls with the piggyback response, leaving concurrent sends on the ordinary poll FIFO. Connection and server shutdown detach state, cancel pending contexts outside locks, wait for in-flight response completions and other entered callback frames, and report exactly one disconnection for each accepted connection without waiting for a reentrant current frame.
 
-Create deterministic Website and Assets fixtures with no JavaScript under Website. Both Website pages use the one cross-origin module URL. The module publishes a visible loaded state, installs the button behavior, and fetches the cross-origin JSON using a nonsafelisted `Content-Type: application/json` request header, forcing browser preflight. The Website index also carries stable initial text, navigation, CSS, and SVG state; the Assets exact-prefix index is independently browseable.
+The client implementation owns one logical connection and two replaceable `SocketHttpClientApi` lanes. `WaitForServer` establishes the control/send lane, performs at most three `/Connect` attempts with the legacy local-error policy, validates the two opaque returned paths, then repeatedly creates and publishes a separate receive API until its native connection succeeds before publishing `Connected`. The receive lane keeps one infinite `/Request`; a successful callback submits its replacement on the same callback-reentrant FIFO before any nonempty body reaches `OnReadString`. A terminal receive error schedules a tracked replacement worker that creates a fresh physical API and silently retries the same logical poll/token.
 
-Create `MiniHttpServer.vcxproj` from the UnitTest configuration baseline with project GUID `{1CE93CCD-1B56-46B0-AE96-8C27D0882E96}`, all four Windows configurations, the required reflection/leak macros, explicitly enumerated portable file/stream/threading and server-side async-socket sources, all three platform socket implementations with the UnitTest Windows exclusions, and explicit `None` fixture items. Keep only the standard and relevant Common filters. Add the project and all eight active/build mappings to `UnitTest.sln`; create only an ignored local `.vcxproj.user` for Debug x64 launch arguments.
+The send lane owns an adapter FIFO with one active `/Response`. Accepted strings are validated and encoded before entering the FIFO. HTTP/content/UTF-8 failures retry the same head on the healthy API; terminal transport failures replace only the send API through the per-instance `NativeClientFactory`; and later accepted sends cannot overtake the retrying head. Each failed connect or send attempt follows the three-attempt nonfatal/nonfatal/fatal callback policy, with fatal local error delivered before the one disconnection notification. Every bootstrap/replacement worker catches factory, null-result, construction, and native-wait failures, updates worker/reconnecting state on all paths, and uses checked `ThreadPoolLite::Queue` submission. `Stop` rejects new sends, cancels the poll, gives accepted sends a condition-variable-based bounded drain, then cancels and drains lower APIs, workers, and logical callbacks. It is idempotent and excludes current callback/worker frames from its waits so callback-reentrant stop is a hard but non-self-deadlocking boundary.
 
-Move the four tracked UnitTest Unix files into `Test/Linux/UnitTest`, adjust only the hand-authored `Main.cpp` and `vmake` depths, and create `Test/Linux/MiniHttpServer/vmake` from the CLI pattern. The generated `vmake.txt` and `makefile` files will be produced only by the absolute `build.sh`, not hand-edited. Update `Project.md` for both projects/build directories and update the active README path.
+Bind the classes into the UnitTest project and filters, regenerate tracked Unix source lists only through `build.sh`, and add all coverage to `TestInterProcess.cpp`. Reuse the existing raw/channel helpers for the portable binding on every platform and for both Windows cross-stack directions. Add deterministic scripted cases for non-ASCII text, poll-before-callback/piggyback ordering, send retry FIFO and physical replacement with stable token, failed-poll requeue, exact body-size boundaries, and reentrant/drained shutdown. Finally reconcile the route comments, TODOs, knowledge-base indexes, detailed design guidance, and manual with the final signatures, physical/logical connection distinction, retry/FIFO rules, and only actually executed platform evidence.
 
-The host is Windows 11 with Chrome installed, but this Codex session currently exposes only the in-app-browser skill and not the separately required Chrome-control skill. Linux, WSL, Firefox, macOS, and Safari are also absent. Implementation and native runtime checks will still be completed here, but browser evidence will be credited only to an actually controllable named browser. If Chrome control remains unavailable after the server starts, Windows/Chrome, Linux/Firefox, and macOS/Safari will all be recorded unverified and the overall browser gate will explicitly remain incomplete rather than being inferred from HTTP or another browser.
+The first post-hardening cross-stack stress run exposed such a legacy lifetime defect in `HttpClientApi`: `BeginPendingCallback` serializes the pending-count transition and manual-reset-event update under `lockActiveRequests`, but `EndPendingCallback` performed its decrement and signal without that lock. A final callback could decrement to zero, a new request could increment and unsignal, and the old callback could then signal the event, leaving it signaled with a live request. `Stop` could consequently wake and destroy the API before that request's WinHTTP `HANDLE_CLOSING` callback dereferenced its raw API pointer. Serialize the decrement-plus-signal under the same lock so the event and count cannot disagree; this is the minimal root-cause correction required by the Windows interoperability matrix.
+
+The deterministic fatal-error/external-`Stop` barrier then exposed a distinct adapter shutdown cycle after that legacy fix. A fatal lower HTTP callback reserves and delivers `OnLocalError(..., true)` while a concurrent external `Stop` owns the hard shutdown. Once the protocol callback frame exits, the fatal reporter's ordinary `Stop` call no longer appears callback-nested and waits for the external stop to publish `stopFinished`; meanwhile that external stop is draining the lower `SocketHttpClientApi`, whose callback cannot return until the fatal reporter returns. Treat the fatal reporter's own post-callback stop request as an internal follower: it still performs the full shutdown when it wins the first-stop race, but returns without waiting when another thread already owns shutdown. Public external `Stop` remains a hard drain.
+
+The server's held-poll shutdown test must distinguish an already in-flight response from a registration still being processed. Blocking the existing poll-claimed hook while the poll is first registered also leaves `pollRegistrationProcessing` true, and `Stop` correctly waits for that registration boundary before reporting disconnection. Add a cpp-only hook that fires outside locks after registration processing has published a stable pending poll. The deterministic test can then submit and observe the pending poll first, claim it from a separate send thread, and hold only the in-flight response while local and whole-server stops exercise their intended ordering.
 
 ### CODE CHANGE
-
-Created `Test/UnitTest/MiniHttpServer/{MiniHttpServer.vcxproj,MiniHttpServer.vcxproj.filters,Main.cpp}` and the seven files under `Test/MiniHttpServer/{Website,Assets}`. Added the project and all eight active/build mappings for the four configuration pairs to `Test/UnitTest/UnitTest.sln`. The application-only handler validates decoded path components, rejects platform filesystem links before opening a file, distinguishes unavailable files from oversized files, serves exact bytes with the required MIME policy, and uses repository-prefixed invariant diagnostics. The two stack-owned APIs use the required prefixes and lifecycle, including reverse explicit shutdown and destructor `Stop()` calls.
-
-Moved the tracked Unix UnitTest configuration to `Test/Linux/UnitTest`, adjusted the two hand-authored files for the extra directory depth, created `Test/Linux/MiniHttpServer/vmake`, and regenerated both projects' `vmake.txt` and `makefile` only by invoking the absolute `.github/Ubuntu/build.sh`. Updated `Project.md`, the active Linux path in `README.md`, and the solution metadata. Created the ignored local `.vcxproj.user` with only the exact Debug x64 fixture arguments; it is not part of the commit. Shared product source and product unit tests were not modified.
-
-### CONFIRMED
-
-The proposal supplies the previously absent application, fixtures, solution integration, Unix layout, and documentation without adding a `MiniHttpServerApi` product class or changing `SocketHttpServerApi`.
-
-Static verification passed. The solution has the new GUID and all eight active/build mappings. The project and filters parse as XML and explicitly agree on 33 `ClCompile`, 25 `ClInclude`, and seven `None` items; all referenced paths exist, there are no wildcards or duplicates, each portable platform source has the four Windows exclusions, and every required macro is present. The fixture tree has exactly the required seven files, no JavaScript exists below Website, and both Website pages reference only the cross-origin Assets module. The generated Unix lists use the new depths, contain the intended Linux/macOS socket implementations, exclude Windows sources, and compile the MiniHttpServer application `Main.cpp`. `Project.md`, `README.md`, and the ignored debugger arguments use the required locations and arguments.
-
-After the final code review hardening, `copilotBuild.ps1` built `Debug|x64`, `Debug|Win32`, `Release|x64`, and `Release|Win32`; every build finished with 0 warnings and 0 errors. The complete Debug x64 UnitTest run passed 15/15 test files and 181/181 test cases, including the 15 existing MiniHttp API cases, with no post-summary memory-leak report.
-
-The CLI contract and Windows native runtime behavior passed. Missing arguments and a nonexistent folder each returned 1 with a short usage/error diagnostic. A valid Debug x64 run launched only through `copilotExecute.ps1`, consumed the exact ignored fixture arguments, printed `http://localhost:8888` and `http://localhost:8889/Assets`, accepted an explicit Enter stop, exited 0, and released both ports. A post-review supplemental HTTP run passed 45 assertions covering GET/HEAD and exact length, MIME metadata, ignored query, CSS/SVG fixture bytes, module and JSON endpoints, actual OPTIONS preflight headers, CORS metadata, both index prefixes, page navigation markup, missing/traversal/incorrect-prefix routes, and POST 405 plus `Allow`. This native pass is supplemental evidence only and is not credited as a browser gate.
-
-Failure cleanup also passed. With an exclusive blocker on 8889, the second `Start()` reported Windows bind error 10048 and the wrapper returned 1; while the blocker still held 8889, 8888 was already absent, proving stack unwinding released the first listener. A separate Win32 harness delivered a genuine `CTRL_C_EVENT`; MiniHttpServer exited with `0xC000013A`, its process disappeared, and both ports remained free on the delayed final check. That Ctrl+C result proves the required OS-level listener cleanup, although default asynchronous Windows Ctrl+C termination does not run normal C++ finalization. No MiniHttpServer process or listener remained after testing.
-
-The platform/browser acceptance status is deliberately incomplete:
-
-- Windows 11 / Chrome: **UNVERIFIED**. Chrome is installed, but this Codex session does not expose the required Chrome-control skill. The available in-app browser is not a valid substitute for the explicitly named Chrome gate, so it was not used to manufacture evidence.
-- Linux / Firefox: **UNVERIFIED**. WSL/Linux and Firefox are unavailable. The absolute build script regenerated both Unix projects, then could not compile because this Windows Git Bash environment has no `make`.
-- macOS / Safari: **UNVERIFIED**. No macOS host or Safari control is available.
-
-Therefore Proposal No.1 is confirmed as a useful and regression-free implementation on the available Windows native/static checks, while the request's overall three-platform browser-control acceptance gate remains explicitly incomplete. No browser behavior or Unix compilation result is inferred from the supplemental HTTP checks or Windows builds.

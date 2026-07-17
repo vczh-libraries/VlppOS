@@ -44,9 +44,12 @@ void HttpClientApi::BeginPendingCallback()
 
 void HttpClientApi::EndPendingCallback()
 {
-	if (--pendingCallbacks == 0)
+	SPIN_LOCK(lockActiveRequests)
 	{
-		eventPendingCallbacks.Signal();
+		if (--pendingCallbacks == 0)
+		{
+			eventPendingCallbacks.Signal();
+		}
 	}
 }
 
