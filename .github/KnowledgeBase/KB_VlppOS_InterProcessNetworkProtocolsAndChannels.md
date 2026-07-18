@@ -1,8 +1,8 @@
 # Inter-Process Network Protocols and Channels
 
-## Testing-Only Scope
+## Production Interfaces and Testing-Only Protocol Implementations
 
-The inter-process APIs in this repository are testing, validation and demonstration infrastructure. Do not use `INetworkProtocol*`, `IChannel*`, their bridges, or the supplied transports in production code. They are not designed or hardened as production messaging infrastructure, and the async-socket-based Mini HTTP transport does not provide production security, deployment or delivery guarantees.
+The transport-agnostic `INetworkProtocol*` and `IChannel*` interfaces, together with the channel implementation built on them, can be used in production. However, every concrete `INetworkProtocol*` implementation supplied by this repository is testing, validation and demonstration infrastructure and should not be used as a production transport. Applications that need production inter-process communication should implement their own `INetworkProtocolServer`, `INetworkProtocolClient` and `INetworkProtocolConnection` to meet their security, deployment, performance, reconnection and delivery requirements; the `IChannel*` layer can be reused over that implementation.
 
 ## Scope
 

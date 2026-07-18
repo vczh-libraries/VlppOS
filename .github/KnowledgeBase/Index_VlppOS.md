@@ -127,12 +127,12 @@ Cross-process synchronization objects that support waiting operations with timeo
 
 #### Inter-Process Network Protocols and Channels
 
-Testing-only asynchronous text transport and typed named-channel communication over the async-socket-based Mini HTTP transport. Do not use these inter-process APIs in production code.
+Production-usable asynchronous text-protocol and typed named-channel abstractions. Every concrete network-protocol implementation supplied by this repository, including the async-socket-based Mini HTTP transport, is testing-only; production applications should provide their own `INetworkProtocol*` implementation.
 
 - Use `INetworkProtocolServer`, `INetworkProtocolClient`, `INetworkProtocolConnection` and `INetworkProtocolCallback` for asynchronous `WString` messages.
 - Use `IChannelServer<TPackage>`, `IChannelClient<TPackage>`, `IChannel<TPackage>` and `IChannelReader<TPackage>` for typed named channels with client ids, direct sends, broadcasts and batched writes.
-- Use `NetworkProtocolChannelServer<TPackage, TSerialization, async_tcp_socket::SocketHttpServer>`, `NetworkProtocolChannelClient<TPackage, TSerialization>` and `NetworkProtocolLocalChannelClient<TPackage, TSerialization>` to run the default channel implementation over Socket HTTP.
-- Use `vl::inter_process::async_tcp_socket::SocketHttpServer` and `vl::inter_process::async_tcp_socket::SocketHttpClient` as the portable Mini HTTP implementation of the raw network-protocol interfaces.
+- Use `NetworkProtocolChannelServer<TPackage, TSerialization, TServerBase>`, `NetworkProtocolChannelClient<TPackage, TSerialization>` and `NetworkProtocolLocalChannelClient<TPackage, TSerialization>` to run the channel implementation over a production-ready custom protocol.
+- Use `vl::inter_process::async_tcp_socket::SocketHttpServer` and `vl::inter_process::async_tcp_socket::SocketHttpClient` only for testing as the portable Mini HTTP implementation of the raw network-protocol interfaces.
 
 [API Explanation](./KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md)
 

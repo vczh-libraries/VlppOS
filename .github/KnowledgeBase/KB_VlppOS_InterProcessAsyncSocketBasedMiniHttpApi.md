@@ -1,8 +1,8 @@
 # Inter-Process Async-Socket-Based Mini HTTP API
 
-## Testing-Only Scope
+## Testing-Only Protocol Implementations
 
-Like all inter-process APIs in this repository, the async-socket, HTTP request and Mini HTTP APIs described here are testing, validation and demonstration infrastructure. Do not use them in production code. They are loopback-oriented building blocks for controlled scenarios, not a production HTTP server, HTTP client or network stack, and they do not provide production security, deployment or delivery guarantees.
+The bundled async-socket, HTTP request and Mini HTTP APIs described here, including the concrete `INetworkProtocol*` implementations built on them, are testing, validation and demonstration infrastructure. Do not use these implementations as production networking infrastructure. This restriction does not apply to the transport-agnostic `INetworkProtocol*` and `IChannel*` interfaces or the channel implementation built on them, which can be used in production with a production-ready protocol. Applications that need production inter-process communication should implement their own `INetworkProtocolServer`, `INetworkProtocolClient` and `INetworkProtocolConnection` to meet their security, deployment, performance, reconnection and delivery requirements.
 
 ## Purpose and Layered Organization
 
