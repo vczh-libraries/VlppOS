@@ -2,11 +2,13 @@
 
 # Orders
 
-- `vl::inter_process` shutdown must finish callbacks before returning [5]
+- `vl::inter_process` shutdown must finish callbacks before returning [6]
 - Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [3]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [2]
 - `NetworkProtocolChannel` uses explicit positive sender and receiver ids [2]
+- Async-socket concrete server and client constructors stay port-only across platforms [2]
+- Do not invoke inter-process user callbacks while holding internal locks [2]
 - Template `NetworkProtocolChannelServer` over the protocol server base [1]
 - Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
@@ -14,11 +16,9 @@
 - Keep channel protocol declarations separate from implementation headers [1]
 - Group `SpinLock`-protected fields with coverage comments [1]
 - `HttpServerConnection` queues pending outbound `/Request` responses [1]
-- Do not invoke inter-process user callbacks while holding queue locks [1]
 - Split remote channel errors from local transport errors [1]
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 - `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
-- Async-socket concrete server and client constructors stay port-only across platforms [1]
 - `Thread::Wait` completion belongs to the native thread entry point [1]
 
 # Refinements
@@ -57,6 +57,8 @@ For WinHTTP requests, track request lifetime before `WinHttpSendRequest` and rel
 
 For named-pipe connections, cancel pending overlapped pipe I/O before waiting for callbacks to drain when the remote side can close first. `NetworkProtocolChannelClient` destruction should also check whether the transport connection is already disconnected before trying to stop it.
 
+An `IAsyncSocketServerCallback` passed non-owningly to `IAsyncSocketServer::Start` must remain valid until the server reaches its callback-drain boundary. An external `Stop()` waits for already-entered accept callbacks; a callback-reentrant stop prevents later callbacks and defers self-dependent cleanup so it does not deadlock, with a later idempotent external stop completing finalization before the callback owner is released.
+
 ## Keep `IChannelServer` delivery-only; use local clients for server speech
 
 Keep `IChannelServer` focused on accepting clients and delivering protocol messages. Do not expose a `GetChannel` escape hatch or let `NetworkProtocolChannelServer` own user channel objects for ordinary chat. When the server needs to participate as a speaker, create a server-side local channel client, register it through `ConnectLocalClient`, and let it send/receive through the same channel contract as other clients.
@@ -85,9 +87,11 @@ Keep Windows HTTP API ownership in non-copyable/non-movable RAII structs. `HttpC
 
 `HttpServerApi` should own one `http://host:port/prefix/.../` prefix, initialization/finalization, async request receive loop, optional OPTIONS handling, and generic UTF-8 request/response helpers. Use `GetUtf8Body(PHTTP_REQUEST)` for shared complete-body reading and validation, and use `SendResponseUtf8(...)` for the common JSON UTF-8 success response shape. Pass HTTP response status/message/body/content-type as `HttpServerResponse` instead of a loose tail of arguments. Higher-level inter-process protocol classes should keep only route handling and connection state.
 
-## Do not invoke inter-process user callbacks while holding queue locks
+## Do not invoke inter-process user callbacks while holding internal locks
 
 When installing an HTTP connection callback, move queued strings to a local list while holding the `SpinLock`, then release the lock before calling `OnInstalled` or replaying queued `OnReadString` callbacks. This avoids reentrancy and ordering races where a `/Response` callback can observe user callbacks before installation has completed.
+
+The same rule applies to native accept paths: capture the installed callback while synchronized, release the server lock, and only then invoke `IAsyncSocketServerCallback::OnClientConnected`.
 
 ## Split remote channel errors from local transport errors
 

@@ -2,12 +2,12 @@
 
 # Orders
 
+- Use focused `TestInterProcess.cpp` runs for inter-process work [10]
 - Debug UnitTest logs append memory leaks after the pass summary [9]
-- Use focused `TestInterProcess.cpp` runs for inter-process work [9]
 - Split channel clients by role when validating sender ids [5]
-- Repeat inter-process transport scenarios instead of sleeping after `Stop()` [1]
+- Repeat inter-process transport scenarios instead of sleeping after `Stop()` [3]
+- `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [2]
 - Search project metadata after source file renames [1]
-- `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [1]
 - Test inherited `Thread` completion with a custom subclass [1]
 - Synchronize server startup outside dedicated retry tests [1]
 
@@ -33,7 +33,7 @@ Avoid carrying duplicate test fields for the same role identity. If `clientId1` 
 
 ## Repeat inter-process transport scenarios instead of sleeping after `Stop()`
 
-When validating named-pipe and HTTP callback draining, remove fixed `Thread::Sleep(1000)` delays and repeat each scenario many times. Repetition exposes races where `Stop()` returns before read/connect/request callbacks have drained, while sleeps only hide the broken shutdown boundary.
+When validating named-pipe and HTTP callback draining, remove fixed `Thread::Sleep(1000)` delays and repeat each scenario many times. Repetition exposes races where `Stop()` returns before read/connect/request callbacks have drained, while sleeps only hide the broken shutdown boundary. For a platform-specific intermittent deadlock fix, require a substantial consecutive-pass stress run (for example, 30 clean runs) before declaring the race fixed.
 
 ## Search project metadata after source file renames
 
