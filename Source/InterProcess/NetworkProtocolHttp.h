@@ -103,6 +103,7 @@ namespace vl::inter_process::windows_http
 		WString												contentType;
 
 		HttpResponse() = default;
+		bool												TryGetBodyUtf8(WString& bodyString) const;
 		WString												GetBodyUtf8() const;
 	};
 

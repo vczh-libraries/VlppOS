@@ -1,4 +1,5 @@
 #include "NetworkProtocolHttp.h"
+#include "AsyncSocket/HttpRequest.h"
 #include "../Encoding/CharFormat/CharFormat.h"
 #include "../Stream/Accessor.h"
 #include "../Stream/EncodingStream.h"
@@ -114,6 +115,15 @@ namespace vl::inter_process::windows_http
 		EncodeUtf8(bodyString, body);
 	}
 
+	bool HttpResponse::TryGetBodyUtf8(WString& bodyString) const
+	{
+		return ::vl::inter_process::async_tcp_socket::DecodeStrictUtf8(
+			body.Count() == 0 ? nullptr : reinterpret_cast<const vuint8_t*>(&body[0]),
+			body.Count(),
+			bodyString
+			);
+	}
+
 	WString HttpResponse::GetBodyUtf8() const
 	{
 		return body.Count() == 0
@@ -121,4 +131,3 @@ namespace vl::inter_process::windows_http
 			: DecodeUtf8(&body[0], body.Count());
 	}
 }
-

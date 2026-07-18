@@ -97,39 +97,13 @@ namespace vl::inter_process::async_tcp_socket
 				}
 			}
 
-			List<wchar_t> chars;
-			for (vint i = 0; i < bytes.Count();)
-			{
-				auto first = bytes[i++];
-				vuint32_t code = 0;
-				vint following = 0;
-				if (first < 0x80) code = first;
-				else if (first >= 0xC2 && first <= 0xDF) { code = first & 0x1F; following = 1; }
-				else if (first >= 0xE0 && first <= 0xEF) { code = first & 0x0F; following = 2; }
-				else if (first >= 0xF0 && first <= 0xF4) { code = first & 0x07; following = 3; }
-				else return false;
-				if (i + following > bytes.Count()) return false;
-				for (vint j = 0; j < following; j++)
-				{
-					auto next = bytes[i++];
-					if ((next & 0xC0) != 0x80) return false;
-					code = (code << 6) | (next & 0x3F);
-				}
-				if ((following == 1 && code < 0x80) || (following == 2 && code < 0x800) || (following == 3 && code < 0x10000) || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)) return false;
-				if constexpr (sizeof(wchar_t) == 2)
-				{
-					if (code <= 0xFFFF) chars.Add((wchar_t)code);
-					else
-					{
-						code -= 0x10000;
-						chars.Add((wchar_t)(0xD800 + (code >> 10)));
-						chars.Add((wchar_t)(0xDC00 + (code & 0x3FF)));
-					}
-				}
-				else chars.Add((wchar_t)code);
-			}
-			decoded = chars.Count() == 0 ? WString::Empty : WString::CopyFrom(&chars[0], chars.Count());
-			return true;
+			Array<vuint8_t> encoded(bytes.Count());
+			for (vint i = 0; i < bytes.Count(); i++) encoded[i] = bytes[i];
+			return ::vl::inter_process::async_tcp_socket::DecodeStrictUtf8(
+				encoded.Count() == 0 ? nullptr : &encoded[0],
+				encoded.Count(),
+				decoded
+				);
 		}
 
 		bool ParseAuthority(const WString& text, WString& authority, vint& port)
@@ -178,20 +152,6 @@ namespace vl::inter_process::async_tcp_socket
 #undef ERROR_PREFIX
 		}
 
-		bool ToAscii(const Array<vuint8_t>& bytes, WString& text)
-		{
-			if (bytes.Count() == 0) { text = {}; return true; }
-			auto buffer = new wchar_t[bytes.Count() + 1];
-			for (vint i = 0; i < bytes.Count(); i++)
-			{
-				if (bytes[i] > 0x7F) { delete[] buffer; return false; }
-				buffer[i] = (wchar_t)bytes[i];
-			}
-			buffer[bytes.Count()] = 0;
-			text = WString::TakeOver(buffer, bytes.Count());
-			return true;
-		}
-
 		WString TrimOws(const WString& text)
 		{
 			vint begin = 0, end = text.Length();
@@ -203,7 +163,7 @@ namespace vl::inter_process::async_tcp_socket
 		bool AnalyzeCacheControl(const Array<vuint8_t>& bytes, bool& noStore)
 		{
 			WString text;
-			if (!ToAscii(bytes, text)) return false;
+			if (!DecodeAsciiHttpFieldValue(bytes, text)) return false;
 			noStore = false;
 			vint begin = 0;
 			bool quoted = false, escaped = false;
@@ -244,7 +204,7 @@ namespace vl::inter_process::async_tcp_socket
 		bool ValidHttpDate(const Array<vuint8_t>& bytes)
 		{
 			WString text;
-			if (!ToAscii(bytes, text)) return false;
+			if (!DecodeAsciiHttpFieldValue(bytes, text)) return false;
 			text = TrimOws(text);
 			if (text.Length() != 29
 				|| text[3] != L',' || text[4] != L' ' || text[7] != L' ' || text[11] != L' '
@@ -275,19 +235,6 @@ namespace vl::inter_process::async_tcp_socket
 			return day >= 1 && day <= monthDays[month - 1];
 		}
 
-		HttpField Field(const WString& name, const WString& value)
-		{
-			HttpField field;
-			field.name = Lower(name);
-			field.value.Resize(value.Length());
-			for (vint i = 0; i < value.Length(); i++)
-			{
-				CHECK_ERROR(value[i] <= 0x7F, L"An HTTP field helper requires ASCII.");
-				field.value[i] = (vuint8_t)value[i];
-			}
-			return field;
-		}
-
 		const wchar_t* Reason(vint code)
 		{
 			switch (code)
@@ -302,6 +249,33 @@ namespace vl::inter_process::async_tcp_socket
 			}
 		}
 
+		void ValidateConvenienceResponseArguments(vint statusCode, const WString& reason, const WString& contentType, vint bodySize)
+		{
+			CHECK_ERROR(statusCode >= 200 && statusCode <= 599, L"Invalid HTTP response status.");
+			for (vint i = 0; i < reason.Length(); i++)
+			{
+				CHECK_ERROR((vuint32_t)reason[i] >= 0x20 && (vuint32_t)reason[i] <= 0x7E, L"Invalid HTTP response reason phrase.");
+			}
+			if (contentType != WString::Empty)
+			{
+				CreateAsciiHttpField(L"content-type", contentType);
+			}
+			CHECK_ERROR(bodySize <= HttpBodySizeLimit, L"The response body is too large.");
+		}
+
+		Ptr<HttpResponse> CreateConvenienceResponse(vint statusCode, const WString& reason, const WString& contentType, Array<vuint8_t>&& body)
+		{
+			auto response = Ptr(new HttpResponse);
+			response->statusCode = statusCode;
+			response->reason = reason;
+			if (contentType != WString::Empty)
+			{
+				response->headers.Add(CreateAsciiHttpField(L"content-type", contentType));
+			}
+			SetHttpBodyBytes(response->body, std::move(body));
+			return response;
+		}
+
 		WString Two(vint value) { return value < 10 ? L"0" + itow(value) : itow(value); }
 
 		WString DateHeader()
@@ -312,31 +286,14 @@ namespace vl::inter_process::async_tcp_socket
 			return WString::Unmanaged(days[now.dayOfWeek]) + L", " + Two(now.day) + L" " + months[now.month - 1] + L" " + itow(now.year) + L" " + Two(now.hour) + L":" + Two(now.minute) + L":" + Two(now.second) + L" GMT";
 		}
 
-		bool Decimal(const Array<vuint8_t>& bytes, vint& value)
-		{
-			if (bytes.Count() == 0) return false;
-			vuint64_t number = 0;
-			for (auto c : bytes)
-			{
-				if (c < '0' || c > '9') return false;
-				number = number * 10 + c - '0';
-				if (number > (vuint64_t)(std::numeric_limits<vint>::max)()) return false;
-			}
-			value = (vint)number;
-			return true;
-		}
-
 		Ptr<HttpResponse> Normalize(Ptr<HttpResponse> input, const WString& method)
 		{
 			CHECK_ERROR(input, L"SocketHttpRequestContext::Respond requires a response.");
 			CHECK_ERROR(input->statusCode >= 200 && input->statusCode <= 599, L"Invalid HTTP response status.");
 			CHECK_ERROR(input->body.trailers.Count() == 0, L"Response trailers are not supported.");
-			vint bodySize = 0;
-			for (auto&& chunk : input->body.chunks)
-			{
-				CHECK_ERROR(chunk.data.Count() <= HttpBodySizeLimit - bodySize, L"The response body is too large.");
-				bodySize += chunk.data.Count();
-			}
+			Array<vuint8_t> body;
+			CHECK_ERROR(FlattenHttpBody(input->body, body), L"The response body is too large.");
+			auto bodySize = body.Count();
 			auto bodyAllowed = method != L"HEAD" && input->statusCode != 204 && input->statusCode != 304;
 			auto length = bodyAllowed || method == L"HEAD" ? bodySize : 0;
 			auto output = Ptr(new HttpResponse);
@@ -346,60 +303,65 @@ namespace vl::inter_process::async_tcp_socket
 			{
 				CHECK_ERROR(output->reason[i] >= 0x20 && output->reason[i] <= 0x7E, L"Invalid HTTP response reason phrase.");
 			}
-			bool date = false, noStore = false, cors = false, contentLength = false;
-			vint suppliedLength = 0;
+
+			List<HttpField> normalizedHeaders;
 			for (auto&& source : input->headers)
 			{
-				auto name = Lower(source.name);
-				CHECK_ERROR(name.Length() > 0, L"Invalid empty response field name.");
-				for (vint i = 0; i < name.Length(); i++) CHECK_ERROR(name[i] <= 0x7F && Token(name[i]), L"Invalid response field name.");
+				auto copy = CreateAsciiHttpField(source.name, WString::Empty);
 				for (auto c : source.value) CHECK_ERROR(c == '\t' || (c >= 0x20 && c != 0x7F), L"Invalid response field value.");
-				CHECK_ERROR(name != L"transfer-encoding", L"Response Transfer-Encoding is not supported.");
-				if (name == L"content-length")
-				{
-					vint parsed = 0;
-					CHECK_ERROR(Decimal(source.value, parsed) && (!contentLength || suppliedLength == parsed), L"Invalid or contradictory Content-Length.");
-					contentLength = true;
-					suppliedLength = parsed;
-					continue;
-				}
-				if (name == L"date")
+				copy.value.Resize(source.value.Count());
+				for (vint i = 0; i < source.value.Count(); i++) copy.value[i] = source.value[i];
+				normalizedHeaders.Add(std::move(copy));
+			}
+
+			HttpFraming framing;
+			CHECK_ERROR(AnalyzeHttpFraming(normalizedHeaders, framing) == HttpFramingAnalysisResult::Succeeded, L"Invalid or unsupported HTTP response framing.");
+			CHECK_ERROR(framing.kind != HttpFramingKind::Chunked, L"Response Transfer-Encoding is not supported.");
+			CHECK_ERROR(framing.contentLengthValuesPlainDecimal, L"Application Content-Length values must be plain decimal numbers.");
+			CHECK_ERROR(framing.contentLength <= (vuint64_t)std::numeric_limits<vint>::max(), L"The application Content-Length is too large.");
+
+			bool date = false, noStore = false, cors = false;
+			for (auto&& source : normalizedHeaders)
+			{
+				if (source.name == L"content-length") continue;
+				if (source.name == L"date")
 				{
 					CHECK_ERROR(!date && ValidHttpDate(source.value), L"A response requires at most one valid IMF-fixdate Date field.");
 					date = true;
 				}
-				else if (name == L"cache-control")
+				else if (source.name == L"cache-control")
 				{
 					bool sourceNoStore = false;
 					CHECK_ERROR(AnalyzeCacheControl(source.value, sourceNoStore), L"Invalid Cache-Control response field.");
 					noStore |= sourceNoStore;
 				}
-				else if (name == L"access-control-allow-origin")
+				else if (source.name == L"access-control-allow-origin")
 				{
 					WString value;
-					CHECK_ERROR(!cors && ToAscii(source.value, value) && TrimOws(value) == L"*", L"The loopback CORS policy requires exactly one Access-Control-Allow-Origin: * field.");
+					CHECK_ERROR(!cors && DecodeAsciiHttpFieldValue(source.value, value) && TrimOws(value) == L"*", L"The loopback CORS policy requires exactly one Access-Control-Allow-Origin: * field.");
 					cors = true;
 				}
 				HttpField copy;
-				copy.name = name;
+				copy.name = source.name;
 				copy.value.Resize(source.value.Count());
-				for (vint i = 0; i < source.value.Count(); i++) copy.value[i] = source.value[i];
+				if (source.value.Count() > 0)
+				{
+					memcpy(&copy.value[0], &source.value[0], source.value.Count());
+				}
 				output->headers.Add(std::move(copy));
 			}
+			auto contentLength = framing.kind == HttpFramingKind::ContentLength;
+			auto suppliedLength = (vint)framing.contentLength;
 			auto outputLength = length;
 			if (contentLength && input->statusCode == 304 && method != L"HEAD") outputLength = suppliedLength;
 			else CHECK_ERROR(!contentLength || suppliedLength == length, L"Contradictory response Content-Length.");
-			if (!date) output->headers.Add(Field(L"date", DateHeader()));
-			if (!noStore) output->headers.Add(Field(L"cache-control", L"no-store"));
-			if (!cors) output->headers.Add(Field(L"access-control-allow-origin", L"*"));
-			if (input->statusCode != 204) output->headers.Add(Field(L"content-length", itow(outputLength)));
+			if (!date) output->headers.Add(CreateAsciiHttpField(L"date", DateHeader()));
+			if (!noStore) output->headers.Add(CreateAsciiHttpField(L"cache-control", L"no-store"));
+			if (!cors) output->headers.Add(CreateAsciiHttpField(L"access-control-allow-origin", L"*"));
+			if (input->statusCode != 204) output->headers.Add(CreateAsciiHttpField(L"content-length", itow(outputLength)));
 			if (bodyAllowed && bodySize > 0)
 			{
-				HttpBodyChunk chunk;
-				chunk.data.Resize(bodySize);
-				vint offset = 0;
-				for (auto&& source : input->body.chunks) for (auto c : source.data) chunk.data[offset++] = c;
-				output->body.chunks.Add(std::move(chunk));
+				SetHttpBodyBytes(output->body, std::move(body));
 			}
 			return output;
 		}
@@ -409,12 +371,12 @@ namespace vl::inter_process::async_tcp_socket
 			auto response = Ptr(new HttpResponse);
 			response->statusCode = code;
 			response->reason = Reason(code);
-			if (close) response->headers.Add(Field(L"connection", L"close"));
+			if (close) response->headers.Add(CreateAsciiHttpField(L"connection", L"close"));
 			if (preflight)
 			{
-				response->headers.Add(Field(L"access-control-allow-methods", L"GET, HEAD, POST, OPTIONS"));
-				response->headers.Add(Field(L"access-control-allow-headers", L"Accept, Content-Type"));
-				response->headers.Add(Field(L"allow", L"GET, HEAD, POST, OPTIONS"));
+				response->headers.Add(CreateAsciiHttpField(L"access-control-allow-methods", L"GET, HEAD, POST, OPTIONS"));
+				response->headers.Add(CreateAsciiHttpField(L"access-control-allow-headers", L"Accept, Content-Type"));
+				response->headers.Add(CreateAsciiHttpField(L"allow", L"GET, HEAD, POST, OPTIONS"));
 			}
 			return response;
 		}
@@ -1015,16 +977,11 @@ namespace vl::inter_process::async_tcp_socket
 
 		bool SingleHeader(Ptr<HttpRequest> request, const WString& name, WString& value, bool& exists)
 		{
-			exists = false;
-			for (auto&& field : request->headers)
-			{
-				if (Lower(field.name) == name)
-				{
-					if (exists || !ToAscii(field.value, value)) return false;
-					exists = true;
-				}
-			}
-			return true;
+			auto count = CountHttpFields(request->headers, name);
+			if (count > 1) return false;
+			exists = count == 1;
+			if (!exists) return true;
+			return DecodeAsciiHttpFieldValue(FindHttpField(request->headers, name)->value, value);
 		}
 
 		WString Trim(const WString& text)
@@ -1049,9 +1006,9 @@ namespace vl::inter_process::async_tcp_socket
 			if (method.Length() == 0) return false;
 			for (auto&& field : request->headers)
 			{
-				if (Lower(field.name) != L"access-control-request-headers") continue;
+				if (field.name != L"access-control-request-headers") continue;
 				WString headers;
-				if (!ToAscii(field.value, headers)) return false;
+				if (!DecodeAsciiHttpFieldValue(field.value, headers)) return false;
 				vint reading = 0;
 				while (reading <= headers.Length())
 				{
@@ -1401,6 +1358,16 @@ namespace vl::inter_process::async_tcp_socket
 	Ptr<HttpRequest> SocketHttpRequestContext::GetRequest() { return impl->request; }
 	WString SocketHttpRequestContext::GetRelativePath() { return impl->relativePath; }
 	WString SocketHttpRequestContext::GetQuery() { return impl->query; }
+	bool SocketHttpRequestContext::TryGetBodyUtf8(WString& body)
+	{
+		Array<vuint8_t> bytes;
+		if (!FlattenHttpBody(impl->request->body, bytes)) return false;
+		return ::vl::inter_process::async_tcp_socket::DecodeStrictUtf8(
+			bytes.Count() == 0 ? nullptr : &bytes[0],
+			bytes.Count(),
+			body
+			);
+	}
 
 	bool SocketHttpRequestContext::Respond(Ptr<HttpResponse> response, Func<void(bool)> completion)
 	{
@@ -1425,6 +1392,30 @@ namespace vl::inter_process::async_tcp_socket
 		try { connection->SendResponse(normalized); }
 		catch (...) { impl->Finish(false, false, true, true); }
 		return true;
+	}
+
+	bool SocketHttpRequestContext::RespondStatus(vint statusCode, const WString& reason, Func<void(bool)> completion)
+	{
+		ValidateConvenienceResponseArguments(statusCode, reason, WString::Empty, 0);
+		Array<vuint8_t> body;
+		return Respond(CreateConvenienceResponse(statusCode, reason, WString::Empty, std::move(body)), completion);
+	}
+
+	bool SocketHttpRequestContext::RespondBytes(vint statusCode, const WString& reason, const WString& contentType, const Array<vuint8_t>& body, Func<void(bool)> completion)
+	{
+		ValidateConvenienceResponseArguments(statusCode, reason, contentType, body.Count());
+		Array<vuint8_t> copy(body.Count());
+		if (body.Count() > 0) memcpy(&copy[0], &body[0], body.Count());
+		return Respond(CreateConvenienceResponse(statusCode, reason, contentType, std::move(copy)), completion);
+	}
+
+	bool SocketHttpRequestContext::RespondUtf8(vint statusCode, const WString& reason, const WString& contentType, const WString& body, Func<void(bool)> completion)
+	{
+		ValidateConvenienceResponseArguments(statusCode, reason, contentType, 0);
+		Array<vuint8_t> encoded;
+		CHECK_ERROR(EncodeStrictUtf8(body, encoded), L"The response body contains invalid Unicode.");
+		CHECK_ERROR(encoded.Count() <= HttpBodySizeLimit, L"The response body is too large.");
+		return Respond(CreateConvenienceResponse(statusCode, reason, contentType, std::move(encoded)), completion);
 	}
 
 	bool SocketHttpRequestContext::Cancel()

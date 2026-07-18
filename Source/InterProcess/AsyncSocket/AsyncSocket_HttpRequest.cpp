@@ -732,7 +732,7 @@ namespace vl::inter_process::async_tcp_socket
 			for (vint i = 0; i < field.name.Length(); i++)
 			{
 				auto c = field.name[i];
-				if (c > 0x7F || !IsTokenCharacter((vuint8_t)c) || (c >= L'A' && c <= L'Z')) return false;
+				if ((vuint32_t)c > 0x7F || !IsTokenCharacter((vuint8_t)c) || (c >= L'A' && c <= L'Z')) return false;
 			}
 			for (auto c : field.value)
 			{
@@ -1148,7 +1148,7 @@ namespace vl::inter_process::async_tcp_socket
 		for (vint i = 0; i < name.Length(); i++)
 		{
 			auto c = name[i];
-			CHECK_ERROR(c <= 0x7F && IsTokenCharacter((vuint8_t)c), L"An HTTP field name must contain only ASCII token characters.");
+			CHECK_ERROR((vuint32_t)c <= 0x7F && IsTokenCharacter((vuint8_t)c), L"An HTTP field name must contain only ASCII token characters.");
 			if (L'A' <= c && c <= L'Z') c += L'a' - L'A';
 			normalizedName[i] = c;
 		}
@@ -1157,7 +1157,7 @@ namespace vl::inter_process::async_tcp_socket
 		for (vint i = 0; i < value.Length(); i++)
 		{
 			auto c = value[i];
-			CHECK_ERROR(c <= 0x7F && IsFieldValueCharacter((vuint8_t)c), L"An HTTP field value must contain only valid ASCII field characters.");
+			CHECK_ERROR((vuint32_t)c <= 0x7F && IsFieldValueCharacter((vuint8_t)c), L"An HTTP field value must contain only valid ASCII field characters.");
 			field.value[i] = (vuint8_t)c;
 		}
 		return field;
@@ -1188,7 +1188,7 @@ namespace vl::inter_process::async_tcp_socket
 		if (value.Count() != expected.Length()) return false;
 		for (vint i = 0; i < value.Count(); i++)
 		{
-			if (expected[i] > 0x7F || value[i] != (vuint8_t)expected[i]) return false;
+			if ((vuint32_t)expected[i] > 0x7F || value[i] != (vuint8_t)expected[i]) return false;
 		}
 		return true;
 	}
@@ -1365,7 +1365,7 @@ namespace vl::inter_process::async_tcp_socket
 		for (vint i = 0; i < method.Length(); i++)
 		{
 			auto c = method[i];
-			if (c > 0x7F || !IsTokenCharacter((vuint8_t)c)) return HttpRequestLineValidationResult::InvalidMethod;
+			if ((vuint32_t)c > 0x7F || !IsTokenCharacter((vuint8_t)c)) return HttpRequestLineValidationResult::InvalidMethod;
 		}
 		if (requestTarget.Length() == 0) return HttpRequestLineValidationResult::InvalidRequestTarget;
 		for (vint i = 0; i < requestTarget.Length(); i++)

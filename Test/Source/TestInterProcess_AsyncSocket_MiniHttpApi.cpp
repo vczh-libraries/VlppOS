@@ -376,6 +376,14 @@ namespace mini_http_api_test
 		body.chunks.Add(std::move(chunk));
 	}
 
+	void AddBodyChunk(HttpBody& body, const vuint8_t* bytes, vint count)
+	{
+		HttpBodyChunk chunk;
+		chunk.data.Resize(count);
+		for (vint i = 0; i < count; i++) chunk.data[i] = bytes[i];
+		body.chunks.Add(std::move(chunk));
+	}
+
 	Ptr<async_tcp_socket::HttpResponse> CreateResponse(vint statusCode, const WString& body, const WString& contentType = L"text/plain; charset=utf-8")
 	{
 		auto response = Ptr(new async_tcp_socket::HttpResponse);
@@ -1047,6 +1055,93 @@ namespace mini_http_api_test
 		}
 	};
 
+	class ProjectionResponseServer
+		: public HttpRequestServer
+		, public virtual IHttpRequestCallback
+	{
+	private:
+		Ptr<TestState> state;
+		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		IHttpRequestConnection* connection = nullptr;
+		vint responseIndex = 0;
+
+	public:
+		ProjectionResponseServer(Ptr<IAsyncSocketServer> server, Ptr<TestState> _state)
+			: HttpRequestServer(server)
+			, state(_state)
+		{
+		}
+
+		~ProjectionResponseServer()
+		{
+			HttpRequestServer::Stop();
+		}
+
+		void AddResponse(Ptr<async_tcp_socket::HttpResponse> response)
+		{
+			responses.Add(response);
+		}
+
+		WaitForClientResult OnClientConnected(IHttpRequestConnection* value) override
+		{
+			try
+			{
+				value->InstallCallback(this);
+				value->BeginReadingLoopUnsafe();
+				return WaitForClientResult::Accept;
+			}
+			catch (...)
+			{
+				RecordCurrentException(*state.Obj(), L"Projection response server accept callback");
+				state->eventDone.Signal();
+				return WaitForClientResult::Reject;
+			}
+		}
+
+		void OnReadRequest(Ptr<async_tcp_socket::HttpRequest>) override
+		{
+			try
+			{
+				state->serverRequests++;
+				if (responseIndex >= responses.Count())
+				{
+					state->Fail(L"The projection response server received too many requests.");
+					state->eventDone.Signal();
+					return;
+				}
+				connection->SendResponse(responses[responseIndex++]);
+			}
+			catch (...)
+			{
+				RecordCurrentException(*state.Obj(), L"Projection response server request callback");
+				state->eventDone.Signal();
+			}
+		}
+
+		void OnReadRequestFailure(HttpRequestFailure) override
+		{
+			state->Fail(L"The projection response server could not parse a request.");
+			state->eventDone.Signal();
+		}
+
+		void OnReadResponse(Ptr<async_tcp_socket::HttpResponse>) override
+		{
+			state->Fail(L"The projection response server received a response.");
+			state->eventDone.Signal();
+		}
+
+		void OnError(const WString& error, bool fatal) override
+		{
+			state->Fail(WString(fatal ? L"Fatal" : L"Nonfatal") + L" projection response server error: " + error);
+			state->eventDone.Signal();
+		}
+
+		void OnInstalled(IHttpRequestConnection* value) override
+		{
+			connection = value;
+		}
+	};
+
 	Ptr<async_tcp_socket::HttpRequest> CreateRawRequest(const WString& method, const WString& target, vint port, bool addHost = true)
 	{
 		auto request = Ptr(new async_tcp_socket::HttpRequest);
@@ -1134,6 +1229,25 @@ namespace mini_http_api_test
 			response.body.Resize(request.body.Count());
 			for (vint i = 0; i < request.body.Count(); i++) response.body[i] = request.body[i];
 			TEST_ASSERT(response.GetBodyUtf8() == L"Common HTTP \x4F60\x597D");
+			WString strictBody = L"unchanged";
+			TEST_ASSERT(response.TryGetBodyUtf8(strictBody));
+			TEST_ASSERT(strictBody == L"Common HTTP \x4F60\x597D");
+			response.body.Resize(0);
+			TEST_ASSERT(response.TryGetBodyUtf8(strictBody));
+			TEST_ASSERT(strictBody == WString::Empty);
+			response.body.Resize(2);
+			response.body[0] = (char)0xC0;
+			response.body[1] = (char)0xAF;
+			strictBody = L"unchanged";
+			TEST_ASSERT(!response.TryGetBodyUtf8(strictBody));
+			TEST_ASSERT(strictBody == L"unchanged");
+			response.body.Resize(3);
+			response.body[0] = 'A';
+			response.body[1] = 0;
+			response.body[2] = 'B';
+			TEST_ASSERT(response.TryGetBodyUtf8(strictBody));
+			const wchar_t expectedNul[] = { L'A', 0, L'B' };
+			TEST_ASSERT(strictBody == WString::CopyFrom(expectedNul, 3));
 
 			windows_http::HttpError error;
 			error.errorCode = 0xFEDCBA98u;
@@ -1163,6 +1277,287 @@ namespace mini_http_api_test
 			first->Stop();
 			TEST_ASSERT(first->IsStopped());
 			TEST_ASSERT(second->IsStopped());
+			AssertState(*state.Obj());
+		});
+
+		TEST_CASE(L"SocketHttpRequestContext strictly decodes complete UTF-8 bodies across chunk boundaries")
+		{
+			NativeListenerFactoryScope<TNativeServer> listenerFactory;
+			auto serverState = Ptr(new TestState);
+			auto server = Ptr(new TestServerApi(L"http://localhost:38913/strict", false, serverState));
+			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
+			{
+				WString body = L"unchanged";
+				auto succeeded = context->TryGetBodyUtf8(body);
+				auto path = context->GetRelativePath();
+				if (path == L"/empty")
+				{
+					serverState->Expect(succeeded && body == WString::Empty, L"TryGetBodyUtf8 did not accept an empty body.");
+				}
+				else if (path == L"/non-ascii")
+				{
+					serverState->Expect(succeeded && body == L"\x4F60\x597D", L"TryGetBodyUtf8 did not join split multibyte chunks.");
+				}
+				else if (path == L"/nul")
+				{
+					const wchar_t expected[] = { L'A', 0, L'B' };
+					serverState->Expect(succeeded && body == WString::CopyFrom(expected, 3), L"TryGetBodyUtf8 did not preserve an embedded NUL.");
+				}
+				else
+				{
+					serverState->Expect(!succeeded && body == L"unchanged", L"TryGetBodyUtf8 accepted malformed, overlong, or truncated UTF-8, or changed its output on failure.");
+				}
+				serverState->Expect(context->RespondStatus(204, WString::Empty), L"The strict-body test response was rejected.");
+			}));
+			server->Start();
+
+			auto state = Ptr(new RawSequenceState(6));
+			state->requests.Add(CreateRawRequest(L"POST", L"/strict/empty", 38913));
+			auto nonAscii = CreateRawRequest(L"POST", L"/strict/non-ascii", 38913);
+			const vuint8_t nonAscii1[] = { 0xE4 };
+			const vuint8_t nonAscii2[] = { 0xBD, 0xA0, 0xE5 };
+			const vuint8_t nonAscii3[] = { 0xA5, 0xBD };
+			AddBodyChunk(nonAscii->body, nonAscii1, 1);
+			AddBodyChunk(nonAscii->body, nonAscii2, 3);
+			AddBodyChunk(nonAscii->body, nonAscii3, 2);
+			state->requests.Add(nonAscii);
+			auto malformed = CreateRawRequest(L"POST", L"/strict/malformed", 38913);
+			const vuint8_t malformedBytes[] = { 0x80 };
+			AddBodyChunk(malformed->body, malformedBytes, 1);
+			state->requests.Add(malformed);
+			auto overlong = CreateRawRequest(L"POST", L"/strict/overlong", 38913);
+			const vuint8_t overlongBytes[] = { 0xC0, 0xAF };
+			AddBodyChunk(overlong->body, overlongBytes, 2);
+			state->requests.Add(overlong);
+			auto truncated = CreateRawRequest(L"POST", L"/strict/truncated", 38913);
+			const vuint8_t truncatedBytes[] = { 0xE4, 0xBD };
+			AddBodyChunk(truncated->body, truncatedBytes, 2);
+			state->requests.Add(truncated);
+			auto nul = CreateRawRequest(L"POST", L"/strict/nul", 38913);
+			const vuint8_t nulBytes[] = { 'A', 0, 'B' };
+			AddBodyChunk(nul->body, nulBytes, 3);
+			state->requests.Add(nul);
+
+			RunRawSequence<TNativeClient>(38913, state);
+			server->Stop();
+			AssertState(*state.Obj());
+			AssertState(*serverState.Obj());
+			TEST_ASSERT(state->responses.Count() == 6);
+			TEST_ASSERT(serverState->serverRequests == 6);
+		});
+
+		TEST_CASE(L"SocketHttpRequestContext response conveniences preserve normalization and framing policy")
+		{
+			NativeListenerFactoryScope<TNativeServer> listenerFactory;
+			auto serverState = Ptr(new TestState);
+			auto server = Ptr(new TestServerApi(L"http://localhost:38914/convenience", false, serverState));
+			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
+			{
+				auto path = context->GetRelativePath();
+				if (path == L"/status")
+				{
+					serverState->Expect(context->RespondStatus(202, WString::Empty), L"RespondStatus rejected a valid response.");
+				}
+				else if (path == L"/bytes")
+				{
+					Array<vuint8_t> body(2);
+					body[0] = 0;
+					body[1] = 0xFF;
+					serverState->Expect(context->RespondBytes(203, L"Bytes", L"application/octet-stream", body), L"RespondBytes rejected a valid binary response.");
+				}
+				else if (path == L"/utf8")
+				{
+					serverState->Expect(context->RespondUtf8(200, L"Utf8", L"text/plain; charset=utf-8", L"A\x4F60"), L"RespondUtf8 rejected a valid response.");
+				}
+				else if (path == L"/mixed")
+				{
+					auto response = Ptr(new async_tcp_socket::HttpResponse);
+					response->statusCode = 205;
+					response->reason = L"Mixed";
+					response->headers.Add(CreateField(L"CoNtEnT-TyPe", L"application/x-mixed"));
+					response->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"2"));
+					response->headers.Add(CreateField(L"CONTENT-LENGTH", L"2"));
+					AddBodyChunk(response->body, L"x");
+					AddBodyChunk(response->body, L"y");
+					serverState->Expect(context->Respond(response), L"The raw API rejected equal repeated mixed-case Content-Length fields.");
+				}
+				else if (path == L"/head")
+				{
+					Array<vuint8_t> body(3);
+					body[0] = 'a'; body[1] = 'b'; body[2] = 'c';
+					serverState->Expect(context->RespondBytes(200, L"Head", WString::Empty, body), L"RespondBytes rejected a HEAD response.");
+				}
+				else if (path == L"/no-content")
+				{
+					Array<vuint8_t> body(3);
+					body[0] = 'a'; body[1] = 'b'; body[2] = 'c';
+					serverState->Expect(context->RespondBytes(204, L"No Content", WString::Empty, body), L"RespondBytes rejected a 204 response.");
+				}
+				else if (path == L"/not-modified-default")
+				{
+					Array<vuint8_t> body(3);
+					body[0] = 'a'; body[1] = 'b'; body[2] = 'c';
+					serverState->Expect(context->RespondBytes(304, L"Not Modified", WString::Empty, body), L"RespondBytes rejected a 304 response.");
+				}
+				else if (path == L"/not-modified-explicit")
+				{
+					auto response = Ptr(new async_tcp_socket::HttpResponse);
+					response->statusCode = 304;
+					response->reason = L"Not Modified";
+					response->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"123"));
+					serverState->Expect(context->Respond(response), L"The raw API rejected an explicit 304 Content-Length.");
+				}
+				else if (path == L"/head-not-modified")
+				{
+					auto response = Ptr(new async_tcp_socket::HttpResponse);
+					response->statusCode = 304;
+					response->reason = L"Not Modified";
+					response->headers.Add(CreateField(L"Content-Length", L"3"));
+					AddBodyChunk(response->body, L"abc");
+					serverState->Expect(context->Respond(response), L"The raw API rejected a matching HEAD 304 Content-Length.");
+				}
+				else
+				{
+					auto expectRejected = [&](Ptr<async_tcp_socket::HttpResponse> response, const WString& message)
+					{
+						try
+						{
+							context->Respond(response);
+							serverState->Fail(message);
+						}
+						catch (...)
+						{
+						}
+					};
+					auto commaLength = Ptr(new async_tcp_socket::HttpResponse);
+					commaLength->statusCode = 206;
+					commaLength->headers.Add(CreateField(L"Content-Length", L"0, 0"));
+					expectRejected(commaLength, L"The raw API accepted a comma-list Content-Length.");
+					auto owsLength = Ptr(new async_tcp_socket::HttpResponse);
+					owsLength->statusCode = 206;
+					owsLength->headers.Add(CreateField(L"Content-Length", L" 0"));
+					expectRejected(owsLength, L"The raw API accepted an OWS Content-Length.");
+					auto transferEncoding = Ptr(new async_tcp_socket::HttpResponse);
+					transferEncoding->statusCode = 206;
+					transferEncoding->headers.Add(CreateField(L"Transfer-Encoding", L"chunked"));
+					expectRejected(transferEncoding, L"The raw API accepted application Transfer-Encoding: chunked.");
+					serverState->Expect(context->RespondStatus(206, L"Reusable"), L"A framing validation failure consumed the context.");
+				}
+			}));
+			server->Start();
+
+			auto state = Ptr(new RawSequenceState(10));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/status", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/bytes", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/utf8", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/mixed", 38914));
+			state->requests.Add(CreateRawRequest(L"HEAD", L"/convenience/head", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/no-content", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/not-modified-default", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/not-modified-explicit", 38914));
+			state->requests.Add(CreateRawRequest(L"HEAD", L"/convenience/head-not-modified", 38914));
+			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/reject-framing", 38914));
+			RunRawSequence<TNativeClient>(38914, state);
+			server->Stop();
+
+			AssertState(*state.Obj());
+			AssertState(*serverState.Obj());
+			TEST_ASSERT(state->responses.Count() == 10);
+			if (state->responses.Count() == 10)
+			{
+				TEST_ASSERT(state->responses[0]->statusCode == 202 && state->responses[0]->reason == L"Response");
+				TEST_ASSERT(FindField(state->responses[0]->headers, L"content-length") == L"0");
+				const vuint8_t binary[] = { 0, 0xFF };
+				TEST_ASSERT(state->responses[1]->reason == L"Bytes");
+				TEST_ASSERT(FindField(state->responses[1]->headers, L"content-type") == L"application/octet-stream");
+				TEST_ASSERT(FindField(state->responses[1]->headers, L"content-length") == L"2");
+				TEST_ASSERT(SameRawBody(state->responses[1]->body, binary, 2));
+				const vuint8_t utf8[] = { 'A', 0xE4, 0xBD, 0xA0 };
+				TEST_ASSERT(state->responses[2]->reason == L"Utf8");
+				TEST_ASSERT(FindField(state->responses[2]->headers, L"content-type") == L"text/plain; charset=utf-8");
+				TEST_ASSERT(FindField(state->responses[2]->headers, L"content-length") == L"4");
+				TEST_ASSERT(SameRawBody(state->responses[2]->body, utf8, 4));
+				TEST_ASSERT(CountField(state->responses[3]->headers, L"content-length") == 1);
+				TEST_ASSERT(FindField(state->responses[3]->headers, L"content-length") == L"2");
+				TEST_ASSERT(FindField(state->responses[3]->headers, L"content-type") == L"application/x-mixed");
+				TEST_ASSERT(RawBodyUtf8(state->responses[3]->body) == L"xy");
+				TEST_ASSERT(RawBodyUtf8(state->responses[4]->body) == WString::Empty && FindField(state->responses[4]->headers, L"content-length") == L"3");
+				TEST_ASSERT(RawBodyUtf8(state->responses[5]->body) == WString::Empty && CountField(state->responses[5]->headers, L"content-length") == 0);
+				TEST_ASSERT(RawBodyUtf8(state->responses[6]->body) == WString::Empty && FindField(state->responses[6]->headers, L"content-length") == L"0");
+				TEST_ASSERT(RawBodyUtf8(state->responses[7]->body) == WString::Empty && FindField(state->responses[7]->headers, L"content-length") == L"123");
+				TEST_ASSERT(RawBodyUtf8(state->responses[8]->body) == WString::Empty && FindField(state->responses[8]->headers, L"content-length") == L"3");
+				TEST_ASSERT(state->responses[9]->statusCode == 206);
+			}
+			TEST_ASSERT(serverState->serverRequests == 10);
+		});
+
+		TEST_CASE(L"SocketHttpClientApi preserves permissive ordered response-field projection")
+		{
+			auto state = Ptr(new TestState(3));
+			auto nativeServer = Ptr<IAsyncSocketServer>(new TNativeServer(38915));
+			auto server = Ptr(new ProjectionResponseServer(nativeServer, state));
+
+			auto nonAscii = Ptr(new async_tcp_socket::HttpResponse);
+			nonAscii->statusCode = 230;
+			nonAscii->reason = L"Projection";
+			nonAscii->headers.Add(CreateField(L"content-type", L"text/\x4F60\x597D"));
+			nonAscii->headers.Add(CreateField(L"content-type", L"ignored/duplicate"));
+			nonAscii->headers.Add(CreateField(L"set-cookie", L"cookie=\x4F60"));
+			AddBodyChunk(nonAscii->body, L"header-fields");
+			server->AddResponse(nonAscii);
+
+			auto malformed = Ptr(new async_tcp_socket::HttpResponse);
+			malformed->statusCode = 231;
+			malformed->reason = L"Projection";
+			HttpField malformedContentType;
+			malformedContentType.name = L"content-type";
+			malformedContentType.value.Resize(2);
+			malformedContentType.value[0] = 0xC0;
+			malformedContentType.value[1] = 0xAF;
+			auto malformedProjection = FieldText(malformedContentType);
+			malformed->headers.Add(std::move(malformedContentType));
+			malformed->headers.Add(CreateField(L"content-type", L"ignored/valid"));
+			AddBodyChunk(malformed->body, L"malformed-field");
+			server->AddResponse(malformed);
+
+			auto trailerOnly = Ptr(new async_tcp_socket::HttpResponse);
+			trailerOnly->statusCode = 232;
+			trailerOnly->reason = L"Projection";
+			AddBodyChunk(trailerOnly->body, L"trailer-fields");
+			trailerOnly->body.trailers.Add(CreateField(L"content-type", L"application/x-trailer"));
+			trailerOnly->body.trailers.Add(CreateField(L"set-cookie", L"trailer=cookie"));
+			server->AddResponse(trailerOnly);
+
+			server->Start();
+			auto client = CreateConnectedClient<TNativeClient>(38915, state);
+			for (vint i = 0; i < 3; i++)
+			{
+				windows_http::HttpRequest request;
+				request.method = L"GET";
+				request.query = L"/projection/" + itow(i);
+				SubmitQuery(client, state, request);
+			}
+			state->Expect(state->eventDone.WaitForTime(TransferTimeout), L"The response projection sequence timed out.");
+			client->Stop();
+			server->Stop();
+
+			auto records = state->CopyRecords();
+			TEST_ASSERT(records.Count() == 3);
+			if (records.Count() == 3)
+			{
+				TEST_ASSERT(!records[0].isError && records[0].statusCode == 230);
+				TEST_ASSERT(records[0].contentType == L"text/\x4F60\x597D");
+				TEST_ASSERT(records[0].cookie == L"cookie=\x4F60");
+				TEST_ASSERT(records[0].body == L"header-fields");
+				TEST_ASSERT(!records[1].isError && records[1].statusCode == 231);
+				TEST_ASSERT(records[1].contentType == malformedProjection);
+				TEST_ASSERT(records[1].body == L"malformed-field");
+				TEST_ASSERT(!records[2].isError && records[2].statusCode == 232);
+				TEST_ASSERT(records[2].contentType == L"application/x-trailer");
+				TEST_ASSERT(records[2].cookie == L"trailer=cookie");
+				TEST_ASSERT(records[2].body == L"trailer-fields");
+			}
+			TEST_ASSERT(state->serverRequests == 3);
 			AssertState(*state.Obj());
 		});
 
@@ -1730,6 +2125,40 @@ namespace mini_http_api_test
 			TEST_ASSERT(context);
 			if (context)
 			{
+				Array<vuint8_t> emptyBody;
+				Array<vuint8_t> oversizedBytes(HttpBodySizeLimit + 1);
+				const wchar_t invalidUnicodeCharacters[] = {
+#if defined VCZH_MSVC
+					(wchar_t)0xD800
+#else
+					(wchar_t)0x110000
+#endif
+				};
+				auto invalidUnicode = WString::CopyFrom(invalidUnicodeCharacters, 1);
+				const vint oversizedScalarCount = HttpBodySizeLimit / 4 + 1;
+#if defined VCZH_MSVC
+				Array<wchar_t> oversizedCharacters(oversizedScalarCount * 2);
+				for (vint i = 0; i < oversizedScalarCount; i++)
+				{
+					oversizedCharacters[i * 2] = (wchar_t)0xD800;
+					oversizedCharacters[i * 2 + 1] = (wchar_t)0xDC00;
+				}
+#else
+				Array<wchar_t> oversizedCharacters(oversizedScalarCount);
+				for (vint i = 0; i < oversizedScalarCount; i++) oversizedCharacters[i] = (wchar_t)0x10000;
+#endif
+				auto oversizedText = WString::CopyFrom(&oversizedCharacters[0], oversizedCharacters.Count());
+				auto assertInvalidConveniences = [&]()
+				{
+					TEST_ERROR(context->RespondStatus(199, WString::Empty));
+					TEST_ERROR(context->RespondStatus(200, L"bad\nreason"));
+					TEST_ERROR(context->RespondBytes(200, WString::Empty, L"text/\x4F60", emptyBody));
+					TEST_ERROR(context->RespondBytes(200, WString::Empty, WString::Empty, oversizedBytes));
+					TEST_ERROR(context->RespondUtf8(200, WString::Empty, WString::Empty, invalidUnicode));
+					TEST_ERROR(context->RespondUtf8(200, WString::Empty, WString::Empty, oversizedText));
+				};
+
+				assertInvalidConveniences();
 				auto transferEncoding = CreateResponse(221, L"invalid-transfer-encoding");
 				transferEncoding->headers.Add(CreateField(L"Transfer-Encoding", L"chunked"));
 				TEST_ERROR(context->Respond(transferEncoding));
@@ -1742,14 +2171,19 @@ namespace mini_http_api_test
 				trailers->body.trailers.Add(CreateField(L"x-trailer", L"value"));
 				TEST_ERROR(context->Respond(trailers));
 
-				auto accepted = context->Respond(CreateResponse(221, L"deferred-first"), Func<void(bool)>([state](bool succeeded)
+				auto acceptedResponse = CreateResponse(221, L"deferred-first");
+				acceptedResponse->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"14"));
+				acceptedResponse->headers.Add(CreateField(L"CONTENT-LENGTH", L"14"));
+				auto accepted = context->Respond(acceptedResponse, Func<void(bool)>([state](bool succeeded)
 				{
 					if (succeeded) state->successfulCompletions++;
 					else state->failedCompletions++;
 					state->eventCompletion.Signal();
 				}));
 				TEST_ASSERT(accepted);
-				TEST_ASSERT(!context->Respond(CreateResponse(299, L"second-response")));
+				assertInvalidConveniences();
+				TEST_ASSERT(!context->RespondStatus(299, L"Consumed"));
+				TEST_ASSERT(!context->RespondUtf8(299, L"Consumed", L"text/plain", L"second-response"));
 				TEST_ASSERT(!context->Cancel());
 			}
 
@@ -2168,6 +2602,10 @@ TEST_FILE
 		auto unicode = CreateValidationServer(L"http://127.0.0.1:38910/%E4%BD%A0///");
 		TEST_ASSERT(unicode->GetUrlPrefix() == L"http://127.0.0.1:38910/%E4%BD%A0");
 		unicode->Stop();
+
+		auto bracket = CreateValidationServer(L"http://localhost:38910/api[part]///");
+		TEST_ASSERT(bracket->GetUrlPrefix() == L"http://localhost:38910/api[part]");
+		bracket->Stop();
 
 		TEST_ERROR(CreateValidationServer(L"https://localhost:38910/api"));
 		TEST_ERROR(CreateValidationServer(L"http://example.com:38910/api"));

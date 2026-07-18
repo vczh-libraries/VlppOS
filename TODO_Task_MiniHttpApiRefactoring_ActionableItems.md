@@ -254,51 +254,53 @@ bool RespondUtf8(
 
 Semantics and work:
 
-- [ ] `TryGetBodyUtf8` flattens and strictly decodes the complete body; empty text and NUL remain valid at layer 3.
-- [ ] It does not validate method, route, content type, framing shape, or logical-message policy.
-- [ ] Response conveniences construct a raw response and delegate to the existing `Respond`, retaining normalization, CORS, `Content-Length`, completion, and context-race behavior.
-- [ ] Empty `reason` keeps the existing default-reason behavior; nonempty reasons preserve layer-4 error text.
-- [ ] Empty `contentType` omits the field; a nonempty content type must be valid ASCII HTTP field text. A nonempty reason remains subject to the existing printable-ASCII reason validation. Byte and raw APIs remain fully binary capable.
-- [ ] Every convenience validates its status/reason/content-type/body arguments before calling `Respond`. `RespondUtf8` also validates Unicode and the encoded body limit. Invalid input raises `CHECK_ERROR` even if the context has already been consumed; for valid arguments, the returned `bool` describes only whether the response won lifecycle ownership.
+- [x] `TryGetBodyUtf8` flattens and strictly decodes the complete body; empty text and NUL remain valid at layer 3.
+- [x] It does not validate method, route, content type, framing shape, or logical-message policy.
+- [x] Response conveniences construct a raw response and delegate to the existing `Respond`, retaining normalization, CORS, `Content-Length`, completion, and context-race behavior.
+- [x] Empty `reason` keeps the existing default-reason behavior; nonempty reasons preserve layer-4 error text.
+- [x] Empty `contentType` omits the field; a nonempty content type must be valid ASCII HTTP field text. A nonempty reason remains subject to the existing printable-ASCII reason validation. Byte and raw APIs remain fully binary capable.
+- [x] Every convenience validates its status/reason/content-type/body arguments before calling `Respond`. `RespondUtf8` also validates Unicode and the encoded body limit. Invalid input raises `CHECK_ERROR` even if the context has already been consumed; for valid arguments, the returned `bool` describes only whether the response won lifecycle ownership.
 
 ## Client response convenience
 
-- [ ] Add `bool windows_http::HttpResponse::TryGetBodyUtf8(WString& body) const` beside `GetBodyUtf8`, implemented in `NetworkProtocolHttp.cpp` with the canonical strict codec so both portable and Windows consumers can distinguish malformed input from valid empty input.
-- [ ] Keep `SocketHttpClientApi::HttpQuery` and `windows_http::HttpResponse` source-compatible and intentionally flat.
-- [ ] Do not add `HttpQueryRaw` or raw framing requirements in this refactoring; the Network Protocol client must remain compatible with ordinary HTTP.sys response framing.
-- [ ] Keep `windows_http::HttpResponse::GetBodyUtf8` behavior unchanged for compatibility, but stop using it where malformed input must be distinguishable from valid empty input.
+- [x] Add `bool windows_http::HttpResponse::TryGetBodyUtf8(WString& body) const` beside `GetBodyUtf8`, implemented in `NetworkProtocolHttp.cpp` with the canonical strict codec so both portable and Windows consumers can distinguish malformed input from valid empty input.
+- [x] Keep `SocketHttpClientApi::HttpQuery` and `windows_http::HttpResponse` source-compatible and intentionally flat.
+- [x] Do not add `HttpQueryRaw` or raw framing requirements in this refactoring; the Network Protocol client must remain compatible with ordinary HTTP.sys response framing.
+- [x] Keep `windows_http::HttpResponse::GetBodyUtf8` behavior unchanged for compatibility, but stop using it where malformed input must be distinguishable from valid empty input.
 
 ## Layer-3 internal cleanup
 
 In `AsyncSocket_HttpServerApi.cpp`:
 
-- [ ] Replace private ASCII field conversion/construction and single-header loops with layer-2 helpers.
-- [ ] Replace response body-size/flatten loops with layer-2 body helpers.
-- [ ] Normalize and validate application-supplied response field names first, then run `AnalyzeHttpFraming` over that normalized view; never analyze the original mixed-case list with exact lowercase lookup.
-- [ ] Preserve response-normalization framing policy after analysis: reject every application `Transfer-Encoding` including legal `chunked`, require `contentLengthValuesPlainDecimal`, and continue accepting repeated equal physical length fields. This preserves rejection of comma lists and OWS in caller-constructed length values.
-- [ ] Preserve HEAD/204/304 body suppression and their current `Content-Length` rules exactly.
-- [ ] Reuse `DecodeStrictUtf8` inside path decoding while preserving the router's current raw-character and trailing-prefix behavior and its explicit rejection of NUL and encoded separators.
-- [ ] Keep Date, CORS, Cache-Control, routing, and response-normalization policy in layer 3.
+- [x] Replace private ASCII field conversion/construction and single-header loops with layer-2 helpers.
+- [x] Replace response body-size/flatten loops with layer-2 body helpers.
+- [x] Normalize and validate application-supplied response field names first, then run `AnalyzeHttpFraming` over that normalized view; never analyze the original mixed-case list with exact lowercase lookup.
+- [x] Preserve response-normalization framing policy after analysis: reject every application `Transfer-Encoding` including legal `chunked`, require `contentLengthValuesPlainDecimal`, and continue accepting repeated equal physical length fields. This preserves rejection of comma lists and OWS in caller-constructed length values.
+- [x] Preserve HEAD/204/304 body suppression and their current `Content-Length` rules exactly.
+- [x] Reuse `DecodeStrictUtf8` inside path decoding while preserving the router's current raw-character and trailing-prefix behavior and its explicit rejection of NUL and encoded separators.
+- [x] Keep Date, CORS, Cache-Control, routing, and response-normalization policy in layer 3.
 
 In `AsyncSocket_HttpClientApi.cpp`:
 
-- [ ] Use layer-2 body helpers and ASCII field helpers only where the existing values are ASCII by contract.
-- [ ] Retain the current `CreateField` / `DecodeFieldValue` UTF-8 projection adapters for `WString` content type, cookie, and extra-field values; do not replace their intentionally permissive `wtou8` / `u8tow` behavior with ASCII or strict-body semantics in this refactoring.
-- [ ] Preserve callback ordering, reentrancy, timeout, stop, identity-coding, and first-content-type behavior.
+- [x] Use layer-2 body helpers and ASCII field helpers only where the existing values are ASCII by contract.
+- [x] Retain the current `CreateField` / `DecodeFieldValue` UTF-8 projection adapters for `WString` content type, cookie, and extra-field values; do not replace their intentionally permissive `wtou8` / `u8tow` behavior with ASCII or strict-body semantics in this refactoring.
+- [x] Preserve callback ordering, reentrancy, timeout, stop, identity-coding, and first-content-type behavior.
 
 ## Layer-3 tests
 
 Add focused tests to `Test/Source/TestInterProcess_AsyncSocket_MiniHttpApi.cpp`:
 
-- [ ] `TryGetBodyUtf8` with empty, non-ASCII, malformed, overlong, truncated, embedded-NUL, and a multibyte sequence split across chunk boundaries.
-- [ ] `RespondStatus`, `RespondBytes`, and `RespondUtf8` normalization, body bytes, content type, reason, and `Content-Length`, including mixed-case supplied field regressions through the raw API.
-- [ ] Preserve HEAD/204/304 suppression and length normalization; reject application `Transfer-Encoding: chunked` through the raw response API.
-- [ ] Invalid response Unicode raises before a pending context is consumed and leaves it reusable; invalid Unicode also raises before a consumed-context lifecycle check, while valid input on a consumed context returns `false`.
-- [ ] Invalid status, reason, content type, and oversized byte/text bodies follow the same validate-before-lifecycle precedence.
-- [ ] Existing raw/binary response behavior remains unchanged.
-- [ ] Client strict body conversion distinguishes malformed input from valid empty input.
-- [ ] Preserve flat response projection for non-ASCII field values, malformed field bytes, duplicate content types, and content type found only in a trailer.
-- [ ] Existing path-character acceptance, NUL/encoded-separator rejection, and trailing-prefix normalization remain unchanged, including a raw character accepted by the router but rejected by the stricter Network Protocol `pchar` policy.
+- [x] `TryGetBodyUtf8` with empty, non-ASCII, malformed, overlong, truncated, embedded-NUL, and a multibyte sequence split across chunk boundaries.
+- [x] `RespondStatus`, `RespondBytes`, and `RespondUtf8` normalization, body bytes, content type, reason, and `Content-Length`, including mixed-case supplied field regressions through the raw API.
+- [x] Preserve HEAD/204/304 suppression and length normalization; reject application `Transfer-Encoding: chunked` through the raw response API.
+- [x] Invalid response Unicode raises before a pending context is consumed and leaves it reusable; invalid Unicode also raises before a consumed-context lifecycle check, while valid input on a consumed context returns `false`.
+- [x] Invalid status, reason, content type, and oversized byte/text bodies follow the same validate-before-lifecycle precedence.
+- [x] Existing raw/binary response behavior remains unchanged.
+- [x] Client strict body conversion distinguishes malformed input from valid empty input.
+- [x] Preserve flat response projection for non-ASCII field values, malformed field bytes, duplicate content types, and content type found only in a trailer.
+- [x] Existing path-character acceptance, NUL/encoded-separator rejection, and trailing-prefix normalization remain unchanged, including a raw character accepted by the router but rejected by the stricter Network Protocol `pchar` policy.
+
+Phase 2 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 210 test cases passed with no memory-leak report. Regenerated `Release` outputs and compile-checked both packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Phase 3: Consolidate the layer-4 wire contract
 

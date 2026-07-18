@@ -889,6 +889,9 @@ namespace http_request_test
 			TEST_ERROR(CreateAsciiHttpField(L"bad name", L"value"));
 			TEST_ERROR(CreateAsciiHttpField(L"name", L"bad\rvalue"));
 			TEST_ERROR(CreateAsciiHttpField(L"name", WString::CopyFrom(L"\x0080", 1)));
+			wchar_t negativeAsciiAlias = (wchar_t)-191;
+			TEST_ERROR(CreateAsciiHttpField(WString::CopyFrom(&negativeAsciiAlias, 1), L"value"));
+			TEST_ERROR(CreateAsciiHttpField(L"name", WString::CopyFrom(&negativeAsciiAlias, 1)));
 		});
 
 		TEST_CASE(L"HTTP field ASCII decoding preserves explicit bytes and stable failure outputs")
@@ -906,6 +909,8 @@ namespace http_request_test
 			TEST_ASSERT(!DecodeAsciiHttpFieldValue(nonAscii, text));
 			TEST_ASSERT(text == L"unchanged");
 			TEST_ASSERT(!HttpFieldValueEqualsAscii(nonAscii, WString::CopyFrom(L"\x0080", 1)));
+			wchar_t negativeAsciiAlias = (wchar_t)-191;
+			TEST_ASSERT(!HttpFieldValueEqualsAscii(ByteArray("A"), WString::CopyFrom(&negativeAsciiAlias, 1)));
 		});
 
 		TEST_CASE(L"HTTP body helpers count and flatten chunks while ignoring trailers")
@@ -1031,6 +1036,8 @@ namespace http_request_test
 			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"/") == HttpRequestLineValidationResult::Succeeded);
 			TEST_ASSERT(ValidateHttpRequestLine(L"", L"/") == HttpRequestLineValidationResult::InvalidMethod);
 			TEST_ASSERT(ValidateHttpRequestLine(L"G ET", L"/") == HttpRequestLineValidationResult::InvalidMethod);
+			wchar_t negativeAsciiAlias = (wchar_t)-191;
+			TEST_ASSERT(ValidateHttpRequestLine(WString::CopyFrom(&negativeAsciiAlias, 1), L"/") == HttpRequestLineValidationResult::InvalidMethod);
 			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"") == HttpRequestLineValidationResult::InvalidRequestTarget);
 			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"/has space") == HttpRequestLineValidationResult::InvalidRequestTarget);
 

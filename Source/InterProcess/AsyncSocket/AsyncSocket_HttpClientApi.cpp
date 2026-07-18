@@ -403,8 +403,8 @@ SocketHttpClientApi::Impl
 			query->request->method = request.method == WString::Empty ? WString::Unmanaged(L"GET") : request.method;
 			query->request->requestTarget = request.query == WString::Empty ? WString::Unmanaged(L"/") : request.query;
 
-			query->request->headers.Add(CreateField(L"Host", authority));
-			query->request->headers.Add(CreateField(L"Accept-Encoding", L"identity"));
+			query->request->headers.Add(CreateAsciiHttpField(L"Host", authority));
+			query->request->headers.Add(CreateAsciiHttpField(L"Accept-Encoding", L"identity"));
 			for (vint i = 0; i < request.acceptTypes.Count(); i++)
 			{
 				query->request->headers.Add(CreateField(L"Accept", request.acceptTypes.Get(i)));
@@ -495,25 +495,16 @@ SocketHttpClientApi::Impl
 				if (!processField(field)) return false;
 			}
 
-			vint bodySize = 0;
-			for (auto&& chunk : response->body.chunks)
+			Array<vuint8_t> body;
+			if (!FlattenHttpBody(response->body, body))
 			{
-				if (chunk.data.Count() < 0 || bodySize > HttpBodySizeLimit - chunk.data.Count())
-				{
-					error = MakeError(L"SocketHttpClientApi::OnReadResponse", L"The response body is too large to flatten.", SocketHttpClientErrorCode::Transport);
-					return false;
-				}
-				bodySize += chunk.data.Count();
+				error = MakeError(L"SocketHttpClientApi::OnReadResponse", L"The response body is too large to flatten.", SocketHttpClientErrorCode::Transport);
+				return false;
 			}
-			output.body.Resize(bodySize);
-			vint offset = 0;
-			for (auto&& chunk : response->body.chunks)
+			output.body.Resize(body.Count());
+			for (vint i = 0; i < body.Count(); i++)
 			{
-				if (chunk.data.Count() > 0)
-				{
-					memcpy(&output.body[offset], &chunk.data[0], chunk.data.Count());
-					offset += chunk.data.Count();
-				}
+				output.body[i] = (char)body[i];
 			}
 			return true;
 		}
