@@ -7,7 +7,7 @@ This document reviews the boundary between:
 - `SocketHttpServerApi` / `SocketHttpClientApi`, which are expected to present parsed HTTP requests and responses to users; and
 - the `INetworkProtocolServer` / `INetworkProtocolClient` implementations built on those APIs, which are expected to interpret the Network Protocol over HTTP contract.
 
-`IAsyncSocketServer` / `IAsyncSocketClient` and `HttpRequestServer` / `HttpRequestClient` are treated as established lower layers. This review contains analysis and ownership options only. It deliberately contains no refactoring sequence, instructions, or actionable task list.
+`IAsyncSocketServer` / `IAsyncSocketClient` and `HttpRequestServer` / `HttpRequestClient` are treated as established lower layers. This review contains the reasoning and ownership analysis. The resulting decisions, implementation order, and verification work are recorded in [TODO_Task_MiniHttpApiRefactoring_ActionableItems.md](TODO_Task_MiniHttpApiRefactoring_ActionableItems.md).
 
 ## Executive conclusion
 
@@ -57,7 +57,7 @@ The client API already:
 - receives a parsed HTTP response;
 - interprets selected response fields and flattens the body into `windows_http::HttpResponse`.
 
-That client projection is intentionally lossy. `ConvertResponse` retains selected values such as the first content type/cookie, processes fields and trailers through the same projection, discards the remaining ordered raw fields, and erases the original framing. Layer 4 can compare the selected content type, but it cannot detect duplicate content-type fields, distinguish a value sourced from a trailer, or inspect the original framing. If those distinctions are part of the compatibility contract, layer 3 must validate them before flattening or expose them in its result.
+That client projection is intentionally lossy. `ConvertResponse` retains selected values such as the first content type/cookie, processes fields and trailers through the same projection, discards the remaining ordered raw fields, and erases the original framing. Layer 4 can compare the selected content type, but it cannot detect duplicate content-type fields, distinguish a value sourced from a trailer, or inspect the original framing. The compatibility contract explicitly requires the client to accept ordinary legal response framing and the legacy Windows client exposes the same flat shape, so this refactoring keeps that projection and does not add stricter raw-response validation.
 
 These are the right layer-3 responsibilities. The problem is that their reusable pieces are private. Examples include `DecodePath`, `ToAscii`, `Field`, `Normalize`, and `SingleHeader` in `AsyncSocket_HttpServerApi.cpp`, and `CreateField`, `DecodeFieldValue`, `CreateQuery`, and `ConvertResponse` in `AsyncSocket_HttpClientApi.cpp`.
 
@@ -152,6 +152,8 @@ The following capabilities do not require knowledge of Network Protocol routes, 
 
 These capabilities fit the raw HTTP model in `HttpRequest.h`. The generic UTF-8 primitive should be length-aware and report conversion failure; whether an empty string or NUL is legal should remain a caller policy rather than being silently hard-coded as a Network Protocol rule. In particular, an embedded-NUL-capable generic helper cannot be implemented by blindly relying on zero-terminated conversions. Field helpers should also name their encoding explicitly because HTTP field values are bytes, not inherently `WString` text.
 
+The framing result should be exposed as the output of a public analyzer, not cached in `HttpRequest` or `HttpResponse`. Both classes expose mutable headers and bodies and are also used to construct outgoing messages, so cached `Content-Length` or framing members could become stale. A public analyzer over the current fields removes duplicated parsing code and preserves one canonical interpretation without introducing invalid derived state.
+
 Origin-path handling is a boundary case. Percent-triplet parsing and strict byte-to-text decoding are generic, but rejecting encoded separators, accepting an empty base prefix, and rejecting a trailing slash are Mini HTTP routing/security policies. The existing implementations are not interchangeable: layer 4 restricts raw characters to an RFC-style `pchar` set and rejects a trailing base-prefix slash, whereas layer 3 accepts broader printable ASCII and normalizes trailing prefix slashes. A generic origin-form decoder could live with the raw HTTP helpers if its semantics are useful to other HTTP users. Any shared Mini HTTP policy above it requires an explicit compatibility choice rather than direct extraction of one current implementation.
 
 Nontrivial implementations would belong in the corresponding `.cpp`; adding them to `HttpRequest.h` does not imply large inline implementations.
@@ -182,12 +184,9 @@ After generic and layer-3 concerns are removed, the genuinely shared server/clie
 
 This material is appropriate for a layer-4 shared component because it changes when the Network Protocol over HTTP contract changes, not when generic HTTP changes.
 
-Within the user's layer-4-shared option, there are two scopes to consider:
+The chosen home is the existing `NetworkProtocolHttp.h/.cpp`. It already owns the route constants and value types and is shared by both the legacy Windows and portable backends. The exact media type, Connect-pair codec, base-path contract, and common request shapes extend that existing layer-4 ownership. Its `.cpp` implementation may consume public layer-2 helpers while keeping async-socket types out of the public header.
 
-1. `NetworkProtocolHttp.h/.cpp` already owns the route constants and value types and is shared by both the legacy Windows and portable backends. Cross-backend facts such as the exact media type and Connect-pair format align with this existing layer-4 ownership.
-2. `AsyncSocket_HttpNetworkProtocolShared.h` would cover only the remaining layer-4 adapters that depend specifically on portable async-socket/raw-HTTP types.
-
-Creating a new async-only header for facts already duplicated by the Windows backend would leave part of the duplication intact and fragment an existing protocol definition. Its value is strongest only after the cross-backend contract remains in `NetworkProtocolHttp` and there is still meaningful async-specific adapter logic to share.
+`AsyncSocket_HttpNetworkProtocolShared.h` will not be added in the initial refactoring. It should be reconsidered only if meaningful async-specific policy remains duplicated after the layer-2, layer-3, and common `NetworkProtocolHttp` work; creating it preemptively would fragment the protocol definition.
 
 ## What should remain in layer 4
 
