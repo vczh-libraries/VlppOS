@@ -385,27 +385,29 @@ Refactor `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.cpp` so `Impl::
 
 ## Replace parsing/construction
 
-- [ ] Replace the local `ParseContentLength` with `AnalyzeHttpFraming`.
-- [ ] Preserve the stricter layer-4 form with `kind`, `contentLengthFieldCount == 1`, `contentLengthValueCount == 1`, and `contentLengthValuesPlainDecimal` checks.
-- [ ] Replace case folding, header counting, and ASCII comparison with layer-2 field helpers.
-- [ ] Replace body flattening and local UTF-8 decoding with `SocketHttpRequestContext::TryGetBodyUtf8`.
-- [ ] Replace raw success/error response construction with `RespondUtf8` and `RespondStatus`.
-- [ ] Replace media type, Connect-pair, and base-URL helpers with the common definitions.
-- [ ] Validate GET `{baseUrl}/VlppInterProcess/Connect` and POST `{baseUrl}/VlppInterProcess/Request|Response/{36-character token placeholder}` with layer-2 `ValidateHttpRequestLine` before registering the server prefix.
-- [ ] In `SocketHttpServer::SendString`, call `EncodeStrictUtf8`, require nonempty/no-NUL text, and enforce encoded bytes `<= HttpBodySizeLimit` before queue/state mutation. The encoded array may be discarded until Phase 6.
-- [ ] Reduce `HasEmptyBody` and `DecodeSubmittedMessage` to small predicates over analyzed framing, headers, decoded body, and layer-4 policy; inline them if extraction no longer carries useful information.
+- [x] Replace the local `ParseContentLength` with `AnalyzeHttpFraming`.
+- [x] Preserve the stricter layer-4 form with `kind`, `contentLengthFieldCount == 1`, `contentLengthValueCount == 1`, and `contentLengthValuesPlainDecimal` checks.
+- [x] Replace case folding, header counting, and ASCII comparison with layer-2 field helpers.
+- [x] Replace body flattening and local UTF-8 decoding with `SocketHttpRequestContext::TryGetBodyUtf8`.
+- [x] Replace raw success/error response construction with `RespondUtf8` and `RespondStatus`.
+- [x] Replace media type, Connect-pair, and base-URL helpers with the common definitions.
+- [x] Validate GET `{baseUrl}/VlppInterProcess/Connect` and POST `{baseUrl}/VlppInterProcess/Request|Response/{36-character token placeholder}` with layer-2 `ValidateHttpRequestLine` before registering the server prefix.
+- [x] In `SocketHttpServer::SendString`, call `EncodeStrictUtf8`, require nonempty/no-NUL text, and enforce encoded bytes `<= HttpBodySizeLimit` before queue/state mutation. The encoded array may be discarded until Phase 6.
+- [x] Reduce `HasEmptyBody` and `DecodeSubmittedMessage` to small predicates over analyzed framing, headers, decoded body, and layer-4 policy; inline them if extraction no longer carries useful information.
 
 ## Delete obsolete helpers
 
-- [ ] Remove `ServerFoldAscii`, `ServerAsciiEqualsIgnoreCase`, `ServerHexValue`, and the duplicated legal-path/target-size helpers after migration.
-- [ ] Remove `IsValidWString`, the local `DecodeStrictUtf8`, and `EncodeMessage` after all callers use layer-2/layer-3 facilities.
-- [ ] Remove `CreateAsciiField`, `FieldValueEquals`, `ParseContentLength`, and the body reconciliation loop.
-- [ ] Remove the local content-type constant and Connect-pair formatter.
+- [x] Remove `ServerFoldAscii`, `ServerAsciiEqualsIgnoreCase`, `ServerHexValue`, and the duplicated legal-path/target-size helpers after migration.
+- [x] Remove `IsValidWString`, the local `DecodeStrictUtf8`, and `EncodeMessage` after all callers use layer-2/layer-3 facilities.
+- [x] Remove `CreateAsciiField`, `FieldValueEquals`, `ParseContentLength`, and the body reconciliation loop.
+- [x] Remove the local content-type constant and Connect-pair formatter.
 
 ## Keep local
 
-- [ ] Keep token generation/collision handling and `ExtractToken`.
-- [ ] Keep route dispatch, connection lookup/ownership, pending-poll management, piggyback selection, callbacks, queues, and shutdown state unchanged.
+- [x] Keep token generation/collision handling and `ExtractToken`.
+- [x] Keep route dispatch, connection lookup/ownership, pending-poll management, piggyback selection, callbacks, queues, and shutdown state unchanged.
+
+Phase 4 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 215 test cases passed with no memory-leak report. Regenerated `Release` outputs and compile-checked both packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Phase 5: Simplify the client layer-4 adapter
 

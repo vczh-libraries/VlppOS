@@ -11,333 +11,54 @@ namespace vl::inter_process::async_tcp_socket
 	{
 		constexpr vint						GeneratedTokenLength = 36;
 
-		wchar_t ServerFoldAscii(wchar_t c)
-		{
-			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
-		}
-
-		bool ServerAsciiEqualsIgnoreCase(const WString& a, const WString& b)
-		{
-			if (a.Length() != b.Length()) return false;
-			for (vint i = 0; i < a.Length(); i++)
-			{
-				if (ServerFoldAscii(a[i]) != ServerFoldAscii(b[i])) return false;
-			}
-			return true;
-		}
-
-		vint ServerHexValue(wchar_t c)
-		{
-			if (L'0' <= c && c <= L'9') return c - L'0';
-			if (L'a' <= c && c <= L'f') return c - L'a' + 10;
-			if (L'A' <= c && c <= L'F') return c - L'A' + 10;
-			return -1;
-		}
-
-		bool IsLegalServerOriginPathCharacter(wchar_t c)
-		{
-			if (L'a' <= c && c <= L'z') return true;
-			if (L'A' <= c && c <= L'Z') return true;
-			if (L'0' <= c && c <= L'9') return true;
-			switch (c)
-			{
-			case L'-': case L'.': case L'_': case L'~':
-			case L'!': case L'$': case L'&': case L'\'':
-			case L'(': case L')': case L'*': case L'+':
-			case L',': case L';': case L'=': case L':':
-			case L'@': case L'/':
-				return true;
-			default:
-				return false;
-			}
-		}
-
-		bool IsValidWString(const WString& text)
-		{
-			for (vint i = 0; i < text.Length(); i++)
-			{
-				auto code = (vuint32_t)text[i];
-				if (code == 0) return false;
-				if constexpr (sizeof(wchar_t) == 2)
-				{
-					if (0xD800 <= code && code <= 0xDBFF)
-					{
-						if (++i == text.Length()) return false;
-						auto low = (vuint32_t)text[i];
-						if (low < 0xDC00 || 0xDFFF < low) return false;
-					}
-					else if (0xDC00 <= code && code <= 0xDFFF)
-					{
-						return false;
-					}
-				}
-				else if (code > 0x10FFFF || (0xD800 <= code && code <= 0xDFFF))
-				{
-					return false;
-				}
-			}
-			return true;
-		}
-
-		bool DecodeStrictUtf8(const vuint8_t* bytes, vint count, WString& text)
-		{
-			List<wchar_t> characters;
-			for (vint i = 0; i < count;)
-			{
-				auto first = bytes[i++];
-				vuint32_t code = 0;
-				vint following = 0;
-				if (first < 0x80)
-				{
-					code = first;
-				}
-				else if (0xC2 <= first && first <= 0xDF)
-				{
-					code = first & 0x1F;
-					following = 1;
-				}
-				else if (0xE0 <= first && first <= 0xEF)
-				{
-					code = first & 0x0F;
-					following = 2;
-				}
-				else if (0xF0 <= first && first <= 0xF4)
-				{
-					code = first & 0x07;
-					following = 3;
-				}
-				else
-				{
-					return false;
-				}
-
-				if (i + following > count) return false;
-				for (vint j = 0; j < following; j++)
-				{
-					auto next = bytes[i++];
-					if ((next & 0xC0) != 0x80) return false;
-					code = (code << 6) | (next & 0x3F);
-				}
-				if (
-					(following == 1 && code < 0x80) ||
-					(following == 2 && code < 0x800) ||
-					(following == 3 && code < 0x10000) ||
-					code == 0 ||
-					code > 0x10FFFF ||
-					(0xD800 <= code && code <= 0xDFFF)
-					)
-				{
-					return false;
-				}
-
-				if constexpr (sizeof(wchar_t) == 2)
-				{
-					if (code <= 0xFFFF)
-					{
-						characters.Add((wchar_t)code);
-					}
-					else
-					{
-						code -= 0x10000;
-						characters.Add((wchar_t)(0xD800 + (code >> 10)));
-						characters.Add((wchar_t)(0xDC00 + (code & 0x3FF)));
-					}
-				}
-				else
-				{
-					characters.Add((wchar_t)code);
-				}
-			}
-
-			text = characters.Count() == 0
-				? WString::Empty
-				: WString::CopyFrom(&characters[0], characters.Count());
-			return true;
-		}
-
-		bool ValidateBasePath(const WString& baseUrl)
-		{
-			if (baseUrl == WString::Empty) return true;
-			if (baseUrl[0] != L'/' || baseUrl[baseUrl.Length() - 1] == L'/') return false;
-
-			List<vuint8_t> bytes;
-			for (vint i = 0; i < baseUrl.Length(); i++)
-			{
-				auto c = baseUrl[i];
-				if (c == L'%')
-				{
-					if (i + 2 >= baseUrl.Length()) return false;
-					auto high = ServerHexValue(baseUrl[i + 1]);
-					auto low = ServerHexValue(baseUrl[i + 2]);
-					if (high < 0 || low < 0) return false;
-					auto byte = (vuint8_t)(high * 16 + low);
-					if (byte == 0 || byte == '/' || byte == '\\') return false;
-					bytes.Add(byte);
-					i += 2;
-				}
-				else
-				{
-					if (!IsLegalServerOriginPathCharacter(c)) return false;
-					bytes.Add((vuint8_t)c);
-				}
-			}
-
-			WString decoded;
-			return DecodeStrictUtf8(&bytes[0], bytes.Count(), decoded);
-		}
-
-		bool ValidRequestTargetSize(const WString& method, const WString& target)
-		{
-			return method.Length() + target.Length() + 10 <= HttpRequestLineSizeLimit;
-		}
-
 		WString CreateServerUrlPrefix(const WString& baseUrl, vint port)
 		{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServer::SocketHttpServer(const WString&, vint)#"
-			CHECK_ERROR(ValidateBasePath(baseUrl), ERROR_MESSAGE_PREFIX L"baseUrl must be empty or a legal ASCII origin-form path prefix without a trailing slash.");
+			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(baseUrl), ERROR_MESSAGE_PREFIX L"baseUrl must be empty or a legal ASCII origin-form path prefix without a trailing slash.");
 			CHECK_ERROR(1 <= port && port <= 65535, ERROR_MESSAGE_PREFIX L"port must be in 1..65535.");
-			CHECK_ERROR(ValidRequestTargetSize(L"GET", baseUrl + HttpServerUrl_Connect), ERROR_MESSAGE_PREFIX L"The /Connect target exceeds the HTTP request-line limit.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"GET", baseUrl + HttpServerUrl_Connect) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Connect target exceeds the HTTP request-line limit.");
 			const WString tokenPlaceholder = L"000000000000000000000000000000000000";
-			CHECK_ERROR(ValidRequestTargetSize(L"POST", baseUrl + HttpServerUrl_Request + L"/" + tokenPlaceholder), ERROR_MESSAGE_PREFIX L"The /Request target plus a generated token exceeds the HTTP request-line limit.");
-			CHECK_ERROR(ValidRequestTargetSize(L"POST", baseUrl + HttpServerUrl_Response + L"/" + tokenPlaceholder), ERROR_MESSAGE_PREFIX L"The /Response target plus a generated token exceeds the HTTP request-line limit.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"POST", baseUrl + HttpServerUrl_Request + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Request target plus a generated token exceeds the HTTP request-line limit.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"POST", baseUrl + HttpServerUrl_Response + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Response target plus a generated token exceeds the HTTP request-line limit.");
 			return L"http://localhost:" + itow(port) + baseUrl;
 #undef ERROR_MESSAGE_PREFIX
-		}
-
-		void EncodeMessage(const WString& message, Array<vuint8_t>& bytes)
-		{
-#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServerConnection::SendString(const WString&)#"
-			CHECK_ERROR(message.Length() > 0, ERROR_MESSAGE_PREFIX L"A logical HTTP message cannot be empty.");
-			CHECK_ERROR(IsValidWString(message), ERROR_MESSAGE_PREFIX L"A logical HTTP message must contain valid Unicode without NUL.");
-			auto utf8 = wtou8(message);
-			CHECK_ERROR(utf8.Length() <= HttpBodySizeLimit, ERROR_MESSAGE_PREFIX L"The UTF-8 message exceeds HttpBodySizeLimit.");
-			bytes.Resize(utf8.Length());
-			if (bytes.Count() > 0)
-			{
-				memcpy(&bytes[0], utf8.Buffer(), bytes.Count());
-			}
-#undef ERROR_MESSAGE_PREFIX
-		}
-
-		HttpField CreateAsciiField(const WString& name, const WString& value)
-		{
-			HttpField field;
-			field.name = name;
-			field.value.Resize(value.Length());
-			for (vint i = 0; i < value.Length(); i++)
-			{
-				CHECK_ERROR(value[i] <= 0x7F, L"An HTTP field helper requires ASCII.");
-				field.value[i] = (vuint8_t)value[i];
-			}
-			return field;
-		}
-
-		Ptr<HttpResponse> CreateSuccessResponse(const WString& message)
-		{
-			auto response = Ptr(new HttpResponse);
-			response->statusCode = 200;
-			response->reason = L"OK";
-			response->headers.Add(CreateAsciiField(L"content-type", HttpNetworkProtocolContentType));
-			if (message != WString::Empty)
-			{
-				HttpBodyChunk chunk;
-				EncodeMessage(message, chunk.data);
-				response->body.chunks.Add(std::move(chunk));
-			}
-			return response;
-		}
-
-		Ptr<HttpResponse> CreateErrorResponse(const WString& reason)
-		{
-			auto response = Ptr(new HttpResponse);
-			response->statusCode = 404;
-			response->reason = reason;
-			return response;
-		}
-
-		bool FieldValueEquals(const Array<vuint8_t>& value, const wchar_t* expected)
-		{
-			vint length = 0;
-			while (expected[length]) length++;
-			if (value.Count() != length) return false;
-			for (vint i = 0; i < length; i++)
-			{
-				if (value[i] != (vuint8_t)expected[i]) return false;
-			}
-			return true;
-		}
-
-		bool ParseContentLength(const Array<vuint8_t>& value, vint& length)
-		{
-			vint begin = 0;
-			vint end = value.Count();
-			while (begin < end && (value[begin] == ' ' || value[begin] == '\t')) begin++;
-			while (begin < end && (value[end - 1] == ' ' || value[end - 1] == '\t')) end--;
-			if (begin == end) return false;
-			vuint64_t number = 0;
-			for (vint i = begin; i < end; i++)
-			{
-				if (value[i] < '0' || value[i] > '9') return false;
-				auto digit = (vuint64_t)(value[i] - '0');
-				if (number > ((vuint64_t)HttpBodySizeLimit - digit) / 10) return false;
-				number = number * 10 + digit;
-			}
-			length = (vint)number;
-			return true;
 		}
 
 		bool HasEmptyBody(Ptr<HttpRequest> request)
 		{
 			if (!request || request->body.chunks.Count() != 0 || request->body.trailers.Count() != 0) return false;
-			vint contentLengths = 0;
-			for (auto&& field : request->headers)
-			{
-				if (ServerAsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
-				if (ServerAsciiEqualsIgnoreCase(field.name, L"content-length"))
-				{
-					vint length = -1;
-					if (!ParseContentLength(field.value, length) || length != 0) return false;
-					contentLengths++;
-				}
-			}
-			return contentLengths <= 1;
+			HttpFraming framing;
+			if (AnalyzeHttpFraming(request->headers, framing) != HttpFramingAnalysisResult::Succeeded) return false;
+			if (framing.kind == HttpFramingKind::None) return true;
+			return
+				framing.kind == HttpFramingKind::ContentLength &&
+				framing.contentLength == 0 &&
+				framing.contentLengthFieldCount == 1 &&
+				framing.contentLengthValueCount == 1 &&
+				framing.contentLengthValuesPlainDecimal;
 		}
 
-		bool DecodeSubmittedMessage(Ptr<HttpRequest> request, WString& message)
+		bool DecodeSubmittedMessage(Ptr<SocketHttpRequestContext> context, Ptr<HttpRequest> request, WString& message)
 		{
 			if (!request || request->body.trailers.Count() != 0) return false;
-			vint contentLength = -1;
-			vint contentLengths = 0;
-			vint contentTypes = 0;
-			for (auto&& field : request->headers)
+			HttpFraming framing;
+			if (AnalyzeHttpFraming(request->headers, framing) != HttpFramingAnalysisResult::Succeeded) return false;
+			if (
+				framing.kind != HttpFramingKind::ContentLength ||
+				framing.contentLength == 0 ||
+				framing.contentLengthFieldCount != 1 ||
+				framing.contentLengthValueCount != 1 ||
+				!framing.contentLengthValuesPlainDecimal ||
+				CountHttpFields(request->headers, L"content-type") != 1
+				)
 			{
-				if (ServerAsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
-				if (ServerAsciiEqualsIgnoreCase(field.name, L"content-length"))
-				{
-					if (!ParseContentLength(field.value, contentLength)) return false;
-					contentLengths++;
-				}
-				else if (ServerAsciiEqualsIgnoreCase(field.name, L"content-type"))
-				{
-					if (!FieldValueEquals(field.value, HttpNetworkProtocolContentType)) return false;
-					contentTypes++;
-				}
+				return false;
 			}
-			if (contentLengths != 1 || contentTypes != 1 || contentLength <= 0) return false;
-
-			Array<vuint8_t> bytes(contentLength);
-			vint offset = 0;
-			for (auto&& chunk : request->body.chunks)
-			{
-				if (chunk.data.Count() > contentLength - offset) return false;
-				if (chunk.data.Count() > 0)
-				{
-					memcpy(&bytes[offset], &chunk.data[0], chunk.data.Count());
-					offset += chunk.data.Count();
-				}
-			}
-			if (offset != contentLength) return false;
-			return DecodeStrictUtf8(&bytes[0], bytes.Count(), message) && message.Length() > 0;
+			auto contentType = FindHttpField(request->headers, L"content-type");
+			return
+				HttpFieldValueEqualsAscii(contentType->value, HttpNetworkProtocolContentType) &&
+				context->TryGetBodyUtf8(message) &&
+				IsValidHttpNetworkProtocolMessage(message);
 		}
 
 		bool ExtractToken(const WString& path, const wchar_t* route, WString& token)
@@ -808,8 +529,11 @@ namespace vl::inter_process::async_tcp_socket
 			bool submitted = false;
 			try
 			{
-				submitted = work.context->Respond(
-					CreateSuccessResponse(work.message),
+				submitted = work.context->RespondUtf8(
+					200,
+					L"OK",
+					HttpNetworkProtocolContentType,
+					work.message,
 					Func<void(bool)>([state, context = work.context](bool succeeded)
 					{
 						FinishPollResponse(state, context, succeeded);
@@ -1260,8 +984,13 @@ namespace vl::inter_process::async_tcp_socket
 
 		void SocketHttpServerConnection::SendString(const WString& str)
 		{
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServerConnection::SendString(const WString&)#"
 			Array<vuint8_t> validated;
-			EncodeMessage(str, validated);
+			CHECK_ERROR(str.Length() > 0, ERROR_MESSAGE_PREFIX L"A logical HTTP message cannot be empty.");
+			CHECK_ERROR(IsValidHttpNetworkProtocolMessage(str), ERROR_MESSAGE_PREFIX L"A logical HTTP message must contain valid Unicode without NUL.");
+			CHECK_ERROR(EncodeStrictUtf8(str, validated), ERROR_MESSAGE_PREFIX L"A logical HTTP message must contain valid Unicode without NUL.");
+			CHECK_ERROR(validated.Count() <= HttpBodySizeLimit, ERROR_MESSAGE_PREFIX L"The UTF-8 message exceeds HttpBodySizeLimit.");
+#undef ERROR_MESSAGE_PREFIX
 			auto state = lifecycle;
 			PollWork work;
 			CS_LOCK(state->lockState)
@@ -1396,7 +1125,7 @@ namespace vl::inter_process::async_tcp_socket
 			auto path = context->GetRelativePath();
 			if (!request || context->GetQuery() != WString::Empty)
 			{
-				context->Respond(CreateErrorResponse(L"Route not found"));
+				context->RespondStatus(404, L"Route not found");
 				return;
 			}
 
@@ -1405,7 +1134,7 @@ namespace vl::inter_process::async_tcp_socket
 				auto connection = lifecycle->CreateConnection(lifecycle);
 				if (!connection)
 				{
-					context->Respond(CreateErrorResponse(L"Connection rejected"));
+					context->RespondStatus(404, L"Connection rejected");
 					return;
 				}
 
@@ -1415,7 +1144,7 @@ namespace vl::inter_process::async_tcp_socket
 				if (result != WaitForClientResult::Accept)
 				{
 					connection->Stop();
-					context->Respond(CreateErrorResponse(L"Connection rejected"));
+					context->RespondStatus(404, L"Connection rejected");
 					return;
 				}
 
@@ -1424,7 +1153,7 @@ namespace vl::inter_process::async_tcp_socket
 					WString::Unmanaged(HttpServerUrl_Request) + L"/" + token,
 					WString::Unmanaged(HttpServerUrl_Response) + L"/" + token
 					);
-				context->Respond(CreateSuccessResponse(body));
+				context->RespondUtf8(200, L"OK", HttpNetworkProtocolContentType, body);
 				return;
 			}
 
@@ -1433,23 +1162,23 @@ namespace vl::inter_process::async_tcp_socket
 			{
 				auto connection = lifecycle->FindConnection(token);
 				if (connection && connection->RegisterPoll(context)) return;
-				context->Respond(CreateErrorResponse(L"Connection not found"));
+				context->RespondStatus(404, L"Connection not found");
 				return;
 			}
 
 			WString message;
-			if (request->method == L"POST" && ExtractToken(path, HttpServerUrl_Response, token) && DecodeSubmittedMessage(request, message))
+			if (request->method == L"POST" && ExtractToken(path, HttpServerUrl_Response, token) && DecodeSubmittedMessage(context, request, message))
 			{
 				auto connection = lifecycle->FindConnection(token);
 				WString response;
 				if (connection && connection->DispatchInbound(message, response))
 				{
-					context->Respond(CreateSuccessResponse(response));
+					context->RespondUtf8(200, L"OK", HttpNetworkProtocolContentType, response);
 					return;
 				}
 			}
 
-			context->Respond(CreateErrorResponse(L"Route not found"));
+			context->RespondStatus(404, L"Route not found");
 		}
 	};
 

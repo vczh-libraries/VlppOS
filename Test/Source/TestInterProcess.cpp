@@ -2468,6 +2468,13 @@ void RunSocketHttpFocusedTestCases()
 
 		auto connectRequest = CreateSocketHttpRawRequest(port, L"GET", baseUrl + HttpServerUrl_Connect);
 		auto connectResponse = expectStatus(connectRequest, 200);
+		TEST_ASSERT(async_tcp_socket::CountHttpFields(connectResponse->headers, L"content-type") == 1);
+		auto connectContentType = async_tcp_socket::FindHttpField(connectResponse->headers, L"content-type");
+		TEST_ASSERT(connectContentType != nullptr);
+		TEST_ASSERT(async_tcp_socket::HttpFieldValueEqualsAscii(
+			connectContentType->value,
+			HttpNetworkProtocolContentType
+			));
 		TEST_ASSERT(callback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
 		auto connectBody = ReadSocketHttpBody(connectResponse->body);
 		auto separator = connectBody.IndexOf(L';');
@@ -2519,7 +2526,10 @@ void RunSocketHttpFocusedTestCases()
 
 		auto missingLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
 		missingLength->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
-		expectStatus(missingLength, 404);
+		auto missingLengthResponse = expectStatus(missingLength, 404);
+		TEST_ASSERT(async_tcp_socket::CountHttpFields(missingLengthResponse->headers, L"content-type") == 0);
+		TEST_ASSERT(missingLengthResponse->body.chunks.Count() == 0);
+		TEST_ASSERT(missingLengthResponse->body.trailers.Count() == 0);
 
 		auto zeroLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
 		addSubmittedBody(zeroLength, L"0", WString::Empty);
@@ -3076,6 +3086,18 @@ void RunSocketHttpFocusedTestCases()
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedLimit";
 		auto exact = RepeatSocketHttpCharacter(L'a', async_tcp_socket::HttpBodySizeLimit - 3) + L"\x4F60";
 		auto oversized = exact + L"x";
+		const wchar_t embeddedNulBuffer[] = { L'a', 0, L'b' };
+		auto embeddedNul = WString::CopyFrom(embeddedNulBuffer, 3);
+		wchar_t invalidUnicodeBuffer[] = { 0 };
+		if constexpr (sizeof(wchar_t) == 2)
+		{
+			invalidUnicodeBuffer[0] = (wchar_t)0xD800;
+		}
+		else
+		{
+			invalidUnicodeBuffer[0] = (wchar_t)0x110000;
+		}
+		auto invalidUnicode = WString::CopyFrom(invalidUnicodeBuffer, 1);
 		TEST_ASSERT(wtou8(exact).Length() == async_tcp_socket::HttpBodySizeLimit);
 		TEST_ASSERT(wtou8(oversized).Length() == async_tcp_socket::HttpBodySizeLimit + 1);
 
@@ -3095,8 +3117,13 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(serverCallback.exact);
 		TEST_ASSERT(serverCallback.readCount == 1);
 
-		TEST_ERROR(serverCallback.Connection()->SendString(oversized));
-		serverCallback.Connection()->SendString(exact);
+		auto serverConnection = serverCallback.Connection();
+		TEST_ASSERT(serverConnection != nullptr);
+		TEST_ERROR(serverConnection->SendString(WString::Empty));
+		TEST_ERROR(serverConnection->SendString(embeddedNul));
+		TEST_ERROR(serverConnection->SendString(invalidUnicode));
+		TEST_ERROR(serverConnection->SendString(oversized));
+		serverConnection->SendString(exact);
 		TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(clientCallback.exact);
 		TEST_ASSERT(clientCallback.readCount == 1);
