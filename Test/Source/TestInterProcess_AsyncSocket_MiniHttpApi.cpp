@@ -1,5 +1,6 @@
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.h"
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.h"
+#include "../../Source/InterProcess/NetworkProtocolHttp.h"
 
 #if defined VCZH_MSVC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
@@ -2593,6 +2594,117 @@ using namespace mini_http_api_test;
 
 TEST_FILE
 {
+	TEST_CASE(L"Mini HTTP network protocol Connect body framing has one strict delimiter")
+	{
+		WString requestPath = L"unchanged-request";
+		WString responsePath = L"unchanged-response";
+		auto body = CreateHttpNetworkProtocolConnectBody(L"/request", L"/response");
+		TEST_ASSERT(body == L"/request;/response");
+		TEST_ASSERT(ParseHttpNetworkProtocolConnectBody(body, requestPath, responsePath));
+		TEST_ASSERT(requestPath == L"/request");
+		TEST_ASSERT(responsePath == L"/response");
+
+		TEST_ERROR(CreateHttpNetworkProtocolConnectBody(WString::Empty, L"/response"));
+		TEST_ERROR(CreateHttpNetworkProtocolConnectBody(L"/request", WString::Empty));
+		TEST_ERROR(CreateHttpNetworkProtocolConnectBody(L"/request;extra", L"/response"));
+		TEST_ERROR(CreateHttpNetworkProtocolConnectBody(L"/request", L"/response;extra"));
+
+		for (auto invalid : { L"", L"request", L";response", L"request;", L"request;response;extra" })
+		{
+			requestPath = L"unchanged-request";
+			responsePath = L"unchanged-response";
+			TEST_ASSERT(!ParseHttpNetworkProtocolConnectBody(invalid, requestPath, responsePath));
+			TEST_ASSERT(requestPath == L"unchanged-request");
+			TEST_ASSERT(responsePath == L"unchanged-response");
+		}
+
+		TEST_ASSERT(ParseHttpNetworkProtocolConnectBody(L"x;y", requestPath, responsePath));
+		TEST_ASSERT(requestPath == L"x");
+		TEST_ASSERT(responsePath == L"y");
+	});
+
+	TEST_CASE(L"Mini HTTP network protocol path validators share grammar but preserve base and endpoint roles")
+	{
+		TEST_ASSERT(ValidateHttpNetworkProtocolBaseUrl(WString::Empty));
+		TEST_ASSERT(!ValidateHttpNetworkProtocolEndpointPath(WString::Empty));
+		TEST_ASSERT(!ValidateHttpNetworkProtocolBaseUrl(L"/"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolEndpointPath(L"/"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolBaseUrl(L"/api"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolEndpointPath(L"/api"));
+		TEST_ASSERT(!ValidateHttpNetworkProtocolBaseUrl(L"/api/"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolEndpointPath(L"/api/"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolBaseUrl(L"/a-z_A.Z~!$&'()*+,;=:@/%E4%BD%A0"));
+		TEST_ASSERT(ValidateHttpNetworkProtocolEndpointPath(L"/%3F%23%5B%5D%01%25"));
+
+		for (auto invalid :
+			{
+				L"relative", L"/query?x", L"/fragment#x", L"/back\\slash", L"/raw\x4F60",
+				L"/%", L"/%0", L"/%GG", L"/%2F", L"/%5c", L"/%00", L"/%C0%AF", L"/%E4%BD"
+			})
+		{
+			TEST_ASSERT(!ValidateHttpNetworkProtocolBaseUrl(invalid));
+			TEST_ASSERT(!ValidateHttpNetworkProtocolEndpointPath(invalid));
+		}
+
+		wchar_t nulPathBuffer[] = { L'/', L'a', 0, L'b' };
+		auto nulPath = WString::CopyFrom(nulPathBuffer, 4);
+		TEST_ASSERT(!ValidateHttpNetworkProtocolBaseUrl(nulPath));
+		TEST_ASSERT(!ValidateHttpNetworkProtocolEndpointPath(nulPath));
+	});
+
+	TEST_CASE(L"Mini HTTP network protocol message policy only requires nonempty text without NUL")
+	{
+		TEST_ASSERT(!IsValidHttpNetworkProtocolMessage(WString::Empty));
+		TEST_ASSERT(IsValidHttpNetworkProtocolMessage(L"ordinary"));
+		TEST_ASSERT(IsValidHttpNetworkProtocolMessage(L"\x4F60\x597D"));
+
+		wchar_t nulMessageBuffer[] = { L'a', 0, L'b' };
+		TEST_ASSERT(!IsValidHttpNetworkProtocolMessage(WString::CopyFrom(nulMessageBuffer, 3)));
+		wchar_t invalidUnicodeBuffer[] = { (wchar_t)0xD800 };
+		TEST_ASSERT(IsValidHttpNetworkProtocolMessage(WString::CopyFrom(invalidUnicodeBuffer, 1)));
+	});
+
+	TEST_CASE(L"Mini HTTP network protocol request factories own wire shape but not lifecycle policy")
+	{
+		auto connect = CreateHttpNetworkProtocolConnectRequest(L"not-validated-connect-target");
+		TEST_ASSERT(connect.method == L"GET");
+		TEST_ASSERT(connect.query == L"not-validated-connect-target");
+		TEST_ASSERT(connect.acceptTypes.Count() == 1 && connect.acceptTypes[0] == HttpNetworkProtocolContentType);
+		TEST_ASSERT(connect.contentType == WString::Empty);
+		TEST_ASSERT(connect.body.Count() == 0);
+		TEST_ASSERT(connect.extraHeaders.Count() == 0);
+		TEST_ASSERT(!connect.keepAliveOnStop && connect.receiveTimeout == 30000);
+
+		auto receive = CreateHttpNetworkProtocolReceiveRequest(L"not-validated-receive-target");
+		TEST_ASSERT(receive.method == L"POST");
+		TEST_ASSERT(receive.query == L"not-validated-receive-target");
+		TEST_ASSERT(receive.acceptTypes.Count() == 1 && receive.acceptTypes[0] == HttpNetworkProtocolContentType);
+		TEST_ASSERT(receive.contentType == WString::Empty);
+		TEST_ASSERT(receive.body.Count() == 0);
+		TEST_ASSERT(receive.extraHeaders.Count() == 1);
+		TEST_ASSERT(receive.extraHeaders.Keys()[0] == L"Content-Length");
+		TEST_ASSERT(receive.extraHeaders.Values()[0] == L"0");
+		TEST_ASSERT(!receive.keepAliveOnStop && receive.receiveTimeout == 30000);
+		receive.receiveTimeout = 0;
+		TEST_ASSERT(receive.receiveTimeout == 0);
+
+		Array<char> body(3);
+		body[0] = 'a';
+		body[1] = 0;
+		body[2] = 'b';
+		auto send = CreateHttpNetworkProtocolSendRequest(L"not-validated-send-target", body);
+		body[0] = 'z';
+		TEST_ASSERT(send.method == L"POST");
+		TEST_ASSERT(send.query == L"not-validated-send-target");
+		TEST_ASSERT(send.acceptTypes.Count() == 1 && send.acceptTypes[0] == HttpNetworkProtocolContentType);
+		TEST_ASSERT(send.contentType == HttpNetworkProtocolContentType);
+		TEST_ASSERT(send.body.Count() == 3 && send.body[0] == 'a' && send.body[1] == 0 && send.body[2] == 'b');
+		TEST_ASSERT(send.extraHeaders.Count() == 0);
+		TEST_ASSERT(!send.keepAliveOnStop && send.receiveTimeout == 30000);
+		send.keepAliveOnStop = true;
+		TEST_ASSERT(send.keepAliveOnStop);
+	});
+
 	TEST_CASE(L"SocketHttpServerApi validates and normalizes loopback URL prefixes")
 	{
 		auto root = CreateValidationServer(L"http://LOCALHOST:38910////");

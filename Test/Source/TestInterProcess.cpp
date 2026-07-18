@@ -2393,6 +2393,30 @@ void RunSocketHttpWindowsInteropTestCases()
 		}
 	});
 
+	TEST_CASE(L"Windows HttpClient preserves legacy first-semicolon Connect parsing")
+	{
+		const vint port = 39630;
+		const WString baseUrl = L"/VlppOSTestWinClientLegacyConnect";
+		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		responses.Add(CreateSocketHttpScriptResponse(200, L"/request-path;/response-path;legacy-suffix"));
+		auto nativeServer = Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
+		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
+			nativeServer,
+			baseUrl + HttpServerUrl_Connect,
+			responses
+			));
+		server->Start();
+
+		ExactMessageCallback callback(L"");
+		auto client = Ptr(new HttpClient(baseUrl, port));
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		TEST_ASSERT(callback.Connection() == client->GetConnection());
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
 	TEST_CASE(L"Windows HttpServer with SocketHttpClient (NetworkProtocol)")
 	{
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)

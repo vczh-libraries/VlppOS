@@ -40,8 +40,15 @@ namespace vl::inter_process
 	*/
 	constexpr const wchar_t* HttpServerUrl_Response = L"/VlppInterProcess/Response";
 
+	constexpr const wchar_t* HttpNetworkProtocolContentType = L"application/json; charset=utf8";
+
 	extern WString HttpUrlEncodeQuery(const WString& query);
 	extern WString HttpUrlDecodeQuery(const WString& query);
+	extern WString CreateHttpNetworkProtocolConnectBody(const WString& requestPath, const WString& responsePath);
+	extern bool ParseHttpNetworkProtocolConnectBody(const WString& body, WString& requestPath, WString& responsePath);
+	extern bool ValidateHttpNetworkProtocolBaseUrl(const WString& baseUrl);
+	extern bool ValidateHttpNetworkProtocolEndpointPath(const WString& path);
+	extern bool IsValidHttpNetworkProtocolMessage(const WString& message);
 }
 
 namespace vl::inter_process::windows_http
@@ -115,6 +122,13 @@ namespace vl::inter_process::windows_http
 		WString												operation;
 		WString												message;
 	};
+}
+
+namespace vl::inter_process
+{
+	extern windows_http::HttpRequest CreateHttpNetworkProtocolConnectRequest(const WString& target);
+	extern windows_http::HttpRequest CreateHttpNetworkProtocolReceiveRequest(const WString& target);
+	extern windows_http::HttpRequest CreateHttpNetworkProtocolSendRequest(const WString& target, const collections::Array<char>& body);
 }
 
 #endif

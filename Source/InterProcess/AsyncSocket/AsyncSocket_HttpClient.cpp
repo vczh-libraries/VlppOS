@@ -26,7 +26,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		constexpr const wchar_t*		JsonContentType = L"application/json; charset=utf8";
 		constexpr vint				HttpRequestMaxAttempts = 3;
 		constexpr vint				SendDrainTimeout = 1000;
 
@@ -214,7 +213,7 @@ namespace vl::inter_process::async_tcp_socket
 				error = WString::Unmanaged(operation) + L" returned status code " + itow(response.statusCode) + L".";
 				return false;
 			}
-			if (response.contentType != JsonContentType)
+			if (response.contentType != HttpNetworkProtocolContentType)
 			{
 				error = WString::Unmanaged(operation) + L" did not return the required content type.";
 				return false;
@@ -743,10 +742,7 @@ SocketHttpClient::Impl
 
 		Ptr<QueryResult> QueryConnect(Ptr<SocketHttpClientApi> api)
 		{
-			windows_http::HttpRequest request;
-			request.method = L"GET";
-			request.query = urlConnect;
-			request.acceptTypes.Add(JsonContentType);
+			auto request = CreateHttpNetworkProtocolConnectRequest(urlConnect);
 
 			auto waiter = Ptr(new QueryWaiter);
 			api->HttpQuery(request, [waiter](QueryResult result)
@@ -771,14 +767,13 @@ SocketHttpClient::Impl
 				return false;
 			}
 
-			auto separator = body.IndexOf(L';');
-			if (separator <= 0 || separator + 1 >= body.Length() || body.Right(body.Length() - separator - 1).IndexOf(L';') != -1)
+			WString requestPath;
+			WString responsePath;
+			if (!ParseHttpNetworkProtocolConnectBody(body, requestPath, responsePath))
 			{
 				error = L"/Connect did not return exactly two paths.";
 				return false;
 			}
-			auto requestPath = body.Left(separator);
-			auto responsePath = body.Right(body.Length() - separator - 1);
 			if (!ValidateOriginPath(requestPath, false) || !ValidateOriginPath(responsePath, false))
 			{
 				error = L"/Connect returned an illegal path.";
@@ -833,11 +828,7 @@ SocketHttpClient::Impl
 		{
 			auto self = RetainSelf();
 			if (!self) return;
-			windows_http::HttpRequest request;
-			request.method = L"POST";
-			request.query = urlRequest;
-			request.acceptTypes.Add(JsonContentType);
-			request.extraHeaders.Add(L"Content-Length", L"0");
+			auto request = CreateHttpNetworkProtocolReceiveRequest(urlRequest);
 			request.receiveTimeout = 0;
 
 			try
@@ -1052,12 +1043,9 @@ SocketHttpClient::Impl
 			}
 			if (!submit) return;
 
-			windows_http::HttpRequest request;
-			request.method = L"POST";
-			request.query = urlResponse;
-			request.acceptTypes.Add(JsonContentType);
-			request.contentType = JsonContentType;
-			request.SetBodyUtf8(item->body);
+			windows_http::HttpRequest encodedBody;
+			encodedBody.SetBodyUtf8(item->body);
+			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, encodedBody.body);
 
 			auto self = RetainSelf();
 			try

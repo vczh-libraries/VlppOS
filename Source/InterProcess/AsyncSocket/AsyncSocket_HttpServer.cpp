@@ -9,7 +9,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		constexpr const wchar_t*				ServerJsonContentType = L"application/json; charset=utf8";
 		constexpr vint						GeneratedTokenLength = 36;
 
 		wchar_t ServerFoldAscii(wchar_t c)
@@ -238,7 +237,7 @@ namespace vl::inter_process::async_tcp_socket
 			auto response = Ptr(new HttpResponse);
 			response->statusCode = 200;
 			response->reason = L"OK";
-			response->headers.Add(CreateAsciiField(L"content-type", ServerJsonContentType));
+			response->headers.Add(CreateAsciiField(L"content-type", HttpNetworkProtocolContentType));
 			if (message != WString::Empty)
 			{
 				HttpBodyChunk chunk;
@@ -320,7 +319,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 				else if (ServerAsciiEqualsIgnoreCase(field.name, L"content-type"))
 				{
-					if (!FieldValueEquals(field.value, ServerJsonContentType)) return false;
+					if (!FieldValueEquals(field.value, HttpNetworkProtocolContentType)) return false;
 					contentTypes++;
 				}
 			}
@@ -1421,7 +1420,10 @@ namespace vl::inter_process::async_tcp_socket
 				}
 
 				auto token = connection->GetToken();
-				auto body = WString::Unmanaged(HttpServerUrl_Request) + L"/" + token + L";" + HttpServerUrl_Response + L"/" + token;
+				auto body = CreateHttpNetworkProtocolConnectBody(
+					WString::Unmanaged(HttpServerUrl_Request) + L"/" + token,
+					WString::Unmanaged(HttpServerUrl_Response) + L"/" + token
+					);
 				context->Respond(CreateSuccessResponse(body));
 				return;
 			}

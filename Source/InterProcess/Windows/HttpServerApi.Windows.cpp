@@ -407,7 +407,7 @@ ULONG HttpServerApi::SendResponse(HANDLE httpRequestQueue, HTTP_REQUEST_ID reque
 
 void HttpServerApi::SendResponseUtf8(HANDLE httpRequestQueue, HTTP_REQUEST_ID requestId, WString body)
 {
-	auto result = SendResponse(httpRequestQueue, requestId, { 200, WString::Unmanaged(L"OK"), body, L"application/json; charset=utf8" });
+	auto result = SendResponse(httpRequestQueue, requestId, { 200, WString::Unmanaged(L"OK"), body, HttpNetworkProtocolContentType });
 	CHECK_ERROR(result == NO_ERROR, L"HttpSendHttpResponse failed for responding UTF-8 body.");
 }
 

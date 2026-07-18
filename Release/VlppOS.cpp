@@ -5786,7 +5786,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		constexpr const wchar_t*		JsonContentType = L"application/json; charset=utf8";
 		constexpr vint				HttpRequestMaxAttempts = 3;
 		constexpr vint				SendDrainTimeout = 1000;
 
@@ -5974,7 +5973,7 @@ namespace vl::inter_process::async_tcp_socket
 				error = WString::Unmanaged(operation) + L" returned status code " + itow(response.statusCode) + L".";
 				return false;
 			}
-			if (response.contentType != JsonContentType)
+			if (response.contentType != HttpNetworkProtocolContentType)
 			{
 				error = WString::Unmanaged(operation) + L" did not return the required content type.";
 				return false;
@@ -6503,10 +6502,7 @@ SocketHttpClient::Impl
 
 		Ptr<QueryResult> QueryConnect(Ptr<SocketHttpClientApi> api)
 		{
-			windows_http::HttpRequest request;
-			request.method = L"GET";
-			request.query = urlConnect;
-			request.acceptTypes.Add(JsonContentType);
+			auto request = CreateHttpNetworkProtocolConnectRequest(urlConnect);
 
 			auto waiter = Ptr(new QueryWaiter);
 			api->HttpQuery(request, [waiter](QueryResult result)
@@ -6531,14 +6527,13 @@ SocketHttpClient::Impl
 				return false;
 			}
 
-			auto separator = body.IndexOf(L';');
-			if (separator <= 0 || separator + 1 >= body.Length() || body.Right(body.Length() - separator - 1).IndexOf(L';') != -1)
+			WString requestPath;
+			WString responsePath;
+			if (!ParseHttpNetworkProtocolConnectBody(body, requestPath, responsePath))
 			{
 				error = L"/Connect did not return exactly two paths.";
 				return false;
 			}
-			auto requestPath = body.Left(separator);
-			auto responsePath = body.Right(body.Length() - separator - 1);
 			if (!ValidateOriginPath(requestPath, false) || !ValidateOriginPath(responsePath, false))
 			{
 				error = L"/Connect returned an illegal path.";
@@ -6593,11 +6588,7 @@ SocketHttpClient::Impl
 		{
 			auto self = RetainSelf();
 			if (!self) return;
-			windows_http::HttpRequest request;
-			request.method = L"POST";
-			request.query = urlRequest;
-			request.acceptTypes.Add(JsonContentType);
-			request.extraHeaders.Add(L"Content-Length", L"0");
+			auto request = CreateHttpNetworkProtocolReceiveRequest(urlRequest);
 			request.receiveTimeout = 0;
 
 			try
@@ -6812,12 +6803,9 @@ SocketHttpClient::Impl
 			}
 			if (!submit) return;
 
-			windows_http::HttpRequest request;
-			request.method = L"POST";
-			request.query = urlResponse;
-			request.acceptTypes.Add(JsonContentType);
-			request.contentType = JsonContentType;
-			request.SetBodyUtf8(item->body);
+			windows_http::HttpRequest encodedBody;
+			encodedBody.SetBodyUtf8(item->body);
+			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, encodedBody.body);
 
 			auto self = RetainSelf();
 			try
@@ -12327,7 +12315,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		constexpr const wchar_t*				ServerJsonContentType = L"application/json; charset=utf8";
 		constexpr vint						GeneratedTokenLength = 36;
 
 		wchar_t ServerFoldAscii(wchar_t c)
@@ -12556,7 +12543,7 @@ namespace vl::inter_process::async_tcp_socket
 			auto response = Ptr(new HttpResponse);
 			response->statusCode = 200;
 			response->reason = L"OK";
-			response->headers.Add(CreateAsciiField(L"content-type", ServerJsonContentType));
+			response->headers.Add(CreateAsciiField(L"content-type", HttpNetworkProtocolContentType));
 			if (message != WString::Empty)
 			{
 				HttpBodyChunk chunk;
@@ -12638,7 +12625,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 				else if (ServerAsciiEqualsIgnoreCase(field.name, L"content-type"))
 				{
-					if (!FieldValueEquals(field.value, ServerJsonContentType)) return false;
+					if (!FieldValueEquals(field.value, HttpNetworkProtocolContentType)) return false;
 					contentTypes++;
 				}
 			}
@@ -13739,7 +13726,10 @@ namespace vl::inter_process::async_tcp_socket
 				}
 
 				auto token = connection->GetToken();
-				auto body = WString::Unmanaged(HttpServerUrl_Request) + L"/" + token + L";" + HttpServerUrl_Response + L"/" + token;
+				auto body = CreateHttpNetworkProtocolConnectBody(
+					WString::Unmanaged(HttpServerUrl_Request) + L"/" + token,
+					WString::Unmanaged(HttpServerUrl_Response) + L"/" + token
+					);
 				context->Respond(CreateSuccessResponse(body));
 				return;
 			}
@@ -15491,6 +15481,104 @@ namespace vl::inter_process
 			if ('A' <= c && c <= 'F') return c - 'A' + 10;
 			return -1;
 		}
+
+		bool IsHttpNetworkProtocolPathCharacter(wchar_t c)
+		{
+			if (L'a' <= c && c <= L'z') return true;
+			if (L'A' <= c && c <= L'Z') return true;
+			if (L'0' <= c && c <= L'9') return true;
+			switch (c)
+			{
+			case L'-': case L'.': case L'_': case L'~':
+			case L'!': case L'$': case L'&': case L'\'': case L'(':
+			case L')': case L'*': case L'+': case L',': case L';': case L'=':
+			case L':': case L'@': case L'/':
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		bool ValidateHttpNetworkProtocolPath(const WString& path, bool allowEmpty, bool rejectTrailingSlash)
+		{
+			if (path.Length() == 0) return allowEmpty;
+			if (path[0] != L'/') return false;
+			if (rejectTrailingSlash && path[path.Length() - 1] == L'/') return false;
+
+			List<vuint8_t> decoded;
+			for (vint i = 0; i < path.Length(); i++)
+			{
+				wchar_t c = path[i];
+				if (c == L'%')
+				{
+					if (i + 2 >= path.Length()) return false;
+					wchar_t highChar = path[i + 1];
+					wchar_t lowChar = path[i + 2];
+					if (highChar > 0x7F || lowChar > 0x7F) return false;
+					vint high = HexValue((char)highChar);
+					vint low = HexValue((char)lowChar);
+					if (high == -1 || low == -1) return false;
+					vuint8_t byte = (vuint8_t)(high * 16 + low);
+					if (byte == 0 || byte == '/' || byte == '\\') return false;
+					decoded.Add(byte);
+					i += 2;
+				}
+				else
+				{
+					if (c > 0x7F || !IsHttpNetworkProtocolPathCharacter(c)) return false;
+					decoded.Add((vuint8_t)c);
+				}
+			}
+
+			WString ignored;
+			return async_tcp_socket::DecodeStrictUtf8(
+				decoded.Count() == 0 ? nullptr : &decoded[0],
+				decoded.Count(),
+				ignored
+				);
+		}
+	}
+
+	WString CreateHttpNetworkProtocolConnectBody(const WString& requestPath, const WString& responsePath)
+	{
+		CHECK_ERROR(requestPath.Length() > 0, L"CreateHttpNetworkProtocolConnectBody(const WString&, const WString&): The request path cannot be empty.");
+		CHECK_ERROR(responsePath.Length() > 0, L"CreateHttpNetworkProtocolConnectBody(const WString&, const WString&): The response path cannot be empty.");
+		CHECK_ERROR(requestPath.IndexOf(L';') == -1, L"CreateHttpNetworkProtocolConnectBody(const WString&, const WString&): The request path cannot contain a semicolon.");
+		CHECK_ERROR(responsePath.IndexOf(L';') == -1, L"CreateHttpNetworkProtocolConnectBody(const WString&, const WString&): The response path cannot contain a semicolon.");
+		return requestPath + L";" + responsePath;
+	}
+
+	bool ParseHttpNetworkProtocolConnectBody(const WString& body, WString& requestPath, WString& responsePath)
+	{
+		vint delimiter = body.IndexOf(L';');
+		if (delimiter <= 0 || delimiter == body.Length() - 1) return false;
+		if (body.Right(body.Length() - delimiter - 1).IndexOf(L';') != -1) return false;
+
+		WString parsedRequestPath = body.Left(delimiter);
+		WString parsedResponsePath = body.Right(body.Length() - delimiter - 1);
+		requestPath = parsedRequestPath;
+		responsePath = parsedResponsePath;
+		return true;
+	}
+
+	bool ValidateHttpNetworkProtocolBaseUrl(const WString& baseUrl)
+	{
+		return ValidateHttpNetworkProtocolPath(baseUrl, true, true);
+	}
+
+	bool ValidateHttpNetworkProtocolEndpointPath(const WString& path)
+	{
+		return ValidateHttpNetworkProtocolPath(path, false, false);
+	}
+
+	bool IsValidHttpNetworkProtocolMessage(const WString& message)
+	{
+		if (message.Length() == 0) return false;
+		for (vint i = 0; i < message.Length(); i++)
+		{
+			if (message[i] == 0) return false;
+		}
+		return true;
 	}
 
 	WString HttpUrlEncodeQuery(const WString& query)
@@ -15569,6 +15657,43 @@ namespace vl::inter_process::windows_http
 		return body.Count() == 0
 			? WString::Empty
 			: DecodeUtf8(&body[0], body.Count());
+	}
+}
+
+namespace vl::inter_process
+{
+	windows_http::HttpRequest CreateHttpNetworkProtocolConnectRequest(const WString& target)
+	{
+		windows_http::HttpRequest request;
+		request.method = L"GET";
+		request.query = target;
+		request.acceptTypes.Add(HttpNetworkProtocolContentType);
+		return request;
+	}
+
+	windows_http::HttpRequest CreateHttpNetworkProtocolReceiveRequest(const WString& target)
+	{
+		windows_http::HttpRequest request;
+		request.method = L"POST";
+		request.query = target;
+		request.acceptTypes.Add(HttpNetworkProtocolContentType);
+		request.extraHeaders.Add(L"Content-Length", L"0");
+		return request;
+	}
+
+	windows_http::HttpRequest CreateHttpNetworkProtocolSendRequest(const WString& target, const Array<char>& body)
+	{
+		windows_http::HttpRequest request;
+		request.method = L"POST";
+		request.query = target;
+		request.acceptTypes.Add(HttpNetworkProtocolContentType);
+		request.contentType = HttpNetworkProtocolContentType;
+		request.body.Resize(body.Count());
+		for (vint i = 0; i < body.Count(); i++)
+		{
+			request.body[i] = body[i];
+		}
+		return request;
 	}
 }
 

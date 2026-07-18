@@ -31,7 +31,7 @@ bool HttpClient::IsStopping()
 
 void HttpClient::BeginReadingLoopUnsafe()
 {
-	SendHttpRequest(HttpRequestType::Request, L"POST", urlRequest, WString::Empty);
+	SendHttpRequest(HttpRequestType::Request, urlRequest, WString::Empty);
 }
 
 /***********************************************************************
@@ -75,7 +75,7 @@ void HttpClient::WaitForServer()
 	}
 
 	eventWaitForServer.Unsignal();
-	if (!SendHttpRequest(HttpRequestType::Connect, L"GET", urlConnect, WString::Empty))
+	if (!SendHttpRequest(HttpRequestType::Connect, urlConnect, WString::Empty))
 	{
 		return;
 	}
@@ -144,7 +144,7 @@ ClientStatus HttpClient::GetStatus()
 HttpClient (Writing)
 ***********************************************************************/
 
-bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body, vint attempt)
+bool HttpClient::SendHttpRequest(HttpRequestType requestType, const WString& url, const WString& body, vint attempt)
 {
 	Ptr<HttpClientApi> api;
 	{
@@ -169,23 +169,26 @@ bool HttpClient::SendHttpRequest(HttpRequestType requestType, const wchar_t* met
 
 	if (!api) return false;
 
-	HttpRequest request;
-	request.method = method;
-	request.query = url;
-	request.acceptTypes.Add(JsonContentType);
+	HttpRequest encodedBody;
 	if (requestType == HttpRequestType::Response)
 	{
-		request.contentType = JsonContentType;
-		request.keepAliveOnStop = true;
+		encodedBody.SetBodyUtf8(body);
 	}
-	else if (requestType == HttpRequestType::Request)
+
+	HttpRequest request;
+	switch (requestType)
 	{
+	case HttpRequestType::Connect:
+		request = CreateHttpNetworkProtocolConnectRequest(url);
+		break;
+	case HttpRequestType::Request:
+		request = CreateHttpNetworkProtocolReceiveRequest(url);
 		request.receiveTimeout = 0;
-	}
-	if (body.Length() > 0)
-	{
-		request.contentType = JsonContentType;
-		request.SetBodyUtf8(body);
+		break;
+	case HttpRequestType::Response:
+		request = CreateHttpNetworkProtocolSendRequest(url, encodedBody.body);
+		request.keepAliveOnStop = true;
+		break;
 	}
 
 	api->HttpQuery(request, [this, requestType, body, attempt](Variant<HttpResponse, HttpError> result)
@@ -207,12 +210,12 @@ void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString&
 			RaiseLocalError(errorMessage, fatal);
 			if (!fatal && !IsStopping())
 			{
-				SendHttpRequest(HttpRequestType::Connect, L"GET", urlConnect, WString::Empty, attempt + 1);
+				SendHttpRequest(HttpRequestType::Connect, urlConnect, WString::Empty, attempt + 1);
 			}
 		}
 		break;
 	case HttpRequestType::Request:
-		SendHttpRequest(HttpRequestType::Request, L"POST", urlRequest, WString::Empty, attempt + 1);
+		SendHttpRequest(HttpRequestType::Request, urlRequest, WString::Empty, attempt + 1);
 		break;
 	case HttpRequestType::Response:
 		{
@@ -220,7 +223,7 @@ void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString&
 			RaiseLocalError(errorMessage, fatal);
 			if (!fatal && !IsStopping())
 			{
-				SendHttpRequest(HttpRequestType::Response, L"POST", urlResponse, body, attempt + 1);
+				SendHttpRequest(HttpRequestType::Response, urlResponse, body, attempt + 1);
 			}
 		}
 		break;
@@ -264,7 +267,7 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString bod
 		return;
 	}
 
-	if (response.contentType != JsonContentType)
+	if (response.contentType != HttpNetworkProtocolContentType)
 	{
 		switch (requestType)
 		{
@@ -308,7 +311,7 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString bod
 
 void HttpClient::SendString(const WString& str)
 {
-	SendHttpRequest(HttpRequestType::Response, L"POST", urlResponse, str);
+	SendHttpRequest(HttpRequestType::Response, urlResponse, str);
 }
 
 /***********************************************************************

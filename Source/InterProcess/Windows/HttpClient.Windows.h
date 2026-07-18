@@ -42,8 +42,6 @@ HttpClient (Reading)
 ***********************************************************************/
 
 protected:
-	static constexpr const wchar_t*					JsonContentType = L"application/json; charset=utf8";
-
 	void											RaiseLocalError(WString errorMessage, bool fatal);
 	bool											IsStopping();
 public:
@@ -81,7 +79,7 @@ protected:
 		Response,
 	};
 
-	bool											SendHttpRequest(HttpRequestType requestType, const wchar_t* method, const WString& url, const WString& body, vint attempt = 1);
+	bool											SendHttpRequest(HttpRequestType requestType, const WString& url, const WString& body, vint attempt = 1);
 	void											OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Variant<HttpResponse, HttpError> result);
 	void											OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage);
 

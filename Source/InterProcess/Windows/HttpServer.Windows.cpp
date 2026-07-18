@@ -134,7 +134,7 @@ void HttpServerConnection::SendString(const WString& str)
 		}
 		else if (httpPendingRequestId != HTTP_NULL_ID)
 		{
-			ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, { 200, L"OK", str, L"application/json; charset=utf8" });
+			ULONG result = HttpServerApi::SendResponse(server->GetHttpRequestQueue(), httpPendingRequestId, { 200, L"OK", str, HttpNetworkProtocolContentType });
 			if (result == NO_ERROR)
 			{
 				httpPendingRequestId = HTTP_NULL_ID;
@@ -243,7 +243,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 		{
 			auto completeUrlRequest = WString::Unmanaged(HttpServerUrl_Request) + L"/" + newGuid;
 			auto completeUrlResponse = WString::Unmanaged(HttpServerUrl_Response) + L"/" + newGuid;
-			HttpServerApi::SendResponseUtf8(GetHttpRequestQueue(), pRequest->RequestId, completeUrlRequest + L";" + completeUrlResponse);
+			HttpServerApi::SendResponseUtf8(GetHttpRequestQueue(), pRequest->RequestId, CreateHttpNetworkProtocolConnectBody(completeUrlRequest, completeUrlResponse));
 		}
 	}
 	else if (pRequest->Verb == HttpVerbPOST && isValidRequest)
@@ -263,7 +263,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 		if (auto connection = FindExistingConnection(guid))
 		{
 			auto responseToClient = connection->SubmitResponse(pRequest);
-			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 200, L"OK", responseToClient, L"application/json; charset=utf8" });
+			auto result = HttpServerApi::SendResponse(GetHttpRequestQueue(), pRequest->RequestId, { 200, L"OK", responseToClient, HttpNetworkProtocolContentType });
 			CHECK_ERROR(
 				result == NO_ERROR || result == ERROR_CONNECTION_INVALID || result == ERROR_OPERATION_ABORTED,
 				L"HttpSendHttpResponse failed for responding /Response."

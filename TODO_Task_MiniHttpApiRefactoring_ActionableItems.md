@@ -342,13 +342,13 @@ extern windows_http::HttpRequest CreateHttpNetworkProtocolSendRequest(
 	);
 ```
 
-- [ ] Add one `HttpNetworkProtocolContentType` constant for `application/json; charset=utf8`.
-- [ ] Add a canonical Connect-pair formatter and strict parser. The formatter rejects empty or semicolon-containing halves so its output round-trips. The strict parser requires exactly two nonempty paths separated by exactly one semicolon; path validation remains separate.
-- [ ] Add `ValidateHttpNetworkProtocolBaseUrl` for the empty-or-leading-slash, no-trailing-slash, RFC-style `pchar`, percent-escape, strict UTF-8, NUL, query/fragment, backslash, and encoded-separator contract.
-- [ ] Add a separate `ValidateHttpNetworkProtocolEndpointPath` for server-returned Connect paths. It requires a nonempty origin path and preserves the current allowance for a trailing slash; all other character/escape rules match the Network Protocol path grammar.
-- [ ] Keep the portable 8 KiB request-line budget out of these common path validators. Portable server/client call the public layer-2 `ValidateHttpRequestLine` separately at the exact targets listed below.
-- [ ] Add one logical-message predicate for nonempty/no-NUL `WString` values; strict Unicode and byte limits remain explicit caller inputs.
-- [ ] Add common Connect, receive-poll, and send-request constructors over `windows_http::HttpRequest`.
+- [x] Add one `HttpNetworkProtocolContentType` constant for `application/json; charset=utf8`.
+- [x] Add a canonical Connect-pair formatter and strict parser. The formatter rejects empty or semicolon-containing halves so its output round-trips. The strict parser requires exactly two nonempty paths separated by exactly one semicolon; path validation remains separate.
+- [x] Add `ValidateHttpNetworkProtocolBaseUrl` for the empty-or-leading-slash, no-trailing-slash, RFC-style `pchar`, percent-escape, strict UTF-8, NUL, query/fragment, backslash, and encoded-separator contract.
+- [x] Add a separate `ValidateHttpNetworkProtocolEndpointPath` for server-returned Connect paths. It requires a nonempty origin path and preserves the current allowance for a trailing slash; all other character/escape rules match the Network Protocol path grammar.
+- [x] Keep the portable 8 KiB request-line budget out of these common path validators. Portable server/client call the public layer-2 `ValidateHttpRequestLine` separately at the exact targets listed below.
+- [x] Add one logical-message predicate for nonempty/no-NUL `WString` values; strict Unicode and byte limits remain explicit caller inputs.
+- [x] Add common Connect, receive-poll, and send-request constructors over `windows_http::HttpRequest`.
   - Connect: `GET`, exact Accept type, empty body.
   - Receive: `POST`, exact Accept type, explicit `Content-Length: 0`.
   - Send: `POST`, exact Accept and Content-Type, caller-supplied encoded body.
@@ -356,26 +356,28 @@ extern windows_http::HttpRequest CreateHttpNetworkProtocolSendRequest(
 
 Required API behavior:
 
-- [ ] Invalid Connect formatter input raises `CHECK_ERROR`; strict parser output parameters remain unchanged on `false`.
-- [ ] Base/endpoint validators return `false` rather than throwing for invalid caller or wire input.
-- [ ] `IsValidHttpNetworkProtocolMessage` checks only nonempty/no-NUL text after strict conversion; callers separately enforce Unicode validity and transport byte limits.
-- [ ] Request factories copy the encoded body where applicable and do not validate base paths, endpoint paths, request-line budgets, timeouts, keep-alive, or retry policy.
+- [x] Invalid Connect formatter input raises `CHECK_ERROR`; strict parser output parameters remain unchanged on `false`.
+- [x] Base/endpoint validators return `false` rather than throwing for invalid caller or wire input.
+- [x] `IsValidHttpNetworkProtocolMessage` checks only nonempty/no-NUL text after strict conversion; callers separately enforce Unicode validity and transport byte limits.
+- [x] Request factories copy the encoded body where applicable and do not validate base paths, endpoint paths, request-line budgets, timeouts, keep-alive, or retry policy.
 
 ## Cross-backend adoption
 
-- [ ] Replace portable and Windows copies of the media type and Connect-pair formatter with the common definitions.
-- [ ] Use the strict Connect-pair parser in the portable client. Do not migrate the legacy Windows client parser in this refactoring: it currently accepts the first semicolon without the portable client's empty/additional-semicolon checks, so migration would be a separate behavior change.
-- [ ] Reuse common request constructors where they preserve the Windows client's asynchronous behavior; keep backend-specific submission/lifetime code local.
-- [ ] Keep async-socket types out of `NetworkProtocolHttp.h`. Its `.cpp` may depend on the canonical layer-2 strict UTF-8 implementation for the new failure-bearing response method and path grammar; explicitly verify all supported VlppOS import/build variants link that implementation.
-- [ ] Reconsider `AsyncSocket_HttpNetworkProtocolShared.h/.cpp` only if several nontrivial async-specific policy functions remain duplicated after Phases 4 and 5.
+- [x] Replace portable and Windows copies of the media type and Connect-pair formatter with the common definitions.
+- [x] Use the strict Connect-pair parser in the portable client. Do not migrate the legacy Windows client parser in this refactoring: it currently accepts the first semicolon without the portable client's empty/additional-semicolon checks, so migration would be a separate behavior change.
+- [x] Reuse common request constructors where they preserve the Windows client's asynchronous behavior; keep backend-specific submission/lifetime code local.
+- [x] Keep async-socket types out of `NetworkProtocolHttp.h`. Its `.cpp` may depend on the canonical layer-2 strict UTF-8 implementation for the new failure-bearing response method and path grammar; explicitly verify all supported VlppOS import/build variants link that implementation.
+- [x] Reconsider `AsyncSocket_HttpNetworkProtocolShared.h/.cpp` only if several nontrivial async-specific policy functions remain duplicated after Phases 4 and 5.
 
 ## Common-contract tests
 
-- [ ] Connect formatter/parser round-trip plus empty, semicolon-containing, missing-delimiter, and multiple-delimiter cases.
-- [ ] Base-prefix and endpoint validators prove their empty/trailing-slash distinction and share all other invalid-character/escape cases.
-- [ ] Logical-message predicate covers empty, embedded NUL, non-ASCII, and ordinary values after strict conversion.
-- [ ] Request factories assert only method, target, Accept, Content-Type, explicit empty-poll framing, and encoded body; backend lifecycle fields are set and tested by each caller.
-- [ ] Legacy Windows malformed-Connect parsing behavior remains characterized and unchanged.
+- [x] Connect formatter/parser round-trip plus empty, semicolon-containing, missing-delimiter, and multiple-delimiter cases.
+- [x] Base-prefix and endpoint validators prove their empty/trailing-slash distinction and share all other invalid-character/escape cases.
+- [x] Logical-message predicate covers empty, embedded NUL, non-ASCII, and ordinary values after strict conversion.
+- [x] Request factories assert only method, target, Accept, Content-Type, explicit empty-poll framing, and encoded body; backend lifecycle fields are set and tested by each caller.
+- [x] Legacy Windows malformed-Connect parsing behavior remains characterized and unchanged.
+
+Phase 3 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 215 test cases passed with no memory-leak report. Regenerated `Release` outputs and compile-checked both packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Phase 4: Simplify the server layer-4 adapter
 
