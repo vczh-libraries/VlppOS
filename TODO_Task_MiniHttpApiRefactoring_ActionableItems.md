@@ -476,27 +476,29 @@ No new C++ source file is planned. If implementation evidence reverses that deci
 
 ## Verification after every phase
 
-- [ ] Build `Test/UnitTest/UnitTest.sln` using `.github/Scripts/copilotBuild.ps1` from `Test/UnitTest`.
-- [ ] Run the relevant UnitTest project through `.github/Scripts/copilotExecute.ps1` and confirm no filtered related test file, crash, or memory-leak report.
-- [ ] Run the complete related HTTP request, Mini HTTP API, Network Protocol, and interoperability test files after the final phase.
-- [ ] Run the corresponding Linux/macOS builds and tests when those environments are available because all changed product code is cross-platform.
-- [ ] Run the MiniHttpServer browser verification after layer-3 response/routing changes.
+- [x] Build `Test/UnitTest/UnitTest.sln` using `.github/Scripts/copilotBuild.ps1` from `Test/UnitTest`.
+- [x] Run the relevant UnitTest project through `.github/Scripts/copilotExecute.ps1` and confirm no filtered related test file, crash, or memory-leak report.
+- [x] Run the complete related HTTP request, Mini HTTP API, Network Protocol, and interoperability test files after the final phase.
+- [x] Run the corresponding Linux/macOS builds and tests when those environments are available because all changed product code is cross-platform. Native Unix environments were not available in this Windows workspace: WSL is not installed, Docker/Podman/Bash are unavailable, and the repository has no CI workflow or configured remote runner. This is a justified conditional skip, not a passing Unix run.
+- [x] Run the MiniHttpServer browser verification after layer-3 response/routing changes.
 
 ## Documentation and cleanup
 
-- [ ] Update `KB_VlppOS_InterProcessAsyncSocketBasedMiniHttpApi.md` with the new layer-2 and layer-3 public APIs.
-- [ ] Update `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` only for externally observable contract/API changes; do not document internal helper movement.
-- [ ] Remove test-local field/body/strict-UTF helpers when the public layer-2 helpers replace them.
-- [ ] Search for every removed helper name and every duplicated media-type literal before completion.
-- [ ] Confirm layer-4 files retain no decimal `Content-Length` parser, strict UTF-8 codec, or request-line length formula.
-- [ ] Confirm all existing state-machine tests pass without changing their expected ordering or retry counts.
+- [x] Update `KB_VlppOS_InterProcessAsyncSocketBasedMiniHttpApi.md` with the new layer-2 and layer-3 public APIs.
+- [x] Update `KB_VlppOS_InterProcessNetworkProtocolsAndChannels.md` only for externally observable contract/API changes; do not document internal helper movement.
+- [x] Remove test-local field/body/strict-UTF helpers when the public layer-2 helpers replace them.
+- [x] Search for every removed helper name and every duplicated media-type literal before completion.
+- [x] Confirm layer-4 files retain no decimal `Content-Length` parser, strict UTF-8 codec, or request-line length formula.
+- [x] Confirm all existing state-machine tests pass without changing their expected ordering or retry counts.
 
 ## Definition of done
 
-- [ ] Layer 2 has one canonical framing analyzer used by parsing, serialization, layer 3, and layer 4.
-- [ ] Layer 3 exposes binary-safe and failure-bearing UTF-8 conveniences without embedding Network Protocol policy.
-- [ ] Layer 4 expresses its strict request and logical-message rules using parsed values and shared helpers.
-- [ ] Cross-backend Network Protocol wire facts have one owner in `NetworkProtocolHttp`.
-- [ ] No cached derived framing data can become stale in mutable HTTP messages.
-- [ ] No socket, retry, polling, queue-order, callback, or shutdown behavior changes unintentionally.
-- [ ] All required builds, tests, browser verification, and documentation updates are complete.
+- [x] Layer 2 has one canonical framing analyzer used by parsing, serialization, layer 3, and layer 4.
+- [x] Layer 3 exposes binary-safe and failure-bearing UTF-8 conveniences without embedding Network Protocol policy.
+- [x] Layer 4 expresses its strict request and logical-message rules using parsed values and shared helpers.
+- [x] Cross-backend Network Protocol wire facts have one owner in `NetworkProtocolHttp`.
+- [x] No cached derived framing data can become stale in mutable HTTP messages.
+- [x] No socket, retry, polling, queue-order, callback, or shutdown behavior changes unintentionally.
+- [x] All required builds, tests, browser verification, and documentation updates are complete.
+
+Phase 7 verification and completion-gate audit (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors. The unfiltered UnitTest run executed all 15 test files and all 215 test cases, including the complete HTTP request, Mini HTTP API, Network Protocol, channel, and Windows interoperability suites, with no crash or memory-leak report. Regenerated `Release` outputs and compile-checked packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit. Updated both affected knowledge-base documents and replaced obsolete test-local field/body parsing with the public layer-2 helpers while retaining only fixtures needed to construct raw malformed, mixed-case, or split-chunk input. Final searches found no stale layer-4 helper implementations or request-line formula; the only `ParseContentLength` remains the intentionally private canonical layer-2 numeric parser, and remaining narrow media-type literals are Windows raw-header checks, error text, or independent contract assertions rather than competing owners. The conditional Linux/macOS gate was evaluated but could not run because this Windows workspace has no native Unix execution environment or configured remote/CI fallback.

@@ -132,39 +132,6 @@ namespace http_request_test
 		return false;
 	}
 
-	vint CountField(const List<HttpField>& fields, const WString& name)
-	{
-		vint count = 0;
-		for (auto&& field : fields)
-		{
-			if (field.name == name)
-			{
-				count++;
-			}
-		}
-		return count;
-	}
-
-	Array<vuint8_t> FlattenBody(const HttpBody& body)
-	{
-		vint count = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			count += chunk.data.Count();
-		}
-
-		Array<vuint8_t> result(count);
-		vint offset = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			for (vint i = 0; i < chunk.data.Count(); i++)
-			{
-				result[offset++] = chunk.data[i];
-			}
-		}
-		return result;
-	}
-
 	class FakeAsyncSocketConnection : public Object, public virtual IAsyncSocketConnection
 	{
 	private:
@@ -1220,7 +1187,7 @@ namespace http_request_test
 			TEST_ASSERT(first->version.major == 1 && first->version.minor == 1);
 			TEST_ASSERT(first->method == L"POST");
 			TEST_ASSERT(first->requestTarget == L"/split");
-			TEST_ASSERT(CountField(first->headers, L"x-repeat") == 2);
+			TEST_ASSERT(CountHttpFields(first->headers, L"x-repeat") == 2);
 			TEST_ASSERT(HasField(first->headers, L"x-repeat", "one"));
 			TEST_ASSERT(HasField(first->headers, L"x-repeat", "two"));
 			for (auto&& field : first->headers)
@@ -3184,7 +3151,8 @@ namespace http_request_test
 				state->Expect(HasField(request->headers, L"x-mixed-field", "mixed-value"), L"The HTTP request server did not normalize WinHTTP's mixed-case custom field.");
 				state->Expect(HasField(request->headers, L"content-type", "application/octet-stream"), L"The HTTP request server lost WinHTTP's content type.");
 				state->Expect(HasField(request->headers, L"content-length", "11"), L"The HTTP request server did not parse WinHTTP's generated body framing.");
-				auto body = FlattenBody(request->body);
+				Array<vuint8_t> body;
+				state->Expect(FlattenHttpBody(request->body, body), L"The HTTP request server could not flatten WinHTTP's request body.");
 				state->Expect(SameBytes(body, "client-body"), L"The HTTP request server changed WinHTTP's request body.");
 
 				auto response = Ptr(new vl::inter_process::async_tcp_socket::HttpResponse);
@@ -3392,7 +3360,8 @@ namespace http_request_test
 					state->Expect(IsLowercaseFieldName(field.name), L"The async HTTP client did not normalize an HTTP.sys response field.");
 				}
 				state->Expect(HasField(response->headers, L"content-type", "text/plain; charset=utf-8"), L"The async HTTP client lost HTTP.sys's content type.");
-				auto body = FlattenBody(response->body);
+				Array<vuint8_t> body;
+				state->Expect(FlattenHttpBody(response->body, body), L"The async HTTP client could not flatten HTTP.sys's response body.");
 				state->Expect(SameBytes(body, "http-sys-body"), L"The async HTTP client changed HTTP.sys's response body.");
 			}
 			catch (...)

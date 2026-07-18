@@ -188,6 +188,18 @@ The transport keeps a logical connection above short-lived or replaceable physic
 
 Each normal body is the direct UTF-8 encoding of one `WString`. The media type is `application/json; charset=utf8`, but the body is not JSON syntax.
 
+### Shared Wire-Contract Helpers
+
+`Source/InterProcess/NetworkProtocolHttp.h` exposes the common, platform-neutral pieces of this wire contract in `vl::inter_process`:
+
+- `HttpNetworkProtocolContentType` is the canonical media-type value used by all three routes.
+- `CreateHttpNetworkProtocolConnectBody` and `ParseHttpNetworkProtocolConnectBody` construct and split the `requestPath;responsePath` Connect payload. Construction rejects empty paths and semicolons; parsing requires exactly one semicolon with a nonempty value on each side. Parsing does not validate either endpoint path.
+- `ValidateHttpNetworkProtocolBaseUrl` and `ValidateHttpNetworkProtocolEndpointPath` apply the protocol's origin-path grammar. Base URLs may be empty and reject a trailing slash; endpoint paths must be nonempty. Use the endpoint validator separately after parsing a Connect payload.
+- `IsValidHttpNetworkProtocolMessage` checks only the logical-message requirements that the value is nonempty and contains no NUL. It does not validate Unicode or encoded size; the protocol adapters additionally use strict UTF-8 conversion and enforce `async_tcp_socket::HttpBodySizeLimit` before accepting an outbound message.
+- `CreateHttpNetworkProtocolConnectRequest`, `CreateHttpNetworkProtocolReceiveRequest` and `CreateHttpNetworkProtocolSendRequest` build the shared method, target, Accept, content-type, explicit empty-poll length and body shape in the portable `windows_http::HttpRequest` value. They do not validate the supplied target or select operation-specific timeout and stop-lifecycle options. The protocol client validates its targets and applies those options, including the infinite receive-poll timeout, after construction.
+
+These helpers let another implementation reproduce the established wire facts without depending on either Socket HTTP state machine. They do not define retry, polling, FIFO, callback or shutdown policy.
+
 The client uses two physical `async_tcp_socket::SocketHttpClientApi` lanes for one logical token. One lane keeps the receive poll alive; the other serializes connection control and client sends. Replacing a failed physical lane does not replace the logical `INetworkProtocolConnection` unless the transport reports final disconnection.
 
 The server maps the token to its logical connection, queues server messages when no receive request is available, and dispatches client messages through `INetworkProtocolCallback::OnReadString`. The channel bridge above this layer is unaware of the HTTP routes and physical lanes.

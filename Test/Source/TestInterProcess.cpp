@@ -883,7 +883,6 @@ using namespace mynamespace;
 namespace mynamespace
 {
 	constexpr vint SocketHttpFocusedTimeout = 30000;
-	constexpr const wchar_t* SocketHttpJsonContentType = L"application/json; charset=utf8";
 
 	template<typename TNativeServer>
 	class SocketHttpListenerFactoryScope
@@ -1402,28 +1401,17 @@ namespace mynamespace
 		}
 	};
 
-	async_tcp_socket::HttpField CreateSocketHttpField(const WString& name, const WString& value)
+	async_tcp_socket::HttpField CreateSocketHttpFieldWithRawName(const WString& name, const WString& value)
 	{
-		async_tcp_socket::HttpField field;
+		auto field = async_tcp_socket::CreateAsciiHttpField(name, value);
 		field.name = name;
-		auto utf8 = wtou8(value);
-		field.value.Resize(utf8.Length());
-		for (vint i = 0; i < utf8.Length(); i++)
-		{
-			field.value[i] = (vuint8_t)utf8[i];
-		}
 		return field;
 	}
 
 	void AddSocketHttpBody(async_tcp_socket::HttpBody& body, const WString& value)
 	{
-		auto utf8 = wtou8(value);
 		async_tcp_socket::HttpBodyChunk chunk;
-		chunk.data.Resize(utf8.Length());
-		for (vint i = 0; i < utf8.Length(); i++)
-		{
-			chunk.data[i] = (vuint8_t)utf8[i];
-		}
+		CHECK_ERROR(async_tcp_socket::EncodeStrictUtf8(value, chunk.data), L"A SocketHttp body chunk must contain valid Unicode.");
 		body.chunks.Add(std::move(chunk));
 	}
 
@@ -1444,7 +1432,7 @@ namespace mynamespace
 		auto response = Ptr(new async_tcp_socket::HttpResponse);
 		response->statusCode = statusCode;
 		response->reason = statusCode == 200 ? L"OK" : L"Scripted failure";
-		response->headers.Add(CreateSocketHttpField(L"Content-Type", SocketHttpJsonContentType));
+		response->headers.Add(CreateSocketHttpFieldWithRawName(L"Content-Type", HttpNetworkProtocolContentType));
 		if (body != WString::Empty)
 		{
 			AddSocketHttpBody(response->body, body);
@@ -1454,22 +1442,14 @@ namespace mynamespace
 
 	WString ReadSocketHttpBody(const async_tcp_socket::HttpBody& body)
 	{
-		vint size = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			size += chunk.data.Count();
-		}
-		if (size == 0) return {};
-		Array<char8_t> buffer(size);
-		vint offset = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			for (auto value : chunk.data)
-			{
-				buffer[offset++] = (char8_t)value;
-			}
-		}
-		return u8tow(U8String::CopyFrom(&buffer[0], size));
+		Array<vuint8_t> bytes;
+		CHECK_ERROR(async_tcp_socket::FlattenHttpBody(body, bytes), L"A SocketHttp body is too large to flatten.");
+		WString text;
+		CHECK_ERROR(
+			async_tcp_socket::DecodeStrictUtf8(bytes.Count() == 0 ? nullptr : &bytes[0], bytes.Count(), text),
+			L"A SocketHttp body must contain valid UTF-8."
+			);
+		return text;
 	}
 
 	class SocketHttpRawQueryCallback : public Object, public virtual async_tcp_socket::IHttpRequestCallback
@@ -1579,7 +1559,7 @@ namespace mynamespace
 		auto request = Ptr(new async_tcp_socket::HttpRequest);
 		request->method = method;
 		request->requestTarget = target;
-		request->headers.Add(CreateSocketHttpField(L"host", L"localhost:" + itow(port)));
+		request->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"host", L"localhost:" + itow(port)));
 		return request;
 	}
 
@@ -1624,7 +1604,7 @@ namespace mynamespace
 		auto response = Ptr(new async_tcp_socket::HttpResponse);
 		response->statusCode = statusCode;
 		response->reason = statusCode == 200 ? L"OK" : L"Scripted failure";
-		response->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		response->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		if (body != WString::Empty)
 		{
 			AddSocketHttpBody(response->body, body);
@@ -1807,11 +1787,11 @@ namespace mynamespace
 		windows_http::HttpRequest request;
 		request.method = method;
 		request.query = query;
-		request.acceptTypes.Add(SocketHttpJsonContentType);
+		request.acceptTypes.Add(HttpNetworkProtocolContentType);
 		request.receiveTimeout = receiveTimeout;
 		if (body != WString::Empty)
 		{
-			request.contentType = SocketHttpJsonContentType;
+			request.contentType = HttpNetworkProtocolContentType;
 			request.SetBodyUtf8(body);
 		}
 		else if (method == L"POST")
@@ -2542,14 +2522,14 @@ void RunSocketHttpFocusedTestCases()
 
 		connection->SendString(L"poll-with-zero-length");
 		auto pollWithZeroLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + requestPath);
-		pollWithZeroLength->headers.Add(CreateSocketHttpField(L"content-length", L"0"));
+		pollWithZeroLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0"));
 		auto pollWithZeroLengthResponse = expectStatus(pollWithZeroLength, 200);
 		TEST_ASSERT(ReadSocketHttpBody(pollWithZeroLengthResponse->body) == L"poll-with-zero-length");
 
 		auto addSubmittedBody = [](Ptr<async_tcp_socket::HttpRequest> request, const WString& contentLength, const WString& body)
 		{
-			request->headers.Add(CreateSocketHttpField(L"content-length", contentLength));
-			request->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+			request->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", contentLength));
+			request->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 			if (body != WString::Empty)
 			{
 				AddSocketHttpBody(request->body, body);
@@ -2569,7 +2549,7 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(callback.Message(1) == L"def");
 
 		auto missingLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		missingLength->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		missingLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		auto missingLengthResponse = expectStatus(missingLength, 404);
 		TEST_ASSERT(async_tcp_socket::CountHttpFields(missingLengthResponse->headers, L"content-type") == 0);
 		TEST_ASSERT(missingLengthResponse->body.chunks.Count() == 0);
@@ -2581,7 +2561,7 @@ void RunSocketHttpFocusedTestCases()
 
 		auto duplicateLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
 		addSubmittedBody(duplicateLength, L"3", L"abc");
-		duplicateLength->headers.Add(CreateSocketHttpField(L"content-length", L"3"));
+		duplicateLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"3"));
 		expectStatus(duplicateLength, 404);
 
 		auto commaLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
@@ -2589,81 +2569,81 @@ void RunSocketHttpFocusedTestCases()
 		expectStatus(commaLength, 404);
 
 		auto chunked = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		chunked->headers.Add(CreateSocketHttpField(L"transfer-encoding", L"chunked"));
-		chunked->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		chunked->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"transfer-encoding", L"chunked"));
+		chunked->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		AddSocketHttpBody(chunked->body, L"abc");
 		expectStatus(chunked, 404);
 
 		auto trailerBearing = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		trailerBearing->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		trailerBearing->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		AddSocketHttpBody(trailerBearing->body, L"abc");
-		trailerBearing->body.trailers.Add(CreateSocketHttpField(L"x-characterization", L"trailer"));
+		trailerBearing->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"x-characterization", L"trailer"));
 		expectStatus(trailerBearing, 404);
 
 		auto missingType = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		missingType->headers.Add(CreateSocketHttpField(L"content-length", L"3"));
+		missingType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"3"));
 		AddSocketHttpBody(missingType->body, L"abc");
 		expectStatus(missingType, 404);
 
 		auto duplicateType = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
 		addSubmittedBody(duplicateType, L"3", L"abc");
-		duplicateType->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		duplicateType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		expectStatus(duplicateType, 404);
 
 		auto wrongType = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		wrongType->headers.Add(CreateSocketHttpField(L"content-length", L"3"));
-		wrongType->headers.Add(CreateSocketHttpField(L"content-type", L"application/json; charset=utf-8"));
+		wrongType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"3"));
+		wrongType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/json; charset=utf-8"));
 		AddSocketHttpBody(wrongType->body, L"abc");
 		expectStatus(wrongType, 404);
 
 		vuint8_t malformedUtf8Bytes[] = { 0xC0, 0x80 };
 		auto malformedUtf8 = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		malformedUtf8->headers.Add(CreateSocketHttpField(L"content-length", L"2"));
-		malformedUtf8->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		malformedUtf8->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"2"));
+		malformedUtf8->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		AddSocketHttpBody(malformedUtf8->body, malformedUtf8Bytes, 2);
 		expectStatus(malformedUtf8, 404);
 
 		vuint8_t truncatedUtf8Bytes[] = { 0xE2, 0x82 };
 		auto truncatedUtf8 = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		truncatedUtf8->headers.Add(CreateSocketHttpField(L"content-length", L"2"));
-		truncatedUtf8->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		truncatedUtf8->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"2"));
+		truncatedUtf8->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		AddSocketHttpBody(truncatedUtf8->body, truncatedUtf8Bytes, 2);
 		expectStatus(truncatedUtf8, 404);
 
 		vuint8_t nulByte[] = { 0 };
 		auto embeddedNul = CreateSocketHttpRawRequest(port, L"POST", baseUrl + responsePath);
-		embeddedNul->headers.Add(CreateSocketHttpField(L"content-length", L"1"));
-		embeddedNul->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+		embeddedNul->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"1"));
+		embeddedNul->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 		AddSocketHttpBody(embeddedNul->body, nulByte, 1);
 		expectStatus(embeddedNul, 404);
 		TEST_ASSERT(callback.MessageCount() == 2);
 
 		auto connectWithZeroLength = CreateSocketHttpRawRequest(port, L"GET", baseUrl + HttpServerUrl_Connect);
-		connectWithZeroLength->headers.Add(CreateSocketHttpField(L"content-length", L"0"));
+		connectWithZeroLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0"));
 		expectStatus(connectWithZeroLength, 200);
 
 		auto verifyRejectedEmptyBodyForms = [=](const WString& method, const WString& target)
 		{
 			auto positiveLength = CreateSocketHttpRawRequest(port, method, target);
-			positiveLength->headers.Add(CreateSocketHttpField(L"content-length", L"1"));
+			positiveLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"1"));
 			AddSocketHttpBody(positiveLength->body, L"x");
 			expectStatus(positiveLength, 404);
 
 			auto duplicateLength = CreateSocketHttpRawRequest(port, method, target);
-			duplicateLength->headers.Add(CreateSocketHttpField(L"content-length", L"0"));
-			duplicateLength->headers.Add(CreateSocketHttpField(L"content-length", L"0"));
+			duplicateLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0"));
+			duplicateLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0"));
 			expectStatus(duplicateLength, 404);
 
 			auto commaLength = CreateSocketHttpRawRequest(port, method, target);
-			commaLength->headers.Add(CreateSocketHttpField(L"content-length", L"0, 0"));
+			commaLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0, 0"));
 			expectStatus(commaLength, 404);
 
 			auto transferCoded = CreateSocketHttpRawRequest(port, method, target);
-			transferCoded->headers.Add(CreateSocketHttpField(L"transfer-encoding", L"chunked"));
+			transferCoded->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"transfer-encoding", L"chunked"));
 			expectStatus(transferCoded, 404);
 
 			auto trailerBearing = CreateSocketHttpRawRequest(port, method, target);
-			trailerBearing->body.trailers.Add(CreateSocketHttpField(L"x-characterization", L"trailer"));
+			trailerBearing->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"x-characterization", L"trailer"));
 			expectStatus(trailerBearing, 404);
 		};
 		verifyRejectedEmptyBodyForms(L"GET", baseUrl + HttpServerUrl_Connect);
@@ -2699,8 +2679,8 @@ void RunSocketHttpFocusedTestCases()
 			chunkedTrailerContentType->reason = L"OK";
 			AddSocketHttpBody(chunkedTrailerContentType->body, WString::Unmanaged(HttpServerUrl_Request) + L"/trailing/;");
 			AddSocketHttpBody(chunkedTrailerContentType->body, WString::Unmanaged(HttpServerUrl_Response) + L"/trailing/");
-			chunkedTrailerContentType->body.trailers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
-			chunkedTrailerContentType->body.trailers.Add(CreateSocketHttpField(L"content-type", L"application/octet-stream"));
+			chunkedTrailerContentType->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
+			chunkedTrailerContentType->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/octet-stream"));
 			responses.Add(chunkedTrailerContentType);
 			runScript(39612, responses, 0);
 		}
@@ -2708,7 +2688,7 @@ void RunSocketHttpFocusedTestCases()
 		{
 			List<Ptr<async_tcp_socket::HttpResponse>> responses;
 			auto headerFirstDuplicateContentType = CreateSocketHttpScriptResponse(200, normalPair);
-			headerFirstDuplicateContentType->body.trailers.Add(CreateSocketHttpField(L"content-type", L"application/octet-stream"));
+			headerFirstDuplicateContentType->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/octet-stream"));
 			responses.Add(headerFirstDuplicateContentType);
 			runScript(39620, responses, 0);
 		}
@@ -2726,10 +2706,10 @@ void RunSocketHttpFocusedTestCases()
 		{
 			List<Ptr<async_tcp_socket::HttpResponse>> responses;
 			auto wrongCaseContentType = CreateSocketHttpScriptResponse(200, normalPair);
-			wrongCaseContentType->headers[0] = CreateSocketHttpField(L"content-type", L"Application/Json; Charset=UTF8");
+			wrongCaseContentType->headers[0] = async_tcp_socket::CreateAsciiHttpField(L"content-type", L"Application/Json; Charset=UTF8");
 			responses.Add(wrongCaseContentType);
 			auto wrongContentType = CreateSocketHttpScriptResponse(200, normalPair);
-			wrongContentType->headers[0] = CreateSocketHttpField(L"content-type", L"application/json; charset=utf-8");
+			wrongContentType->headers[0] = async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/json; charset=utf-8");
 			responses.Add(wrongContentType);
 			responses.Add(CreateSocketHttpScriptResponse(200, normalPair));
 			runScript(39621, responses, 2);
@@ -2738,11 +2718,11 @@ void RunSocketHttpFocusedTestCases()
 		{
 			List<Ptr<async_tcp_socket::HttpResponse>> responses;
 			auto wrongFirstContentType = CreateSocketHttpScriptResponse(200, normalPair);
-			wrongFirstContentType->headers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
-			wrongFirstContentType->headers[0] = CreateSocketHttpField(L"content-type", L"application/octet-stream");
+			wrongFirstContentType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
+			wrongFirstContentType->headers[0] = async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/octet-stream");
 			responses.Add(wrongFirstContentType);
 			auto correctFirstContentType = CreateSocketHttpScriptResponse(200, normalPair);
-			correctFirstContentType->headers.Add(CreateSocketHttpField(L"content-type", L"application/octet-stream"));
+			correctFirstContentType->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/octet-stream"));
 			responses.Add(correctFirstContentType);
 			runScript(39626, responses, 1);
 		}
@@ -2750,8 +2730,8 @@ void RunSocketHttpFocusedTestCases()
 		{
 			List<Ptr<async_tcp_socket::HttpResponse>> responses;
 			auto wrongHeaderCorrectTrailer = CreateSocketHttpScriptResponse(200, normalPair);
-			wrongHeaderCorrectTrailer->headers[0] = CreateSocketHttpField(L"content-type", L"application/octet-stream");
-			wrongHeaderCorrectTrailer->body.trailers.Add(CreateSocketHttpField(L"content-type", SocketHttpJsonContentType));
+			wrongHeaderCorrectTrailer->headers[0] = async_tcp_socket::CreateAsciiHttpField(L"content-type", L"application/octet-stream");
+			wrongHeaderCorrectTrailer->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-type", HttpNetworkProtocolContentType));
 			responses.Add(wrongHeaderCorrectTrailer);
 			responses.Add(CreateSocketHttpScriptResponse(200, normalPair));
 			runScript(39627, responses, 1);
@@ -2797,10 +2777,10 @@ void RunSocketHttpFocusedTestCases()
 		{
 			List<Ptr<async_tcp_socket::HttpResponse>> responses;
 			auto unsupportedEncoding = CreateSocketHttpScriptResponse(200, normalPair);
-			unsupportedEncoding->headers.Add(CreateSocketHttpField(L"content-encoding", L"gzip"));
+			unsupportedEncoding->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-encoding", L"gzip"));
 			responses.Add(unsupportedEncoding);
 			auto unsupportedTrailerEncoding = CreateSocketHttpScriptResponse(200, normalPair);
-			unsupportedTrailerEncoding->body.trailers.Add(CreateSocketHttpField(L"content-encoding", L"gzip"));
+			unsupportedTrailerEncoding->body.trailers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-encoding", L"gzip"));
 			responses.Add(unsupportedTrailerEncoding);
 			responses.Add(CreateSocketHttpScriptResponse(200, normalPair));
 			runScript(39616, responses, 2);

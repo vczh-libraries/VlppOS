@@ -352,28 +352,26 @@ namespace mini_http_api_test
 		}
 	};
 
-	HttpField CreateField(const WString& name, const WString& value)
+	HttpField CreateRawNameAsciiHttpField(const WString& name, const WString& value)
 	{
-		HttpField field;
+		auto field = CreateAsciiHttpField(name, value);
 		field.name = name;
-		auto utf8 = wtou8(value);
-		field.value.Resize(utf8.Length());
-		for (vint i = 0; i < utf8.Length(); i++)
-		{
-			field.value[i] = (vuint8_t)utf8[i];
-		}
+		return field;
+	}
+
+	HttpField CreateUtf8HttpField(const WString& normalizedName, const WString& value)
+	{
+		auto field = CreateAsciiHttpField(normalizedName, WString::Empty);
+		CHECK_ERROR(EncodeStrictUtf8(value, field.value), L"A Mini HTTP field fixture contains invalid Unicode.");
 		return field;
 	}
 
 	void AddBodyChunk(HttpBody& body, const WString& value)
 	{
-		auto utf8 = wtou8(value);
+		Array<vuint8_t> utf8;
+		CHECK_ERROR(EncodeStrictUtf8(value, utf8), L"A Mini HTTP body fixture contains invalid Unicode.");
 		HttpBodyChunk chunk;
-		chunk.data.Resize(utf8.Length());
-		for (vint i = 0; i < utf8.Length(); i++)
-		{
-			chunk.data[i] = (vuint8_t)utf8[i];
-		}
+		chunk.data = std::move(utf8);
 		body.chunks.Add(std::move(chunk));
 	}
 
@@ -390,8 +388,8 @@ namespace mini_http_api_test
 		auto response = Ptr(new async_tcp_socket::HttpResponse);
 		response->statusCode = statusCode;
 		response->reason = L"MiniHttp Test";
-		response->headers.Add(CreateField(L"Content-Type", contentType));
-		response->headers.Add(CreateField(L"Set-Cookie", L"mini=http"));
+		response->headers.Add(CreateAsciiHttpField(L"Content-Type", contentType));
+		response->headers.Add(CreateAsciiHttpField(L"Set-Cookie", L"mini=http"));
 		if (body.Length() > 1)
 		{
 			AddBodyChunk(response->body, body.Left(1));
@@ -404,7 +402,7 @@ namespace mini_http_api_test
 		return response;
 	}
 
-	WString FieldText(const HttpField& field)
+	WString DecodePermissiveFieldText(const HttpField& field)
 	{
 		Array<char8_t> buffer(field.value.Count());
 		for (vint i = 0; i < field.value.Count(); i++)
@@ -414,65 +412,31 @@ namespace mini_http_api_test
 		return buffer.Count() == 0 ? WString() : u8tow(U8String::CopyFrom(&buffer[0], buffer.Count()));
 	}
 
-	wchar_t FoldAscii(wchar_t c)
+	WString GetAsciiFieldValue(const List<HttpField>& fields, const WString& normalizedName)
 	{
-		return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
+		auto field = FindHttpField(fields, normalizedName);
+		if (!field) return {};
+		WString value;
+		CHECK_ERROR(DecodeAsciiHttpFieldValue(field->value, value), L"An inspected Mini HTTP field value is not ASCII.");
+		return value;
 	}
 
-	bool SameFieldName(const WString& a, const WString& b)
+	WString GetStrictBodyUtf8(const HttpBody& body)
 	{
-		if (a.Length() != b.Length()) return false;
-		for (vint i = 0; i < a.Length(); i++)
-		{
-			if (FoldAscii(a[i]) != FoldAscii(b[i])) return false;
-		}
-		return true;
-	}
-
-	vint CountField(const List<HttpField>& fields, const WString& name)
-	{
-		vint count = 0;
-		for (auto&& field : fields)
-		{
-			if (SameFieldName(field.name, name)) count++;
-		}
-		return count;
-	}
-
-	WString FindField(const List<HttpField>& fields, const WString& name)
-	{
-		for (auto&& field : fields)
-		{
-			if (SameFieldName(field.name, name)) return FieldText(field);
-		}
-		return {};
-	}
-
-	WString RawBodyUtf8(const HttpBody& body)
-	{
-		vint size = 0;
-		for (auto&& chunk : body.chunks) size += chunk.data.Count();
-		Array<char8_t> buffer(size);
-		vint offset = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			for (auto value : chunk.data) buffer[offset++] = (char8_t)value;
-		}
-		return size == 0 ? WString() : u8tow(U8String::CopyFrom(&buffer[0], size));
+		Array<vuint8_t> bytes;
+		CHECK_ERROR(FlattenHttpBody(body, bytes), L"A Mini HTTP body fixture exceeds the body-size limit.");
+		WString value;
+		CHECK_ERROR(DecodeStrictUtf8(bytes.Count() == 0 ? nullptr : &bytes[0], bytes.Count(), value), L"A Mini HTTP body fixture is not strict UTF-8.");
+		return value;
 	}
 
 	bool SameRawBody(const HttpBody& body, const vuint8_t* expected, vint expectedSize)
 	{
-		vint actualSize = 0;
-		for (auto&& chunk : body.chunks) actualSize += chunk.data.Count();
-		if (actualSize != expectedSize) return false;
-		vint offset = 0;
-		for (auto&& chunk : body.chunks)
+		Array<vuint8_t> actual;
+		if (!FlattenHttpBody(body, actual) || actual.Count() != expectedSize) return false;
+		for (vint i = 0; i < actual.Count(); i++)
 		{
-			for (auto value : chunk.data)
-			{
-				if (value != expected[offset++]) return false;
-			}
+			if (actual[i] != expected[i]) return false;
 		}
 		return true;
 	}
@@ -550,7 +514,7 @@ namespace mini_http_api_test
 			auto response = CreateResponse(status, WString::Empty);
 			if (status == 405)
 			{
-				response->headers.Add(CreateField(L"Allow", L"GET, HEAD, POST, OPTIONS"));
+				response->headers.Add(CreateAsciiHttpField(L"Allow", L"GET, HEAD, POST, OPTIONS"));
 			}
 			state->Expect(context->Respond(response), L"The MiniHttp policy server could not respond.");
 		}
@@ -636,10 +600,10 @@ namespace mini_http_api_test
 		{
 			auto request = context->GetRequest();
 			state->AddTarget(request->requestTarget);
-			state->Expect(CountField(request->headers, L"host") == 1, L"SocketHttpClientApi did not send exactly one Host field.");
-			state->Expect(FindField(request->headers, L"host") != WString::Empty, L"SocketHttpClientApi sent an empty Host field.");
-			state->Expect(CountField(request->headers, L"accept-encoding") == 1, L"SocketHttpClientApi did not send exactly one Accept-Encoding field.");
-			state->Expect(FindField(request->headers, L"accept-encoding") == L"identity", L"SocketHttpClientApi did not force identity response coding.");
+			state->Expect(CountHttpFields(request->headers, L"host") == 1, L"SocketHttpClientApi did not send exactly one Host field.");
+			state->Expect(GetAsciiFieldValue(request->headers, L"host") != WString::Empty, L"SocketHttpClientApi sent an empty Host field.");
+			state->Expect(CountHttpFields(request->headers, L"accept-encoding") == 1, L"SocketHttpClientApi did not send exactly one Accept-Encoding field.");
+			state->Expect(GetAsciiFieldValue(request->headers, L"accept-encoding") == L"identity", L"SocketHttpClientApi did not force identity response coding.");
 			auto responseBody = tag + L":" + context->GetRelativePath() + L"?" + context->GetQuery();
 			auto completion = Func<void(bool)>([state](bool succeeded)
 			{
@@ -869,10 +833,10 @@ namespace mini_http_api_test
 
 	Ptr<AsyncSocketBuffer> CreateWireBytes(const WString& text)
 	{
-		auto utf8 = wtou8(text);
+		Array<vuint8_t> utf8;
+		CHECK_ERROR(EncodeStrictUtf8(text, utf8), L"A Mini HTTP wire fixture contains invalid Unicode.");
 		auto buffer = Ptr(new AsyncSocketBuffer);
-		buffer->data.Resize(utf8.Length());
-		for (vint i = 0; i < utf8.Length(); i++) buffer->data[i] = (vuint8_t)utf8[i];
+		buffer->data = std::move(utf8);
 		return buffer;
 	}
 
@@ -1150,7 +1114,7 @@ namespace mini_http_api_test
 		request->requestTarget = target;
 		if (addHost)
 		{
-			request->headers.Add(CreateField(L"host", L"localhost:" + itow(port)));
+			request->headers.Add(CreateAsciiHttpField(L"host", L"localhost:" + itow(port)));
 		}
 		return request;
 	}
@@ -1375,9 +1339,9 @@ namespace mini_http_api_test
 					auto response = Ptr(new async_tcp_socket::HttpResponse);
 					response->statusCode = 205;
 					response->reason = L"Mixed";
-					response->headers.Add(CreateField(L"CoNtEnT-TyPe", L"application/x-mixed"));
-					response->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"2"));
-					response->headers.Add(CreateField(L"CONTENT-LENGTH", L"2"));
+					response->headers.Add(CreateRawNameAsciiHttpField(L"CoNtEnT-TyPe", L"application/x-mixed"));
+					response->headers.Add(CreateRawNameAsciiHttpField(L"CoNtEnT-LeNgTh", L"2"));
+					response->headers.Add(CreateRawNameAsciiHttpField(L"CONTENT-LENGTH", L"2"));
 					AddBodyChunk(response->body, L"x");
 					AddBodyChunk(response->body, L"y");
 					serverState->Expect(context->Respond(response), L"The raw API rejected equal repeated mixed-case Content-Length fields.");
@@ -1405,7 +1369,7 @@ namespace mini_http_api_test
 					auto response = Ptr(new async_tcp_socket::HttpResponse);
 					response->statusCode = 304;
 					response->reason = L"Not Modified";
-					response->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"123"));
+					response->headers.Add(CreateRawNameAsciiHttpField(L"CoNtEnT-LeNgTh", L"123"));
 					serverState->Expect(context->Respond(response), L"The raw API rejected an explicit 304 Content-Length.");
 				}
 				else if (path == L"/head-not-modified")
@@ -1413,7 +1377,7 @@ namespace mini_http_api_test
 					auto response = Ptr(new async_tcp_socket::HttpResponse);
 					response->statusCode = 304;
 					response->reason = L"Not Modified";
-					response->headers.Add(CreateField(L"Content-Length", L"3"));
+					response->headers.Add(CreateAsciiHttpField(L"Content-Length", L"3"));
 					AddBodyChunk(response->body, L"abc");
 					serverState->Expect(context->Respond(response), L"The raw API rejected a matching HEAD 304 Content-Length.");
 				}
@@ -1432,15 +1396,15 @@ namespace mini_http_api_test
 					};
 					auto commaLength = Ptr(new async_tcp_socket::HttpResponse);
 					commaLength->statusCode = 206;
-					commaLength->headers.Add(CreateField(L"Content-Length", L"0, 0"));
+					commaLength->headers.Add(CreateAsciiHttpField(L"Content-Length", L"0, 0"));
 					expectRejected(commaLength, L"The raw API accepted a comma-list Content-Length.");
 					auto owsLength = Ptr(new async_tcp_socket::HttpResponse);
 					owsLength->statusCode = 206;
-					owsLength->headers.Add(CreateField(L"Content-Length", L" 0"));
+					owsLength->headers.Add(CreateAsciiHttpField(L"Content-Length", L" 0"));
 					expectRejected(owsLength, L"The raw API accepted an OWS Content-Length.");
 					auto transferEncoding = Ptr(new async_tcp_socket::HttpResponse);
 					transferEncoding->statusCode = 206;
-					transferEncoding->headers.Add(CreateField(L"Transfer-Encoding", L"chunked"));
+					transferEncoding->headers.Add(CreateAsciiHttpField(L"Transfer-Encoding", L"chunked"));
 					expectRejected(transferEncoding, L"The raw API accepted application Transfer-Encoding: chunked.");
 					serverState->Expect(context->RespondStatus(206, L"Reusable"), L"A framing validation failure consumed the context.");
 				}
@@ -1467,26 +1431,26 @@ namespace mini_http_api_test
 			if (state->responses.Count() == 10)
 			{
 				TEST_ASSERT(state->responses[0]->statusCode == 202 && state->responses[0]->reason == L"Response");
-				TEST_ASSERT(FindField(state->responses[0]->headers, L"content-length") == L"0");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[0]->headers, L"content-length") == L"0");
 				const vuint8_t binary[] = { 0, 0xFF };
 				TEST_ASSERT(state->responses[1]->reason == L"Bytes");
-				TEST_ASSERT(FindField(state->responses[1]->headers, L"content-type") == L"application/octet-stream");
-				TEST_ASSERT(FindField(state->responses[1]->headers, L"content-length") == L"2");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[1]->headers, L"content-type") == L"application/octet-stream");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[1]->headers, L"content-length") == L"2");
 				TEST_ASSERT(SameRawBody(state->responses[1]->body, binary, 2));
 				const vuint8_t utf8[] = { 'A', 0xE4, 0xBD, 0xA0 };
 				TEST_ASSERT(state->responses[2]->reason == L"Utf8");
-				TEST_ASSERT(FindField(state->responses[2]->headers, L"content-type") == L"text/plain; charset=utf-8");
-				TEST_ASSERT(FindField(state->responses[2]->headers, L"content-length") == L"4");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[2]->headers, L"content-type") == L"text/plain; charset=utf-8");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[2]->headers, L"content-length") == L"4");
 				TEST_ASSERT(SameRawBody(state->responses[2]->body, utf8, 4));
-				TEST_ASSERT(CountField(state->responses[3]->headers, L"content-length") == 1);
-				TEST_ASSERT(FindField(state->responses[3]->headers, L"content-length") == L"2");
-				TEST_ASSERT(FindField(state->responses[3]->headers, L"content-type") == L"application/x-mixed");
-				TEST_ASSERT(RawBodyUtf8(state->responses[3]->body) == L"xy");
-				TEST_ASSERT(RawBodyUtf8(state->responses[4]->body) == WString::Empty && FindField(state->responses[4]->headers, L"content-length") == L"3");
-				TEST_ASSERT(RawBodyUtf8(state->responses[5]->body) == WString::Empty && CountField(state->responses[5]->headers, L"content-length") == 0);
-				TEST_ASSERT(RawBodyUtf8(state->responses[6]->body) == WString::Empty && FindField(state->responses[6]->headers, L"content-length") == L"0");
-				TEST_ASSERT(RawBodyUtf8(state->responses[7]->body) == WString::Empty && FindField(state->responses[7]->headers, L"content-length") == L"123");
-				TEST_ASSERT(RawBodyUtf8(state->responses[8]->body) == WString::Empty && FindField(state->responses[8]->headers, L"content-length") == L"3");
+				TEST_ASSERT(CountHttpFields(state->responses[3]->headers, L"content-length") == 1);
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[3]->headers, L"content-length") == L"2");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[3]->headers, L"content-type") == L"application/x-mixed");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[3]->body) == L"xy");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[4]->body) == WString::Empty && GetAsciiFieldValue(state->responses[4]->headers, L"content-length") == L"3");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[5]->body) == WString::Empty && CountHttpFields(state->responses[5]->headers, L"content-length") == 0);
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[6]->body) == WString::Empty && GetAsciiFieldValue(state->responses[6]->headers, L"content-length") == L"0");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[7]->body) == WString::Empty && GetAsciiFieldValue(state->responses[7]->headers, L"content-length") == L"123");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[8]->body) == WString::Empty && GetAsciiFieldValue(state->responses[8]->headers, L"content-length") == L"3");
 				TEST_ASSERT(state->responses[9]->statusCode == 206);
 			}
 			TEST_ASSERT(serverState->serverRequests == 10);
@@ -1501,9 +1465,9 @@ namespace mini_http_api_test
 			auto nonAscii = Ptr(new async_tcp_socket::HttpResponse);
 			nonAscii->statusCode = 230;
 			nonAscii->reason = L"Projection";
-			nonAscii->headers.Add(CreateField(L"content-type", L"text/\x4F60\x597D"));
-			nonAscii->headers.Add(CreateField(L"content-type", L"ignored/duplicate"));
-			nonAscii->headers.Add(CreateField(L"set-cookie", L"cookie=\x4F60"));
+			nonAscii->headers.Add(CreateUtf8HttpField(L"content-type", L"text/\x4F60\x597D"));
+			nonAscii->headers.Add(CreateAsciiHttpField(L"content-type", L"ignored/duplicate"));
+			nonAscii->headers.Add(CreateUtf8HttpField(L"set-cookie", L"cookie=\x4F60"));
 			AddBodyChunk(nonAscii->body, L"header-fields");
 			server->AddResponse(nonAscii);
 
@@ -1515,9 +1479,9 @@ namespace mini_http_api_test
 			malformedContentType.value.Resize(2);
 			malformedContentType.value[0] = 0xC0;
 			malformedContentType.value[1] = 0xAF;
-			auto malformedProjection = FieldText(malformedContentType);
+			auto malformedProjection = DecodePermissiveFieldText(malformedContentType);
 			malformed->headers.Add(std::move(malformedContentType));
-			malformed->headers.Add(CreateField(L"content-type", L"ignored/valid"));
+			malformed->headers.Add(CreateAsciiHttpField(L"content-type", L"ignored/valid"));
 			AddBodyChunk(malformed->body, L"malformed-field");
 			server->AddResponse(malformed);
 
@@ -1525,8 +1489,8 @@ namespace mini_http_api_test
 			trailerOnly->statusCode = 232;
 			trailerOnly->reason = L"Projection";
 			AddBodyChunk(trailerOnly->body, L"trailer-fields");
-			trailerOnly->body.trailers.Add(CreateField(L"content-type", L"application/x-trailer"));
-			trailerOnly->body.trailers.Add(CreateField(L"set-cookie", L"trailer=cookie"));
+			trailerOnly->body.trailers.Add(CreateAsciiHttpField(L"content-type", L"application/x-trailer"));
+			trailerOnly->body.trailers.Add(CreateAsciiHttpField(L"set-cookie", L"trailer=cookie"));
 			server->AddResponse(trailerOnly);
 
 			server->Start();
@@ -1659,11 +1623,11 @@ namespace mini_http_api_test
 				serverState->Expect(request->method == L"POST", L"The nested MiniHttp API did not receive POST.");
 				serverState->Expect(context->GetRelativePath() == L"/two", L"The nested MiniHttp API received the wrong relative path.");
 				serverState->Expect(context->GetQuery() == L"binary=%2F", L"The nested MiniHttp API changed the raw query.");
-				serverState->Expect(FindField(request->headers, L"host") == L"localhost:38900", L"SocketHttpClientApi sent the wrong automatic Host.");
-				serverState->Expect(FindField(request->headers, L"accept-encoding") == L"identity", L"SocketHttpClientApi did not request identity coding.");
-				serverState->Expect(FindField(request->headers, L"content-type") == L"application/octet-stream", L"SocketHttpClientApi lost the binary POST content type.");
-				serverState->Expect(FindField(request->headers, L"content-length") == L"5", L"SocketHttpClientApi did not use fixed binary POST framing.");
-				serverState->Expect(FindField(request->headers, L"x-binary-post") == L"exact", L"SocketHttpClientApi lost the binary POST extension field.");
+				serverState->Expect(GetAsciiFieldValue(request->headers, L"host") == L"localhost:38900", L"SocketHttpClientApi sent the wrong automatic Host.");
+				serverState->Expect(GetAsciiFieldValue(request->headers, L"accept-encoding") == L"identity", L"SocketHttpClientApi did not request identity coding.");
+				serverState->Expect(GetAsciiFieldValue(request->headers, L"content-type") == L"application/octet-stream", L"SocketHttpClientApi lost the binary POST content type.");
+				serverState->Expect(GetAsciiFieldValue(request->headers, L"content-length") == L"5", L"SocketHttpClientApi did not use fixed binary POST framing.");
+				serverState->Expect(GetAsciiFieldValue(request->headers, L"x-binary-post") == L"exact", L"SocketHttpClientApi lost the binary POST extension field.");
 				serverState->Expect(SameRawBody(request->body, expected, 5), L"SocketHttpClientApi changed the binary POST body.");
 				serverState->Expect(context->Respond(CreateResponse(211, L"B:/two?binary=%2F"), Func<void(bool)>([serverState](bool succeeded)
 				{
@@ -2010,21 +1974,21 @@ namespace mini_http_api_test
 
 			auto state = Ptr(new RawSequenceState(9));
 			auto supported = CreateRawRequest(L"OPTIONS", L"/cors/resource", 38905);
-			supported->headers.Add(CreateField(L"access-control-request-method", L"POST"));
-			supported->headers.Add(CreateField(L"access-control-request-headers", L"Accept, Content-Type"));
+			supported->headers.Add(CreateAsciiHttpField(L"access-control-request-method", L"POST"));
+			supported->headers.Add(CreateAsciiHttpField(L"access-control-request-headers", L"Accept, Content-Type"));
 			state->requests.Add(supported);
 
 			auto unsupportedMethod = CreateRawRequest(L"OPTIONS", L"/cors/resource", 38905);
-			unsupportedMethod->headers.Add(CreateField(L"access-control-request-method", L"DELETE"));
+			unsupportedMethod->headers.Add(CreateAsciiHttpField(L"access-control-request-method", L"DELETE"));
 			state->requests.Add(unsupportedMethod);
 
 			auto unsupportedHeader = CreateRawRequest(L"OPTIONS", L"/cors/resource", 38905);
-			unsupportedHeader->headers.Add(CreateField(L"access-control-request-method", L"POST"));
-			unsupportedHeader->headers.Add(CreateField(L"access-control-request-headers", L"X-Secret"));
+			unsupportedHeader->headers.Add(CreateAsciiHttpField(L"access-control-request-method", L"POST"));
+			unsupportedHeader->headers.Add(CreateAsciiHttpField(L"access-control-request-headers", L"X-Secret"));
 			state->requests.Add(unsupportedHeader);
 			state->requests.Add(CreateRawRequest(L"OPTIONS", L"*", 38905));
 			auto unsupportedStar = CreateRawRequest(L"OPTIONS", L"*", 38905);
-			unsupportedStar->headers.Add(CreateField(L"access-control-request-method", L"DELETE"));
+			unsupportedStar->headers.Add(CreateAsciiHttpField(L"access-control-request-method", L"DELETE"));
 			state->requests.Add(unsupportedStar);
 			state->requests.Add(CreateRawRequest(L"OPTIONS", L"/cors/ordinary", 38905));
 			state->requests.Add(CreateRawRequest(L"HEAD", L"/cors/head", 38905));
@@ -2040,33 +2004,33 @@ namespace mini_http_api_test
 			{
 				auto response = state->responses[0];
 				TEST_ASSERT(response->statusCode == 200);
-				TEST_ASSERT(FindField(response->headers, L"content-length") == L"0");
-				TEST_ASSERT(FindField(response->headers, L"access-control-allow-origin") == L"*");
-				TEST_ASSERT(FindField(response->headers, L"access-control-allow-methods") == L"GET, HEAD, POST, OPTIONS");
-				TEST_ASSERT(FindField(response->headers, L"access-control-allow-headers") == L"Accept, Content-Type");
-				TEST_ASSERT(FindField(response->headers, L"allow") == L"GET, HEAD, POST, OPTIONS");
-				TEST_ASSERT(FindField(response->headers, L"date") != WString::Empty);
-				TEST_ASSERT(FindField(response->headers, L"cache-control") == L"no-store");
-				TEST_ASSERT(CountField(response->headers, L"access-control-allow-credentials") == 0);
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"content-length") == L"0");
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"access-control-allow-origin") == L"*");
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"access-control-allow-methods") == L"GET, HEAD, POST, OPTIONS");
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"access-control-allow-headers") == L"Accept, Content-Type");
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"allow") == L"GET, HEAD, POST, OPTIONS");
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"date") != WString::Empty);
+				TEST_ASSERT(GetAsciiFieldValue(response->headers, L"cache-control") == L"no-store");
+				TEST_ASSERT(CountHttpFields(response->headers, L"access-control-allow-credentials") == 0);
 				TEST_ASSERT(state->responses[1]->statusCode == 405);
 				TEST_ASSERT(state->responses[2]->statusCode == 400);
 				TEST_ASSERT(state->responses[3]->statusCode == 200);
 				TEST_ASSERT(state->responses[4]->statusCode == 405);
 				TEST_ASSERT(state->responses[5]->statusCode == 213);
-				TEST_ASSERT(RawBodyUtf8(state->responses[5]->body) == L"ordinary-options");
-				TEST_ASSERT(FindField(state->responses[5]->headers, L"content-length") == L"16");
-				TEST_ASSERT(FindField(state->responses[5]->headers, L"access-control-allow-origin") == L"*");
-				TEST_ASSERT(FindField(state->responses[5]->headers, L"date") != WString::Empty);
-				TEST_ASSERT(FindField(state->responses[5]->headers, L"cache-control") == L"no-store");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[5]->body) == L"ordinary-options");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[5]->headers, L"content-length") == L"16");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[5]->headers, L"access-control-allow-origin") == L"*");
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[5]->headers, L"date") != WString::Empty);
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[5]->headers, L"cache-control") == L"no-store");
 				TEST_ASSERT(state->responses[6]->statusCode == 214);
-				TEST_ASSERT(RawBodyUtf8(state->responses[6]->body) == WString::Empty);
-				TEST_ASSERT(FindField(state->responses[6]->headers, L"content-length") == L"9");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[6]->body) == WString::Empty);
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[6]->headers, L"content-length") == L"9");
 				TEST_ASSERT(state->responses[7]->statusCode == 204);
-				TEST_ASSERT(RawBodyUtf8(state->responses[7]->body) == WString::Empty);
-				TEST_ASSERT(CountField(state->responses[7]->headers, L"content-length") == 0);
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[7]->body) == WString::Empty);
+				TEST_ASSERT(CountHttpFields(state->responses[7]->headers, L"content-length") == 0);
 				TEST_ASSERT(state->responses[8]->statusCode == 304);
-				TEST_ASSERT(RawBodyUtf8(state->responses[8]->body) == WString::Empty);
-				TEST_ASSERT(FindField(state->responses[8]->headers, L"content-length") == L"0");
+				TEST_ASSERT(GetStrictBodyUtf8(state->responses[8]->body) == WString::Empty);
+				TEST_ASSERT(GetAsciiFieldValue(state->responses[8]->headers, L"content-length") == L"0");
 			}
 			TEST_ASSERT(state->writes == 9);
 			TEST_ASSERT(serverState->serverRequests == 4);
@@ -2161,20 +2125,20 @@ namespace mini_http_api_test
 
 				assertInvalidConveniences();
 				auto transferEncoding = CreateResponse(221, L"invalid-transfer-encoding");
-				transferEncoding->headers.Add(CreateField(L"Transfer-Encoding", L"chunked"));
+				transferEncoding->headers.Add(CreateAsciiHttpField(L"Transfer-Encoding", L"chunked"));
 				TEST_ERROR(context->Respond(transferEncoding));
 
 				auto contradictoryLength = CreateResponse(221, L"invalid-length");
-				contradictoryLength->headers.Add(CreateField(L"Content-Length", L"999"));
+				contradictoryLength->headers.Add(CreateAsciiHttpField(L"Content-Length", L"999"));
 				TEST_ERROR(context->Respond(contradictoryLength));
 
 				auto trailers = CreateResponse(221, L"invalid-trailer");
-				trailers->body.trailers.Add(CreateField(L"x-trailer", L"value"));
+				trailers->body.trailers.Add(CreateAsciiHttpField(L"x-trailer", L"value"));
 				TEST_ERROR(context->Respond(trailers));
 
 				auto acceptedResponse = CreateResponse(221, L"deferred-first");
-				acceptedResponse->headers.Add(CreateField(L"CoNtEnT-LeNgTh", L"14"));
-				acceptedResponse->headers.Add(CreateField(L"CONTENT-LENGTH", L"14"));
+				acceptedResponse->headers.Add(CreateRawNameAsciiHttpField(L"CoNtEnT-LeNgTh", L"14"));
+				acceptedResponse->headers.Add(CreateRawNameAsciiHttpField(L"CONTENT-LENGTH", L"14"));
 				auto accepted = context->Respond(acceptedResponse, Func<void(bool)>([state](bool succeeded)
 				{
 					if (succeeded) state->successfulCompletions++;
@@ -2341,22 +2305,6 @@ namespace mini_http_api_test
 
 #if defined VCZH_MSVC
 
-	bool SameBytes(const HttpBody& body, const vuint8_t* expected, vint expectedSize)
-	{
-		vint actualSize = 0;
-		for (auto&& chunk : body.chunks) actualSize += chunk.data.Count();
-		if (actualSize != expectedSize) return false;
-		vint offset = 0;
-		for (auto&& chunk : body.chunks)
-		{
-			for (auto value : chunk.data)
-			{
-				if (value != expected[offset++]) return false;
-			}
-		}
-		return true;
-	}
-
 	bool SameChars(const Array<char>& actual, const vuint8_t* expected, vint expectedSize)
 	{
 		if (actual.Count() != expectedSize) return false;
@@ -2411,15 +2359,15 @@ namespace mini_http_api_test
 					state->Expect(request->requestTarget == L"/vlppos-mini-http/submit?raw=%2F", L"WinHTTP changed the MiniHttp raw target.");
 					state->Expect(context->GetRelativePath() == L"/submit", L"SocketHttpServerApi computed the wrong WinHTTP relative path.");
 					state->Expect(context->GetQuery() == L"raw=%2F", L"SocketHttpServerApi changed the WinHTTP raw query.");
-					state->Expect(FindField(request->headers, L"x-mixed-field") == L"mixed-value", L"SocketHttpServerApi lost a mixed-case WinHTTP field.");
-					state->Expect(FindField(request->headers, L"content-type") == L"application/octet-stream", L"SocketHttpServerApi lost the WinHTTP content type.");
-					state->Expect(FindField(request->headers, L"content-length") == L"6", L"SocketHttpServerApi did not receive fixed WinHTTP framing.");
-					state->Expect(SameBytes(request->body, expectedRequest, 6), L"SocketHttpServerApi changed the binary WinHTTP request body.");
+					state->Expect(GetAsciiFieldValue(request->headers, L"x-mixed-field") == L"mixed-value", L"SocketHttpServerApi lost a mixed-case WinHTTP field.");
+					state->Expect(GetAsciiFieldValue(request->headers, L"content-type") == L"application/octet-stream", L"SocketHttpServerApi lost the WinHTTP content type.");
+					state->Expect(GetAsciiFieldValue(request->headers, L"content-length") == L"6", L"SocketHttpServerApi did not receive fixed WinHTTP framing.");
+					state->Expect(SameRawBody(request->body, expectedRequest, 6), L"SocketHttpServerApi changed the binary WinHTTP request body.");
 
 					auto response = Ptr(new async_tcp_socket::HttpResponse);
 					response->statusCode = 298;
 					response->reason = L"MiniHttp Interop";
-					response->headers.Add(CreateField(L"Content-Type", L"application/octet-stream"));
+					response->headers.Add(CreateAsciiHttpField(L"Content-Type", L"application/octet-stream"));
 					const vuint8_t responsePart1[] = { 'R', 0 };
 					const vuint8_t responsePart2[] = { 'S', 0xFE };
 					HttpBodyChunk chunk1;
@@ -2557,7 +2505,7 @@ namespace mini_http_api_test
 		windows_http::HttpRequest request;
 		request.method = L"POST";
 		request.query = L"/vlppos-mini-http/submit?raw=%2F";
-		request.contentType = L"application/json; charset=utf8";
+		request.contentType = HttpNetworkProtocolContentType;
 		request.extraHeaders.Add(L"X-Mini-Interop", L"socket-value");
 		request.SetBodyUtf8(L"socket-body-bytes");
 		request.receiveTimeout = 2000;
