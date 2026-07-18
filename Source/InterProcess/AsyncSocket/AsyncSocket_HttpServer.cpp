@@ -9,25 +9,25 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		constexpr const wchar_t*				JsonContentType = L"application/json; charset=utf8";
+		constexpr const wchar_t*				ServerJsonContentType = L"application/json; charset=utf8";
 		constexpr vint						GeneratedTokenLength = 36;
 
-		wchar_t FoldAscii(wchar_t c)
+		wchar_t ServerFoldAscii(wchar_t c)
 		{
 			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
 		}
 
-		bool AsciiEqualsIgnoreCase(const WString& a, const WString& b)
+		bool ServerAsciiEqualsIgnoreCase(const WString& a, const WString& b)
 		{
 			if (a.Length() != b.Length()) return false;
 			for (vint i = 0; i < a.Length(); i++)
 			{
-				if (FoldAscii(a[i]) != FoldAscii(b[i])) return false;
+				if (ServerFoldAscii(a[i]) != ServerFoldAscii(b[i])) return false;
 			}
 			return true;
 		}
 
-		vint HexValue(wchar_t c)
+		vint ServerHexValue(wchar_t c)
 		{
 			if (L'0' <= c && c <= L'9') return c - L'0';
 			if (L'a' <= c && c <= L'f') return c - L'a' + 10;
@@ -35,7 +35,7 @@ namespace vl::inter_process::async_tcp_socket
 			return -1;
 		}
 
-		bool IsLegalOriginPathCharacter(wchar_t c)
+		bool IsLegalServerOriginPathCharacter(wchar_t c)
 		{
 			if (L'a' <= c && c <= L'z') return true;
 			if (L'A' <= c && c <= L'Z') return true;
@@ -168,8 +168,8 @@ namespace vl::inter_process::async_tcp_socket
 				if (c == L'%')
 				{
 					if (i + 2 >= baseUrl.Length()) return false;
-					auto high = HexValue(baseUrl[i + 1]);
-					auto low = HexValue(baseUrl[i + 2]);
+					auto high = ServerHexValue(baseUrl[i + 1]);
+					auto low = ServerHexValue(baseUrl[i + 2]);
 					if (high < 0 || low < 0) return false;
 					auto byte = (vuint8_t)(high * 16 + low);
 					if (byte == 0 || byte == '/' || byte == '\\') return false;
@@ -178,7 +178,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 				else
 				{
-					if (!IsLegalOriginPathCharacter(c)) return false;
+					if (!IsLegalServerOriginPathCharacter(c)) return false;
 					bytes.Add((vuint8_t)c);
 				}
 			}
@@ -238,7 +238,7 @@ namespace vl::inter_process::async_tcp_socket
 			auto response = Ptr(new HttpResponse);
 			response->statusCode = 200;
 			response->reason = L"OK";
-			response->headers.Add(CreateAsciiField(L"content-type", JsonContentType));
+			response->headers.Add(CreateAsciiField(L"content-type", ServerJsonContentType));
 			if (message != WString::Empty)
 			{
 				HttpBodyChunk chunk;
@@ -293,8 +293,8 @@ namespace vl::inter_process::async_tcp_socket
 			vint contentLengths = 0;
 			for (auto&& field : request->headers)
 			{
-				if (AsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
-				if (AsciiEqualsIgnoreCase(field.name, L"content-length"))
+				if (ServerAsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
+				if (ServerAsciiEqualsIgnoreCase(field.name, L"content-length"))
 				{
 					vint length = -1;
 					if (!ParseContentLength(field.value, length) || length != 0) return false;
@@ -312,15 +312,15 @@ namespace vl::inter_process::async_tcp_socket
 			vint contentTypes = 0;
 			for (auto&& field : request->headers)
 			{
-				if (AsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
-				if (AsciiEqualsIgnoreCase(field.name, L"content-length"))
+				if (ServerAsciiEqualsIgnoreCase(field.name, L"transfer-encoding")) return false;
+				if (ServerAsciiEqualsIgnoreCase(field.name, L"content-length"))
 				{
 					if (!ParseContentLength(field.value, contentLength)) return false;
 					contentLengths++;
 				}
-				else if (AsciiEqualsIgnoreCase(field.name, L"content-type"))
+				else if (ServerAsciiEqualsIgnoreCase(field.name, L"content-type"))
 				{
-					if (!FieldValueEquals(field.value, JsonContentType)) return false;
+					if (!FieldValueEquals(field.value, ServerJsonContentType)) return false;
 					contentTypes++;
 				}
 			}

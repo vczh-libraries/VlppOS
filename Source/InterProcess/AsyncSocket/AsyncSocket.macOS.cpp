@@ -1820,5 +1820,15 @@ AsyncSocketClient
 	{
 		return impl->GetStatus();
 	}
+
+	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
+	{
+		return Ptr(new AsyncSocketServer(port));
+	}
+
+	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
+	{
+		return Ptr(new AsyncSocketClient(port));
+	}
 }
 #endif

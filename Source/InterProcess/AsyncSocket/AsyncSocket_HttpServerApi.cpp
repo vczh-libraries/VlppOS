@@ -1,11 +1,20 @@
 #include "AsyncSocket_HttpServerApi.h"
 
 #if defined VCZH_MSVC
-#include "AsyncSocket.Windows.h"
+namespace vl::inter_process::async_tcp_socket::windows_socket
+{
+	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
+}
 #elif defined VCZH_GCC && defined VCZH_APPLE
-#include "AsyncSocket.macOS.h"
+namespace vl::inter_process::async_tcp_socket::macos_socket
+{
+	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
+}
 #elif defined VCZH_GCC
-#include "AsyncSocket.Linux.h"
+namespace vl::inter_process::async_tcp_socket::linux_socket
+{
+	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
+}
 #endif
 
 #include <limits>
@@ -756,11 +765,11 @@ namespace vl::inter_process::async_tcp_socket
 			SPIN_LOCK(registry.lock) { factory = registry.listenerFactory; }
 			if (factory) return factory(port);
 #if defined VCZH_MSVC
-			return Ptr(new windows_socket::AsyncSocketServer(port));
+			return windows_socket::CreateDefaultAsyncSocketServer(port);
 #elif defined VCZH_GCC && defined VCZH_APPLE
-			return Ptr(new macos_socket::AsyncSocketServer(port));
+			return macos_socket::CreateDefaultAsyncSocketServer(port);
 #elif defined VCZH_GCC
-			return Ptr(new linux_socket::AsyncSocketServer(port));
+			return linux_socket::CreateDefaultAsyncSocketServer(port);
 #else
 			CHECK_FAIL(L"No async socket server is available on this platform.");
 #endif

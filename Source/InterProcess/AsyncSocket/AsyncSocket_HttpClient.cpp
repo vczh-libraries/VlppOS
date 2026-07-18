@@ -1,11 +1,20 @@
 #include "AsyncSocket_HttpClient.h"
 
 #if defined VCZH_MSVC
-#include "AsyncSocket.Windows.h"
+namespace vl::inter_process::async_tcp_socket::windows_socket
+{
+	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
+}
 #elif defined VCZH_GCC && defined VCZH_APPLE
-#include "AsyncSocket.macOS.h"
+namespace vl::inter_process::async_tcp_socket::macos_socket
+{
+	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
+}
 #elif defined VCZH_GCC
-#include "AsyncSocket.Linux.h"
+namespace vl::inter_process::async_tcp_socket::linux_socket
+{
+	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
+}
 #endif
 
 #include <chrono>
@@ -281,20 +290,11 @@ namespace vl::inter_process::async_tcp_socket
 		SocketHttpClient::NativeClientFactory CreateDefaultClientFactory()
 		{
 #if defined VCZH_MSVC
-			return [](vint port)->Ptr<IAsyncSocketClient>
-			{
-				return Ptr<IAsyncSocketClient>(new windows_socket::AsyncSocketClient(port));
-			};
+			return windows_socket::CreateDefaultAsyncSocketClient;
 #elif defined VCZH_GCC && defined VCZH_APPLE
-			return [](vint port)->Ptr<IAsyncSocketClient>
-			{
-				return Ptr<IAsyncSocketClient>(new macos_socket::AsyncSocketClient(port));
-			};
+			return macos_socket::CreateDefaultAsyncSocketClient;
 #elif defined VCZH_GCC
-			return [](vint port)->Ptr<IAsyncSocketClient>
-			{
-				return Ptr<IAsyncSocketClient>(new linux_socket::AsyncSocketClient(port));
-			};
+			return linux_socket::CreateDefaultAsyncSocketClient;
 #else
 			return {};
 #endif
