@@ -113,16 +113,16 @@ extern HttpFramingAnalysisResult AnalyzeHttpFraming(
 
 Required semantics:
 
-- [ ] Reset the output on entry; treat it as authoritative only when the result is `Succeeded`.
-- [ ] Require already validated, lowercase-normalized field names and use exact comparison; the analyzer does not fold caller-supplied mixed-case names.
-- [ ] Count physical `Content-Length` fields separately from comma-list values.
-- [ ] Report `Content-Length: 3, 3` as length `3`, one field, and two values.
-- [ ] Report two `Content-Length: 3` fields as length `3`, two fields, and two values.
-- [ ] Set `contentLengthValuesPlainDecimal` only when every physical value is one nonempty sequence of digits with no comma or OWS. Parsed wire fields have already had outer OWS removed; constructed fields have not.
-- [ ] Preserve the current distinction between invalid framing and unsupported transfer coding.
-- [ ] Make both parsing and serialization call this one public analyzer.
-- [ ] Keep the numeric `ParseContentLength` implementation private; do not expose a second parser.
-- [ ] Move the HTTP request-line, header, body, chunk-line, and trailer size-limit constants from `AsyncSocket_HttpRequest.h` to `HttpRequest.h`; the public analyzers/helpers and their callers must see the limits they enforce.
+- [x] Reset the output on entry; treat it as authoritative only when the result is `Succeeded`.
+- [x] Require already validated, lowercase-normalized field names and use exact comparison; the analyzer does not fold caller-supplied mixed-case names.
+- [x] Count physical `Content-Length` fields separately from comma-list values.
+- [x] Report `Content-Length: 3, 3` as length `3`, one field, and two values.
+- [x] Report two `Content-Length: 3` fields as length `3`, two fields, and two values.
+- [x] Set `contentLengthValuesPlainDecimal` only when every physical value is one nonempty sequence of digits with no comma or OWS. Parsed wire fields have already had outer OWS removed; constructed fields have not.
+- [x] Preserve the current distinction between invalid framing and unsupported transfer coding.
+- [x] Make both parsing and serialization call this one public analyzer.
+- [x] Keep the numeric `ParseContentLength` implementation private; do not expose a second parser.
+- [x] Move the HTTP request-line, header, body, chunk-line, and trailer size-limit constants from `AsyncSocket_HttpRequest.h` to `HttpRequest.h`; the public analyzers/helpers and their callers must see the limits they enforce.
 
 ## Field, body, Unicode, and request-line helpers
 
@@ -196,27 +196,29 @@ extern HttpRequestLineValidationResult ValidateHttpRequestLine(
 
 Required behavior:
 
-- [ ] `FindHttpField` returns the first exact match or `nullptr`; `CountHttpFields` counts all exact matches. Both require callers to supply the lowercase normalized name and perform no locale folding.
-- [ ] `CreateAsciiHttpField` lowercases and validates the field name and validates ASCII field-value characters; invalid input raises `CHECK_ERROR`.
-- [ ] `DecodeAsciiHttpFieldValue` rejects bytes above `0x7F` but otherwise preserves the explicit byte sequence. `HttpFieldValueEqualsAscii` returns `false` for non-ASCII expectations or unequal bytes.
-- [ ] Body size/flatten helpers count chunk bytes only, ignore trailer sizes, accept empty chunks as zero-byte container input, and fail safely on overflow or `HttpBodySizeLimit`; they do not claim the body is serializable.
-- [ ] `SetHttpBodyBytes` raises `CHECK_ERROR` before mutation when the input exceeds `HttpBodySizeLimit`; otherwise it clears chunks and trailers and uses zero chunks for empty input or one chunk otherwise. It does not add, remove, or reconcile enclosing `Content-Length` / `Transfer-Encoding` fields; serialization still rejects mismatched explicit framing.
-- [ ] Strict UTF-8 accepts empty input and preserves embedded `U+0000`; NUL rejection remains layer-4 policy.
-- [ ] Strict UTF-8 rejects unpaired surrogates, overlong forms, invalid continuations, truncation, encoded surrogates, and values above `U+10FFFF`.
-- [ ] `DecodeStrictUtf8` permits `bytes == nullptr` only when `count == 0` and rejects negative counts or a null pointer with a positive count. UTF-8 helpers do not apply `HttpBodySizeLimit`; container/protocol callers own that limit.
-- [ ] Body, ASCII-decoding, and strict UTF-8 output parameters remain unchanged when their helper fails. `AnalyzeHttpFraming` is the explicit exception: it resets its output on entry and the result is unusable unless it returns `Succeeded`.
-- [ ] Serialization uses `ValidateHttpRequestLine`; no other layer repeats the `method + target + 10` calculation.
+- [x] `FindHttpField` returns the first exact match or `nullptr`; `CountHttpFields` counts all exact matches. Both require callers to supply the lowercase normalized name and perform no locale folding.
+- [x] `CreateAsciiHttpField` lowercases and validates the field name and validates ASCII field-value characters; invalid input raises `CHECK_ERROR`.
+- [x] `DecodeAsciiHttpFieldValue` rejects bytes above `0x7F` but otherwise preserves the explicit byte sequence. `HttpFieldValueEqualsAscii` returns `false` for non-ASCII expectations or unequal bytes.
+- [x] Body size/flatten helpers count chunk bytes only, ignore trailer sizes, accept empty chunks as zero-byte container input, and fail safely on overflow or `HttpBodySizeLimit`; they do not claim the body is serializable.
+- [x] `SetHttpBodyBytes` raises `CHECK_ERROR` before mutation when the input exceeds `HttpBodySizeLimit`; otherwise it clears chunks and trailers and uses zero chunks for empty input or one chunk otherwise. It does not add, remove, or reconcile enclosing `Content-Length` / `Transfer-Encoding` fields; serialization still rejects mismatched explicit framing.
+- [x] Strict UTF-8 accepts empty input and preserves embedded `U+0000`; NUL rejection remains layer-4 policy.
+- [x] Strict UTF-8 rejects unpaired surrogates, overlong forms, invalid continuations, truncation, encoded surrogates, and values above `U+10FFFF`.
+- [x] `DecodeStrictUtf8` permits `bytes == nullptr` only when `count == 0` and rejects negative counts or a null pointer with a positive count. UTF-8 helpers do not apply `HttpBodySizeLimit`; container/protocol callers own that limit.
+- [x] Body, ASCII-decoding, and strict UTF-8 output parameters remain unchanged when their helper fails. `AnalyzeHttpFraming` is the explicit exception: it resets its output on entry and the result is unusable unless it returns `Succeeded`.
+- [x] Serialization uses `ValidateHttpRequestLine`; no other layer repeats the `method + target + 10` calculation.
 
 ## Layer-2 tests
 
 Add focused tests to `Test/Source/TestInterProcess_HttpRequest.cpp`:
 
-- [ ] Every framing kind, repeated equal lengths, comma lists, OWS, conflicts, CL+TE, supported chunked, and unsupported transfer coding/parameters; directly assert `contentLengthValuesPlainDecimal` for digit-only, OWS, and comma forms.
-- [ ] Field lookup/count and ASCII construction/decoding, including duplicate names and invalid input.
-- [ ] Empty, binary, embedded-NUL, one-chunk, and multi-chunk body operations.
-- [ ] Valid UTF-8 boundaries and all malformed classes listed above.
-- [ ] Request-line limits at exactly the limit and one byte beyond it, plus invalid methods and targets.
-- [ ] Existing parser and serializer tests continue passing unchanged.
+- [x] Every framing kind, repeated equal lengths, comma lists, OWS, conflicts, CL+TE, supported chunked, and unsupported transfer coding/parameters; directly assert `contentLengthValuesPlainDecimal` for digit-only, OWS, and comma forms.
+- [x] Field lookup/count and ASCII construction/decoding, including duplicate names and invalid input.
+- [x] Empty, binary, embedded-NUL, one-chunk, and multi-chunk body operations.
+- [x] Valid UTF-8 boundaries and all malformed classes listed above.
+- [x] Request-line limits at exactly the limit and one byte beyond it, plus invalid methods and targets.
+- [x] Existing parser and serializer tests continue passing unchanged.
+
+Phase 1 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 207 test cases passed with no memory-leak report. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Phase 2: Make layer 3 convenient without losing binary control
 

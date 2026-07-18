@@ -13,12 +13,6 @@ Async Socket HTTP/1.1 Connection
 
 namespace vl::inter_process::async_tcp_socket
 {
-	constexpr vint HttpRequestLineSizeLimit = 8 * 1024;
-	constexpr vint HttpHeaderBlockSizeLimit = 64 * 1024;
-	constexpr vint HttpBodySizeLimit = 16 * 1024 * 1024;
-	constexpr vint HttpChunkSizeLineLimit = 4 * 1024;
-	constexpr vint HttpTrailerBlockSizeLimit = 64 * 1024;
-
 	enum class HttpRequestConnectionDirection
 	{
 		Server,

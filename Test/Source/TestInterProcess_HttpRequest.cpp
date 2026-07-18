@@ -780,6 +780,275 @@ namespace http_request_test
 		connection->Stop();
 	}
 
+	void RunHttpRequestDataHelperTestCases()
+	{
+		TEST_CASE(L"HTTP framing analysis exposes authoritative framing and connection state")
+		{
+			List<HttpField> fields;
+			HttpFraming framing;
+			framing.kind = HttpFramingKind::Chunked;
+			framing.contentLength = 99;
+			framing.contentLengthFieldCount = 7;
+			framing.contentLengthValueCount = 8;
+			framing.contentLengthValuesPlainDecimal = false;
+			framing.connectionClose = true;
+			TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+			TEST_ASSERT(framing.kind == HttpFramingKind::None);
+			TEST_ASSERT(framing.contentLength == 0);
+			TEST_ASSERT(framing.contentLengthFieldCount == 0);
+			TEST_ASSERT(framing.contentLengthValueCount == 0);
+			TEST_ASSERT(framing.contentLengthValuesPlainDecimal);
+			TEST_ASSERT(!framing.connectionClose);
+
+			AddField(fields, L"transfer-encoding", "CHUNKED");
+			AddField(fields, L"connection", "keep-alive, CLOSE");
+			TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+			TEST_ASSERT(framing.kind == HttpFramingKind::Chunked);
+			TEST_ASSERT(framing.connectionClose);
+		});
+
+		TEST_CASE(L"HTTP framing analysis distinguishes Content-Length fields, values, and spelling")
+		{
+			HttpFraming framing;
+			{
+				List<HttpField> fields;
+				AddField(fields, L"content-length", "3");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.kind == HttpFramingKind::ContentLength && framing.contentLength == 3);
+				TEST_ASSERT(framing.contentLengthFieldCount == 1 && framing.contentLengthValueCount == 1);
+				TEST_ASSERT(framing.contentLengthValuesPlainDecimal);
+			}
+			{
+				List<HttpField> fields;
+				AddField(fields, L"content-length", "003");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.contentLength == 3 && framing.contentLengthValuesPlainDecimal);
+			}
+			{
+				List<HttpField> fields;
+				AddField(fields, L"content-length", "3, 3");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.contentLength == 3);
+				TEST_ASSERT(framing.contentLengthFieldCount == 1 && framing.contentLengthValueCount == 2);
+				TEST_ASSERT(!framing.contentLengthValuesPlainDecimal);
+			}
+			{
+				List<HttpField> fields;
+				AddField(fields, L"content-length", "3");
+				AddField(fields, L"content-length", "3");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.contentLengthFieldCount == 2 && framing.contentLengthValueCount == 2);
+				TEST_ASSERT(framing.contentLengthValuesPlainDecimal);
+			}
+			{
+				List<HttpField> fields;
+				AddField(fields, L"content-length", "\t3 ");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.contentLength == 3 && !framing.contentLengthValuesPlainDecimal);
+			}
+			{
+				List<HttpField> fields;
+				AddField(fields, L"Content-Length", "3");
+				TEST_ASSERT(AnalyzeHttpFraming(fields, framing) == HttpFramingAnalysisResult::Succeeded);
+				TEST_ASSERT(framing.kind == HttpFramingKind::None);
+			}
+		});
+
+		TEST_CASE(L"HTTP framing analysis preserves invalid and unsupported results")
+		{
+			auto analyze = [](const WString& firstName, auto&& firstValue, const WString& secondName, auto&& secondValue)
+			{
+				List<HttpField> fields;
+				AddField(fields, firstName, firstValue);
+				if (secondName != L"") AddField(fields, secondName, secondValue);
+				HttpFraming framing;
+				return AnalyzeHttpFraming(fields, framing);
+			};
+			TEST_ASSERT(analyze(L"content-length", "3, 4", L"", "") == HttpFramingAnalysisResult::Invalid);
+			TEST_ASSERT(analyze(L"content-length", "3", L"content-length", "4") == HttpFramingAnalysisResult::Invalid);
+			TEST_ASSERT(analyze(L"content-length", "3", L"transfer-encoding", "chunked") == HttpFramingAnalysisResult::Invalid);
+			TEST_ASSERT(analyze(L"content-length", "3", L"transfer-encoding", "gzip") == HttpFramingAnalysisResult::Invalid);
+			TEST_ASSERT(analyze(L"transfer-encoding", "chunked;foo", L"", "") == HttpFramingAnalysisResult::Invalid);
+			TEST_ASSERT(analyze(L"transfer-encoding", "gzip", L"", "") == HttpFramingAnalysisResult::UnsupportedTransferCoding);
+			TEST_ASSERT(analyze(L"transfer-encoding", "gzip, chunked", L"", "") == HttpFramingAnalysisResult::UnsupportedTransferCoding);
+			TEST_ASSERT(analyze(L"transfer-encoding", "chunked;foo=bar", L"", "") == HttpFramingAnalysisResult::UnsupportedTransferCoding);
+		});
+
+		TEST_CASE(L"HTTP field helpers normalize construction and perform exact lookup")
+		{
+			List<HttpField> fields;
+			fields.Add(CreateAsciiHttpField(L"X-RePeAt", L"first\tvalue"));
+			fields.Add(CreateAsciiHttpField(L"x-repeat", L"second"));
+			TEST_ASSERT(fields[0].name == L"x-repeat");
+			TEST_ASSERT(HttpFieldValueEqualsAscii(fields[0].value, L"first\tvalue"));
+			TEST_ASSERT(FindHttpField(fields, L"x-repeat") == &fields[0]);
+			TEST_ASSERT(FindHttpField(fields, L"X-Repeat") == nullptr);
+			TEST_ASSERT(CountHttpFields(fields, L"x-repeat") == 2);
+			TEST_ASSERT(CountHttpFields(fields, L"X-Repeat") == 0);
+			TEST_ERROR(CreateAsciiHttpField(L"", L"value"));
+			TEST_ERROR(CreateAsciiHttpField(L"bad name", L"value"));
+			TEST_ERROR(CreateAsciiHttpField(L"name", L"bad\rvalue"));
+			TEST_ERROR(CreateAsciiHttpField(L"name", WString::CopyFrom(L"\x0080", 1)));
+		});
+
+		TEST_CASE(L"HTTP field ASCII decoding preserves explicit bytes and stable failure outputs")
+		{
+			auto value = ByteArray("A\0B");
+			WString text = L"unchanged";
+			TEST_ASSERT(DecodeAsciiHttpFieldValue(value, text));
+			TEST_ASSERT(text.Length() == 3 && text[0] == L'A' && text[1] == 0 && text[2] == L'B');
+			TEST_ASSERT(HttpFieldValueEqualsAscii(value, WString::CopyFrom(L"A\0B", 3)));
+			TEST_ASSERT(!HttpFieldValueEqualsAscii(value, L"A"));
+
+			Array<vuint8_t> nonAscii(1);
+			nonAscii[0] = 0x80;
+			text = L"unchanged";
+			TEST_ASSERT(!DecodeAsciiHttpFieldValue(nonAscii, text));
+			TEST_ASSERT(text == L"unchanged");
+			TEST_ASSERT(!HttpFieldValueEqualsAscii(nonAscii, WString::CopyFrom(L"\x0080", 1)));
+		});
+
+		TEST_CASE(L"HTTP body helpers count and flatten chunks while ignoring trailers")
+		{
+			HttpBody body;
+			AddChunk(body, "A\0");
+			AddChunk(body, "");
+			AddChunk(body, "BC");
+			AddField(body.trailers, L"digest", "ignored");
+			vint size = -1;
+			TEST_ASSERT(TryGetHttpBodySize(body, size) && size == 4);
+			Array<vuint8_t> flattened = ByteArray("old");
+			TEST_ASSERT(FlattenHttpBody(body, flattened));
+			TEST_ASSERT(SameBytes(flattened, "A\0BC"));
+
+			HttpBody oversized;
+			HttpBodyChunk chunk;
+			chunk.data.Resize(HttpBodySizeLimit + 1);
+			oversized.chunks.Add(std::move(chunk));
+			size = 123;
+			flattened = ByteArray("unchanged");
+			TEST_ASSERT(!TryGetHttpBodySize(oversized, size) && size == 123);
+			TEST_ASSERT(!FlattenHttpBody(oversized, flattened));
+			TEST_ASSERT(SameBytes(flattened, "unchanged"));
+		});
+
+		TEST_CASE(L"HTTP body replacement clears metadata and supports aliased rvalues")
+		{
+			HttpBody body;
+			AddChunk(body, "alias");
+			AddField(body.trailers, L"digest", "old");
+			SetHttpBodyBytes(body, std::move(body.chunks[0].data));
+			TEST_ASSERT(body.chunks.Count() == 1 && SameBytes(body.chunks[0].data, "alias"));
+			TEST_ASSERT(body.trailers.Count() == 0);
+
+			Array<vuint8_t> empty;
+			SetHttpBodyBytes(body, std::move(empty));
+			TEST_ASSERT(body.chunks.Count() == 0 && body.trailers.Count() == 0);
+
+			AddChunk(body, "preserved");
+			AddField(body.trailers, L"digest", "preserved");
+			Array<vuint8_t> oversized(HttpBodySizeLimit + 1);
+			TEST_ERROR(SetHttpBodyBytes(body, std::move(oversized)));
+			TEST_ASSERT(body.chunks.Count() == 1 && SameBytes(body.chunks[0].data, "preserved"));
+			TEST_ASSERT(body.trailers.Count() == 1 && oversized.Count() == HttpBodySizeLimit + 1);
+		});
+
+		TEST_CASE(L"Strict UTF-8 helpers round-trip empty, NUL, BMP, and supplementary characters")
+		{
+			List<wchar_t> characters;
+			characters.Add(L'A');
+			characters.Add(0);
+			characters.Add((wchar_t)0xE9);
+			if constexpr (sizeof(wchar_t) == 2)
+			{
+				characters.Add((wchar_t)0xD83D);
+				characters.Add((wchar_t)0xDE00);
+			}
+			else
+			{
+				characters.Add((wchar_t)0x1F600);
+			}
+			auto original = WString::CopyFrom(&characters[0], characters.Count());
+			Array<vuint8_t> encoded;
+			TEST_ASSERT(EncodeStrictUtf8(original, encoded));
+			TEST_ASSERT(SameBytes(encoded, "A\0\xC3\xA9\xF0\x9F\x98\x80"));
+			WString decoded = L"old";
+			TEST_ASSERT(DecodeStrictUtf8(&encoded[0], encoded.Count(), decoded));
+			TEST_ASSERT(decoded == original);
+
+			Array<vuint8_t> emptyBytes = ByteArray("old");
+			TEST_ASSERT(EncodeStrictUtf8(WString::Empty, emptyBytes) && emptyBytes.Count() == 0);
+			decoded = L"old";
+			TEST_ASSERT(DecodeStrictUtf8(nullptr, 0, decoded) && decoded == WString::Empty);
+
+			auto boundaries = ByteArray("\0\x7F\xC2\x80\xDF\xBF\xE0\xA0\x80\xED\x9F\xBF\xEE\x80\x80\xEF\xBF\xBF\xF0\x90\x80\x80\xF4\x8F\xBF\xBF");
+			TEST_ASSERT(DecodeStrictUtf8(&boundaries[0], boundaries.Count(), decoded));
+			Array<vuint8_t> reencoded;
+			TEST_ASSERT(EncodeStrictUtf8(decoded, reencoded));
+			TEST_ASSERT(SameBytes(reencoded, boundaries));
+		});
+
+		TEST_CASE(L"Strict UTF-8 helpers reject malformed input without changing outputs")
+		{
+			Array<vuint8_t> encoded = ByteArray("unchanged");
+			wchar_t invalidCharacter = (wchar_t)0xD800;
+			TEST_ASSERT(!EncodeStrictUtf8(WString::CopyFrom(&invalidCharacter, 1), encoded));
+			TEST_ASSERT(SameBytes(encoded, "unchanged"));
+			invalidCharacter = (wchar_t)0xDC00;
+			TEST_ASSERT(!EncodeStrictUtf8(WString::CopyFrom(&invalidCharacter, 1), encoded));
+			TEST_ASSERT(SameBytes(encoded, "unchanged"));
+			if constexpr (sizeof(wchar_t) > 2)
+			{
+				invalidCharacter = (wchar_t)0x110000;
+				TEST_ASSERT(!EncodeStrictUtf8(WString::CopyFrom(&invalidCharacter, 1), encoded));
+				TEST_ASSERT(SameBytes(encoded, "unchanged"));
+			}
+
+			auto assertInvalid = [](auto&& input)
+			{
+				WString output = L"unchanged";
+				TEST_ASSERT(!DecodeStrictUtf8(&input[0], input.Count(), output));
+				TEST_ASSERT(output == L"unchanged");
+			};
+			assertInvalid(ByteArray("\x80"));
+			assertInvalid(ByteArray("\xC0\x80"));
+			assertInvalid(ByteArray("\xE0\x80\x80"));
+			assertInvalid(ByteArray("\xF0\x80\x80\x80"));
+			assertInvalid(ByteArray("\xC2"));
+			assertInvalid(ByteArray("\xE2\x82"));
+			assertInvalid(ByteArray("\xF0\x90\x80"));
+			assertInvalid(ByteArray("\xE2\x28\xA1"));
+			assertInvalid(ByteArray("\xED\xA0\x80"));
+			assertInvalid(ByteArray("\xF4\x90\x80\x80"));
+			assertInvalid(ByteArray("\xF5\x80\x80\x80"));
+			WString output = L"unchanged";
+			TEST_ASSERT(!DecodeStrictUtf8(nullptr, 1, output) && output == L"unchanged");
+			TEST_ASSERT(!DecodeStrictUtf8(nullptr, -1, output) && output == L"unchanged");
+		});
+
+		TEST_CASE(L"HTTP request-line validation enforces syntax and the exact configured limit")
+		{
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"/") == HttpRequestLineValidationResult::Succeeded);
+			TEST_ASSERT(ValidateHttpRequestLine(L"", L"/") == HttpRequestLineValidationResult::InvalidMethod);
+			TEST_ASSERT(ValidateHttpRequestLine(L"G ET", L"/") == HttpRequestLineValidationResult::InvalidMethod);
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"") == HttpRequestLineValidationResult::InvalidRequestTarget);
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", L"/has space") == HttpRequestLineValidationResult::InvalidRequestTarget);
+
+			Array<wchar_t> exactTargetCharacters(HttpRequestLineSizeLimit - 13);
+			for (vint i = 0; i < exactTargetCharacters.Count(); i++) exactTargetCharacters[i] = L'/';
+			auto exactTarget = WString::CopyFrom(&exactTargetCharacters[0], exactTargetCharacters.Count());
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", exactTarget) == HttpRequestLineValidationResult::Succeeded);
+			Array<wchar_t> oversizedTargetCharacters(HttpRequestLineSizeLimit - 12);
+			for (vint i = 0; i < oversizedTargetCharacters.Count(); i++) oversizedTargetCharacters[i] = L'/';
+			auto oversizedTarget = WString::CopyFrom(&oversizedTargetCharacters[0], oversizedTargetCharacters.Count());
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", oversizedTarget) == HttpRequestLineValidationResult::TooLong);
+			TEST_ASSERT(ValidateHttpRequestLine(L"G ET", oversizedTarget) == HttpRequestLineValidationResult::InvalidMethod);
+			oversizedTargetCharacters[0] = L' ';
+			auto invalidOversizedTarget = WString::CopyFrom(&oversizedTargetCharacters[0], oversizedTargetCharacters.Count());
+			TEST_ASSERT(ValidateHttpRequestLine(L"GET", invalidOversizedTarget) == HttpRequestLineValidationResult::InvalidRequestTarget);
+		});
+	}
+
 	void RunChunkHelperTestCases()
 	{
 		TEST_CASE(L"HTTP chunk helper parses chunks, extensions, trailers, and suffix")
@@ -3216,6 +3485,7 @@ using namespace http_request_test;
 
 TEST_FILE
 {
+	RunHttpRequestDataHelperTestCases();
 	RunChunkHelperTestCases();
 	RunFakeConnectionTestCases();
 	RunHttpLifecycleTestCases();

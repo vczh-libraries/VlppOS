@@ -329,7 +329,7 @@ namespace vl::inter_process::async_tcp_socket
 			return true;
 		}
 
-		bool ParseContentLength(const Array<vuint8_t>& value, bool& initialized, vuint64_t& contentLength)
+		bool ParseContentLength(const Array<vuint8_t>& value, bool& initialized, vuint64_t& contentLength, vint& valueCount)
 		{
 			vint reading = 0;
 			while (true)
@@ -344,6 +344,7 @@ namespace vl::inter_process::async_tcp_socket
 				{
 					return false;
 				}
+				valueCount++;
 				if (!initialized)
 				{
 					initialized = true;
@@ -429,56 +430,6 @@ namespace vl::inter_process::async_tcp_socket
 				if (reading < value.Count()) reading++;
 			}
 			return false;
-		}
-
-		struct HttpFraming
-		{
-			bool							hasContentLength = false;
-			vuint64_t						contentLength = 0;
-			bool							hasTransferEncoding = false;
-			List<WString>					transferCodings;
-			bool							transferCodingParameters = false;
-			bool							connectionClose = false;
-		};
-
-		enum class HttpFramingAnalysisResult
-		{
-			Succeeded,
-			Invalid,
-			UnsupportedTransferCoding,
-		};
-
-		HttpFramingAnalysisResult AnalyzeFraming(const List<HttpField>& fields, HttpFraming& framing)
-		{
-			for (auto&& field : fields)
-			{
-				if (IsAsciiEqual(field.name, L"content-length"))
-				{
-					if (!ParseContentLength(field.value, framing.hasContentLength, framing.contentLength)) return HttpFramingAnalysisResult::Invalid;
-				}
-				else if (IsAsciiEqual(field.name, L"transfer-encoding"))
-				{
-					framing.hasTransferEncoding = true;
-					if (!ParseTransferCodings(field.value, framing.transferCodings, framing.transferCodingParameters)) return HttpFramingAnalysisResult::Invalid;
-				}
-				else if (IsAsciiEqual(field.name, L"connection"))
-				{
-					framing.connectionClose |= HasConnectionClose(field.value);
-				}
-			}
-			if (framing.hasTransferEncoding && framing.hasContentLength) return HttpFramingAnalysisResult::Invalid;
-			if (framing.hasTransferEncoding)
-			{
-				if (
-					framing.transferCodings.Count() != 1 ||
-					!IsAsciiEqual(framing.transferCodings[0], L"chunked") ||
-					framing.transferCodingParameters
-					)
-				{
-					return HttpFramingAnalysisResult::UnsupportedTransferCoding;
-				}
-			}
-			return HttpFramingAnalysisResult::Succeeded;
 		}
 
 		bool ParseHttpVersion(const vuint8_t* buffer, vint begin, vint end, HttpVersion& version)
@@ -624,6 +575,19 @@ namespace vl::inter_process::async_tcp_socket
 			return false;
 		}
 
+		bool TryGetHttpRequestLineSize(const WString& method, const WString& requestTarget, vint& size)
+		{
+			if (
+				method.Length() > HttpRequestLineSizeLimit - 10 ||
+				requestTarget.Length() > HttpRequestLineSizeLimit - 10 - method.Length()
+				)
+			{
+				return false;
+			}
+			size = 10 + method.Length() + requestTarget.Length();
+			return true;
+		}
+
 		HttpMessageParsingResult ParseHttpMessage(
 			const vuint8_t* buffer,
 			vint availableBytes,
@@ -700,22 +664,24 @@ namespace vl::inter_process::async_tcp_socket
 			}
 
 			HttpFraming framing;
-			auto framingResult = AnalyzeFraming(headers, framing);
+			auto framingResult = AnalyzeHttpFraming(headers, framing);
 			if (framingResult == HttpFramingAnalysisResult::Invalid) return HttpMessageParsingResult::BadRequest;
 			if (framingResult == HttpFramingAnalysisResult::UnsupportedTransferCoding) return HttpMessageParsingResult::NotImplemented;
 			if (requestMessage && HasHeader(headers, L"expect")) return HttpMessageParsingResult::ExpectationFailed;
+			auto hasContentLength = framing.kind == HttpFramingKind::ContentLength;
+			auto hasTransferEncoding = framing.kind == HttpFramingKind::Chunked;
 
 			auto headResponse = !requestMessage && responseToMethod == L"HEAD";
 			auto noContentResponse = !requestMessage && statusCode == 204;
 			auto notModifiedResponse = !requestMessage && statusCode == 304;
 			auto responseWithoutBody = headResponse || noContentResponse || notModifiedResponse;
-			if (noContentResponse && (framing.hasContentLength || framing.hasTransferEncoding)) return HttpMessageParsingResult::BadRequest;
-			if (notModifiedResponse && framing.hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
-			if (!requestMessage && !responseWithoutBody && !framing.hasContentLength && !framing.hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
+			if (noContentResponse && (hasContentLength || hasTransferEncoding)) return HttpMessageParsingResult::BadRequest;
+			if (notModifiedResponse && hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
+			if (!requestMessage && !responseWithoutBody && !hasContentLength && !hasTransferEncoding) return HttpMessageParsingResult::BadRequest;
 
 			HttpBody body;
 			vint bodyBytes = 0;
-			if (!responseWithoutBody && framing.hasTransferEncoding)
+			if (!responseWithoutBody && hasTransferEncoding)
 			{
 				auto result = ParseHttpRequestBodyToChunksDetailed(buffer + bodyBegin, availableBytes - bodyBegin, body, bodyBytes);
 				if (result == HttpBodyDetailedParsingResult::Incomplete) return HttpMessageParsingResult::Incomplete;
@@ -723,7 +689,7 @@ namespace vl::inter_process::async_tcp_socket
 				if (result == HttpBodyDetailedParsingResult::TrailerFieldsTooLarge) return HttpMessageParsingResult::RequestHeaderFieldsTooLarge;
 				if (result == HttpBodyDetailedParsingResult::BadRequest) return HttpMessageParsingResult::BadRequest;
 			}
-			else if (!responseWithoutBody && framing.hasContentLength)
+			else if (!responseWithoutBody && hasContentLength)
 			{
 				if (framing.contentLength > (vuint64_t)HttpBodySizeLimit) return HttpMessageParsingResult::PayloadTooLarge;
 				bodyBytes = (vint)framing.contentLength;
@@ -902,19 +868,18 @@ namespace vl::inter_process::async_tcp_socket
 			vint startLineSize = 0;
 			if (requestMessage)
 			{
-				CHECK_ERROR(request->method.Length() > 0, L"HTTP request serialization requires a method.");
-				for (vint i = 0; i < request->method.Length(); i++)
+				switch (ValidateHttpRequestLine(request->method, request->requestTarget))
 				{
-					CHECK_ERROR(request->method[i] <= 0x7F && IsTokenCharacter((vuint8_t)request->method[i]), L"HTTP request serialization received an invalid method.");
+				case HttpRequestLineValidationResult::InvalidMethod:
+					CHECK_FAIL(L"HTTP request serialization received an invalid method.");
+				case HttpRequestLineValidationResult::InvalidRequestTarget:
+					CHECK_FAIL(L"HTTP request serialization received an invalid request target.");
+				case HttpRequestLineValidationResult::TooLong:
+					CHECK_FAIL(L"HTTP start line exceeds the configured size limit.");
+				default:
+					break;
 				}
-				CHECK_ERROR(request->requestTarget.Length() > 0, L"HTTP request serialization requires a request target.");
-				for (vint i = 0; i < request->requestTarget.Length(); i++)
-				{
-					CHECK_ERROR(request->requestTarget[i] >= 0x21 && request->requestTarget[i] <= 0x7E, L"HTTP request serialization received an invalid request target.");
-				}
-				startLineSize = 10;
-				AddBoundedSize(startLineSize, request->method.Length(), HttpRequestLineSizeLimit, L"HTTP start line exceeds the configured size limit.");
-				AddBoundedSize(startLineSize, request->requestTarget.Length(), HttpRequestLineSizeLimit, L"HTTP start line exceeds the configured size limit.");
+				CHECK_ERROR(TryGetHttpRequestLineSize(request->method, request->requestTarget, startLineSize), L"HTTP start line exceeds the configured size limit.");
 			}
 			else
 			{
@@ -938,28 +903,30 @@ namespace vl::inter_process::async_tcp_socket
 			}
 
 			HttpFraming framing;
-			CHECK_ERROR(AnalyzeFraming(headers, framing) == HttpFramingAnalysisResult::Succeeded, L"HTTP serialization received invalid, ambiguous, or unsupported body framing.");
+			CHECK_ERROR(AnalyzeHttpFraming(headers, framing) == HttpFramingAnalysisResult::Succeeded, L"HTTP serialization received invalid, ambiguous, or unsupported body framing.");
 			auto bodySize = ValidateBody(body);
 			auto headResponse = !requestMessage && responseToMethod == L"HEAD";
 			auto noContentResponse = !requestMessage && response->statusCode == 204;
 			auto notModifiedResponse = !requestMessage && response->statusCode == 304;
 			auto suppressBody = headResponse || noContentResponse || notModifiedResponse;
-			auto chunked = framing.hasTransferEncoding;
+			auto hasContentLength = framing.kind == HttpFramingKind::ContentLength;
+			auto hasTransferEncoding = framing.kind == HttpFramingKind::Chunked;
+			auto chunked = hasTransferEncoding;
 			auto generateContentLength = false;
 			auto generateTransferEncoding = false;
 			if (noContentResponse)
 			{
 				CHECK_ERROR(body.chunks.Count() == 0 && body.trailers.Count() == 0, L"An HTTP 204 response cannot contain a body.");
-				CHECK_ERROR(!framing.hasContentLength && !framing.hasTransferEncoding, L"An HTTP 204 response cannot contain body framing.");
+				CHECK_ERROR(!hasContentLength && !hasTransferEncoding, L"An HTTP 204 response cannot contain body framing.");
 				chunked = false;
 			}
 			else if (notModifiedResponse)
 			{
 				CHECK_ERROR(body.chunks.Count() == 0 && body.trailers.Count() == 0, L"An HTTP 304 response cannot contain a body.");
-				CHECK_ERROR(!framing.hasTransferEncoding, L"An HTTP 304 response cannot contain Transfer-Encoding.");
+				CHECK_ERROR(!hasTransferEncoding, L"An HTTP 304 response cannot contain Transfer-Encoding.");
 				chunked = false;
 			}
-			else if (!framing.hasContentLength && !framing.hasTransferEncoding)
+			else if (!hasContentLength && !hasTransferEncoding)
 			{
 				chunked = body.chunks.Count() > 1 || body.trailers.Count() > 0;
 				generateTransferEncoding = chunked;
@@ -968,7 +935,7 @@ namespace vl::inter_process::async_tcp_socket
 			if (!noContentResponse && !notModifiedResponse && !chunked)
 			{
 				CHECK_ERROR(body.trailers.Count() == 0 && body.chunks.Count() <= 1, L"A fixed HTTP body cannot contain multiple chunks or trailers.");
-				if (framing.hasContentLength)
+				if (hasContentLength)
 				{
 					if (!headResponse || body.chunks.Count() > 0)
 					{
@@ -1078,6 +1045,337 @@ namespace vl::inter_process::async_tcp_socket
 			connectionClose = framing.connectionClose;
 			return buffer;
 		}
+	}
+
+	HttpFramingAnalysisResult AnalyzeHttpFraming(const List<HttpField>& fields, HttpFraming& framing)
+	{
+		framing = HttpFraming();
+		bool contentLengthInitialized = false;
+		bool hasTransferEncoding = false;
+		List<WString> transferCodings;
+		bool transferCodingParameters = false;
+		for (auto&& field : fields)
+		{
+			if (field.name == L"content-length")
+			{
+				framing.contentLengthFieldCount++;
+				if (field.value.Count() == 0)
+				{
+					framing.contentLengthValuesPlainDecimal = false;
+				}
+				else
+				{
+					for (auto c : field.value)
+					{
+						if (!IsDigit(c))
+						{
+							framing.contentLengthValuesPlainDecimal = false;
+							break;
+						}
+					}
+				}
+				if (!ParseContentLength(field.value, contentLengthInitialized, framing.contentLength, framing.contentLengthValueCount))
+				{
+					return HttpFramingAnalysisResult::Invalid;
+				}
+			}
+			else if (field.name == L"transfer-encoding")
+			{
+				hasTransferEncoding = true;
+				if (!ParseTransferCodings(field.value, transferCodings, transferCodingParameters))
+				{
+					return HttpFramingAnalysisResult::Invalid;
+				}
+			}
+			else if (field.name == L"connection")
+			{
+				framing.connectionClose |= HasConnectionClose(field.value);
+			}
+		}
+		if (hasTransferEncoding && contentLengthInitialized)
+		{
+			return HttpFramingAnalysisResult::Invalid;
+		}
+		if (hasTransferEncoding)
+		{
+			if (
+				transferCodings.Count() != 1 ||
+				transferCodings[0] != L"chunked" ||
+				transferCodingParameters
+				)
+			{
+				return HttpFramingAnalysisResult::UnsupportedTransferCoding;
+			}
+			framing.kind = HttpFramingKind::Chunked;
+		}
+		else if (contentLengthInitialized)
+		{
+			framing.kind = HttpFramingKind::ContentLength;
+		}
+		return HttpFramingAnalysisResult::Succeeded;
+	}
+
+	const HttpField* FindHttpField(const List<HttpField>& fields, const WString& normalizedName)
+	{
+		for (auto&& field : fields)
+		{
+			if (field.name == normalizedName)
+			{
+				return &field;
+			}
+		}
+		return nullptr;
+	}
+
+	vint CountHttpFields(const List<HttpField>& fields, const WString& normalizedName)
+	{
+		vint count = 0;
+		for (auto&& field : fields)
+		{
+			if (field.name == normalizedName)
+			{
+				count++;
+			}
+		}
+		return count;
+	}
+
+	HttpField CreateAsciiHttpField(const WString& name, const WString& value)
+	{
+		CHECK_ERROR(name.Length() > 0, L"An HTTP field name cannot be empty.");
+		HttpField field;
+		Array<wchar_t> normalizedName(name.Length());
+		for (vint i = 0; i < name.Length(); i++)
+		{
+			auto c = name[i];
+			CHECK_ERROR(c <= 0x7F && IsTokenCharacter((vuint8_t)c), L"An HTTP field name must contain only ASCII token characters.");
+			if (L'A' <= c && c <= L'Z') c += L'a' - L'A';
+			normalizedName[i] = c;
+		}
+		field.name = WString::CopyFrom(&normalizedName[0], normalizedName.Count());
+		field.value.Resize(value.Length());
+		for (vint i = 0; i < value.Length(); i++)
+		{
+			auto c = value[i];
+			CHECK_ERROR(c <= 0x7F && IsFieldValueCharacter((vuint8_t)c), L"An HTTP field value must contain only valid ASCII field characters.");
+			field.value[i] = (vuint8_t)c;
+		}
+		return field;
+	}
+
+	bool DecodeAsciiHttpFieldValue(const Array<vuint8_t>& value, WString& text)
+	{
+		for (auto c : value)
+		{
+			if (c > 0x7F) return false;
+		}
+		if (value.Count() == 0)
+		{
+			text = WString::Empty;
+			return true;
+		}
+		Array<wchar_t> characters(value.Count());
+		for (vint i = 0; i < value.Count(); i++)
+		{
+			characters[i] = (wchar_t)value[i];
+		}
+		text = WString::CopyFrom(&characters[0], characters.Count());
+		return true;
+	}
+
+	bool HttpFieldValueEqualsAscii(const Array<vuint8_t>& value, const WString& expected)
+	{
+		if (value.Count() != expected.Length()) return false;
+		for (vint i = 0; i < value.Count(); i++)
+		{
+			if (expected[i] > 0x7F || value[i] != (vuint8_t)expected[i]) return false;
+		}
+		return true;
+	}
+
+	bool TryGetHttpBodySize(const HttpBody& body, vint& size)
+	{
+		vint total = 0;
+		for (auto&& chunk : body.chunks)
+		{
+			if (chunk.data.Count() > HttpBodySizeLimit - total) return false;
+			total += chunk.data.Count();
+		}
+		size = total;
+		return true;
+	}
+
+	bool FlattenHttpBody(const HttpBody& body, Array<vuint8_t>& bytes)
+	{
+		vint size = 0;
+		if (!TryGetHttpBodySize(body, size)) return false;
+		Array<vuint8_t> flattened(size);
+		vint offset = 0;
+		for (auto&& chunk : body.chunks)
+		{
+			if (chunk.data.Count() > 0)
+			{
+				std::memcpy(&flattened[offset], &chunk.data[0], (size_t)chunk.data.Count());
+				offset += chunk.data.Count();
+			}
+		}
+		bytes = std::move(flattened);
+		return true;
+	}
+
+	void SetHttpBodyBytes(HttpBody& body, Array<vuint8_t>&& bytes)
+	{
+		CHECK_ERROR(bytes.Count() <= HttpBodySizeLimit, L"HTTP body exceeds the configured size limit.");
+		Array<vuint8_t> replacement = std::move(bytes);
+		body.chunks.Clear();
+		body.trailers.Clear();
+		if (replacement.Count() > 0)
+		{
+			HttpBodyChunk chunk;
+			chunk.data = std::move(replacement);
+			body.chunks.Add(std::move(chunk));
+		}
+	}
+
+	bool EncodeStrictUtf8(const WString& text, Array<vuint8_t>& bytes)
+	{
+		List<vuint8_t> encoded;
+		for (vint i = 0; i < text.Length(); i++)
+		{
+			auto code = (vuint32_t)text[i];
+			if constexpr (sizeof(wchar_t) == 2)
+			{
+				if (0xD800 <= code && code <= 0xDBFF)
+				{
+					if (++i == text.Length()) return false;
+					auto low = (vuint32_t)text[i];
+					if (low < 0xDC00 || low > 0xDFFF) return false;
+					code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+				}
+				else if (0xDC00 <= code && code <= 0xDFFF)
+				{
+					return false;
+				}
+			}
+			else if (code > 0x10FFFF || (0xD800 <= code && code <= 0xDFFF))
+			{
+				return false;
+			}
+
+			vint adding = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+			if (encoded.Count() > (std::numeric_limits<vint>::max)() - adding) return false;
+			if (adding == 1)
+			{
+				encoded.Add((vuint8_t)code);
+			}
+			else
+			{
+				static const vuint8_t prefixes[] = { 0, 0xC0, 0xE0, 0xF0 };
+				vuint8_t output[4];
+				for (vint j = adding - 1; j > 0; j--)
+				{
+					output[j] = 0x80 | (code & 0x3F);
+					code >>= 6;
+				}
+				output[0] = prefixes[adding - 1] | (vuint8_t)code;
+				for (vint j = 0; j < adding; j++) encoded.Add(output[j]);
+			}
+		}
+		Array<vuint8_t> result(encoded.Count());
+		for (vint i = 0; i < encoded.Count(); i++) result[i] = encoded[i];
+		bytes = std::move(result);
+		return true;
+	}
+
+	bool DecodeStrictUtf8(const vuint8_t* bytes, vint count, WString& text)
+	{
+		if (count < 0 || (!bytes && count > 0)) return false;
+		List<wchar_t> characters;
+		for (vint i = 0; i < count;)
+		{
+			auto first = bytes[i++];
+			vuint32_t code = 0;
+			vint following = 0;
+			if (first < 0x80)
+			{
+				code = first;
+			}
+			else if (0xC2 <= first && first <= 0xDF)
+			{
+				code = first & 0x1F;
+				following = 1;
+			}
+			else if (0xE0 <= first && first <= 0xEF)
+			{
+				code = first & 0x0F;
+				following = 2;
+			}
+			else if (0xF0 <= first && first <= 0xF4)
+			{
+				code = first & 0x07;
+				following = 3;
+			}
+			else
+			{
+				return false;
+			}
+			if (following > count - i) return false;
+			for (vint j = 0; j < following; j++)
+			{
+				auto next = bytes[i++];
+				if ((next & 0xC0) != 0x80) return false;
+				code = (code << 6) | (next & 0x3F);
+			}
+			if (
+				(following == 1 && code < 0x80) ||
+				(following == 2 && code < 0x800) ||
+				(following == 3 && code < 0x10000) ||
+				code > 0x10FFFF ||
+				(0xD800 <= code && code <= 0xDFFF)
+				)
+			{
+				return false;
+			}
+			if constexpr (sizeof(wchar_t) == 2)
+			{
+				if (code <= 0xFFFF)
+				{
+					characters.Add((wchar_t)code);
+				}
+				else
+				{
+					if (characters.Count() > (std::numeric_limits<vint>::max)() - 2) return false;
+					code -= 0x10000;
+					characters.Add((wchar_t)(0xD800 + (code >> 10)));
+					characters.Add((wchar_t)(0xDC00 + (code & 0x3FF)));
+				}
+			}
+			else
+			{
+				characters.Add((wchar_t)code);
+			}
+		}
+		text = characters.Count() == 0 ? WString::Empty : WString::CopyFrom(&characters[0], characters.Count());
+		return true;
+	}
+
+	HttpRequestLineValidationResult ValidateHttpRequestLine(const WString& method, const WString& requestTarget)
+	{
+		if (method.Length() == 0) return HttpRequestLineValidationResult::InvalidMethod;
+		for (vint i = 0; i < method.Length(); i++)
+		{
+			auto c = method[i];
+			if (c > 0x7F || !IsTokenCharacter((vuint8_t)c)) return HttpRequestLineValidationResult::InvalidMethod;
+		}
+		if (requestTarget.Length() == 0) return HttpRequestLineValidationResult::InvalidRequestTarget;
+		for (vint i = 0; i < requestTarget.Length(); i++)
+		{
+			auto c = requestTarget[i];
+			if (c < 0x21 || c > 0x7E) return HttpRequestLineValidationResult::InvalidRequestTarget;
+		}
+		vint requestLineSize = 0;
+		if (!TryGetHttpRequestLineSize(method, requestTarget, requestLineSize)) return HttpRequestLineValidationResult::TooLong;
+		return HttpRequestLineValidationResult::Succeeded;
 	}
 
 /***********************************************************************

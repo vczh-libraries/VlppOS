@@ -15,6 +15,11 @@ Interfaces:
 namespace vl::inter_process::async_tcp_socket
 {
 	constexpr vint HttpIncompleteMessageTimeout = 30 * 1000;
+	constexpr vint HttpRequestLineSizeLimit = 8 * 1024;
+	constexpr vint HttpHeaderBlockSizeLimit = 64 * 1024;
+	constexpr vint HttpBodySizeLimit = 16 * 1024 * 1024;
+	constexpr vint HttpChunkSizeLineLimit = 4 * 1024;
+	constexpr vint HttpTrailerBlockSizeLimit = 64 * 1024;
 
 	struct HttpVersion
 	{
@@ -28,6 +33,30 @@ namespace vl::inter_process::async_tcp_socket
 		collections::Array<vuint8_t>		value;
 	};
 
+	enum class HttpFramingKind
+	{
+		None,
+		ContentLength,
+		Chunked,
+	};
+
+	enum class HttpFramingAnalysisResult
+	{
+		Succeeded,
+		Invalid,
+		UnsupportedTransferCoding,
+	};
+
+	struct HttpFraming
+	{
+		HttpFramingKind					kind = HttpFramingKind::None;
+		vuint64_t						contentLength = 0;
+		vint							contentLengthFieldCount = 0;
+		vint							contentLengthValueCount = 0;
+		bool							contentLengthValuesPlainDecimal = true;
+		bool							connectionClose = false;
+	};
+
 	struct HttpBodyChunk
 	{
 		collections::Array<vuint8_t>		data;
@@ -38,6 +67,28 @@ namespace vl::inter_process::async_tcp_socket
 		collections::List<HttpBodyChunk>	chunks;
 		collections::List<HttpField>		trailers;
 	};
+
+	extern HttpFramingAnalysisResult	AnalyzeHttpFraming(const collections::List<HttpField>& fields, HttpFraming& framing);
+	extern const HttpField*				FindHttpField(const collections::List<HttpField>& fields, const WString& normalizedName);
+	extern vint							CountHttpFields(const collections::List<HttpField>& fields, const WString& normalizedName);
+	extern HttpField						CreateAsciiHttpField(const WString& name, const WString& value);
+	extern bool							DecodeAsciiHttpFieldValue(const collections::Array<vuint8_t>& value, WString& text);
+	extern bool							HttpFieldValueEqualsAscii(const collections::Array<vuint8_t>& value, const WString& expected);
+	extern bool							TryGetHttpBodySize(const HttpBody& body, vint& size);
+	extern bool							FlattenHttpBody(const HttpBody& body, collections::Array<vuint8_t>& bytes);
+	extern void							SetHttpBodyBytes(HttpBody& body, collections::Array<vuint8_t>&& bytes);
+	extern bool							EncodeStrictUtf8(const WString& text, collections::Array<vuint8_t>& bytes);
+	extern bool							DecodeStrictUtf8(const vuint8_t* bytes, vint count, WString& text);
+
+	enum class HttpRequestLineValidationResult
+	{
+		Succeeded,
+		InvalidMethod,
+		InvalidRequestTarget,
+		TooLong,
+	};
+
+	extern HttpRequestLineValidationResult	ValidateHttpRequestLine(const WString& method, const WString& requestTarget);
 
 	class HttpRequest : public Object
 	{
