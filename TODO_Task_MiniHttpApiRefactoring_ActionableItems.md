@@ -442,11 +442,13 @@ Phase 5 verification (2026-07-18): Debug/x64 full solution build succeeded with 
 
 Perform this only after Phases 0-5 pass without behavioral changes.
 
-- [ ] Change the client `SendItem` to store the already validated UTF-8 bytes instead of only the original `WString`; reuse the same bytes for every retry.
-- [ ] Change queued server outbound work to store validated bytes when no later operation requires the original `WString`.
-- [ ] Retain the validated arrays already produced before queue/state mutation instead of discarding and regenerating them.
-- [ ] Use `RespondBytes` and the common send-request constructor to avoid re-encoding.
-- [ ] Add tests proving retry sends identical bytes and invalid Unicode fails before queue/state mutation.
+- [x] Change the client `SendItem` to store the already validated UTF-8 bytes instead of only the original `WString`; reuse the same bytes for every retry.
+- [x] Change queued server outbound work to store validated bytes when no later operation requires the original `WString`.
+- [x] Retain the validated arrays already produced before queue/state mutation instead of discarding and regenerating them.
+- [x] Use `RespondBytes` and the common send-request constructor to avoid re-encoding.
+- [x] Add tests proving retry sends identical bytes and invalid Unicode fails before queue/state mutation.
+
+Phase 6 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 215 test cases passed with no memory-leak report. Regenerated `Release` outputs and compile-checked both packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Verification and completion gates
 

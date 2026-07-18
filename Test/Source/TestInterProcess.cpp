@@ -1722,6 +1722,7 @@ namespace mynamespace
 		bool							failed = false;
 		vint							statusCode = 0;
 		WString							body;
+		Array<char>						bodyBytes;
 
 	public:
 		EventObject						eventCompleted;
@@ -1741,6 +1742,7 @@ namespace mynamespace
 					failed = false;
 					statusCode = response->statusCode;
 					body = response->GetBodyUtf8();
+					bodyBytes = std::move(response->body);
 				}
 				else
 				{
@@ -1776,6 +1778,20 @@ namespace mynamespace
 				return body;
 			}
 			return {};
+		}
+
+		bool BodyBytesEqual(const Array<vuint8_t>& expected)
+		{
+			SPIN_LOCK(lock)
+			{
+				if (bodyBytes.Count() != expected.Count()) return false;
+				for (vint i = 0; i < bodyBytes.Count(); i++)
+				{
+					if ((vuint8_t)(unsigned char)bodyBytes[i] != expected[i]) return false;
+				}
+				return true;
+			}
+			return false;
 		}
 	};
 
@@ -1943,10 +1959,26 @@ namespace mynamespace
 	class RetryScriptServer : public async_tcp_socket::SocketHttpServerApi
 	{
 	private:
+		static WString EncodeBodyFingerprint(const async_tcp_socket::HttpBody& body)
+		{
+			Array<vuint8_t> bytes;
+			CHECK_ERROR(async_tcp_socket::FlattenHttpBody(body, bytes), L"RetryScriptServer could not flatten a request body.");
+			if (bytes.Count() == 0) return WString::Empty;
+			const wchar_t* hex = L"0123456789ABCDEF";
+			Array<wchar_t> fingerprint(bytes.Count() * 2);
+			for (vint i = 0; i < bytes.Count(); i++)
+			{
+				fingerprint[i * 2] = hex[bytes[i] >> 4];
+				fingerprint[i * 2 + 1] = hex[bytes[i] & 0x0F];
+			}
+			return WString::CopyFrom(&fingerprint[0], fingerprint.Count());
+		}
+
 		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/stable-token";
 		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/stable-token";
 		SpinLock						lockRecords;
 		List<WString>					bodies;
+		List<WString>					bodyFingerprints;
 		List<WString>					targets;
 
 	protected:
@@ -1965,11 +1997,14 @@ namespace mynamespace
 				return;
 			}
 
-			auto body = ReadSocketHttpBody(context->GetRequest()->body);
+			auto request = context->GetRequest();
+			auto body = ReadSocketHttpBody(request->body);
+			auto bodyFingerprint = EncodeBodyFingerprint(request->body);
 			vint index = 0;
 			SPIN_LOCK(lockRecords)
 			{
 				bodies.Add(body);
+				bodyFingerprints.Add(bodyFingerprint);
 				targets.Add(path);
 				index = bodies.Count();
 			}
@@ -2035,6 +2070,15 @@ namespace mynamespace
 				return bodies[index];
 			}
 			return {};
+		}
+
+		bool SameBodyBytes(vint first, vint second)
+		{
+			SPIN_LOCK(lockRecords)
+			{
+				return bodyFingerprints[first] == bodyFingerprints[second];
+			}
+			return false;
 		}
 
 		bool AllTargetsStable()
@@ -2985,12 +3029,14 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(server->Body(0) == L"first");
 		TEST_ASSERT(server->Body(1) == L"first");
 		TEST_ASSERT(server->Body(2) == L"second");
+		TEST_ASSERT(server->SameBodyBytes(0, 1));
 
-		client->GetConnection()->SendString(L"replace");
+		client->GetConnection()->SendString(L"replace-\x4F60");
 		TEST_ASSERT(server->eventReplaced.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(server->RecordCount() == 5);
-		TEST_ASSERT(server->Body(3) == L"replace");
-		TEST_ASSERT(server->Body(4) == L"replace");
+		TEST_ASSERT(server->Body(3) == L"replace-\x4F60");
+		TEST_ASSERT(server->Body(4) == L"replace-\x4F60");
+		TEST_ASSERT(server->SameBodyBytes(3, 4));
 		TEST_ASSERT(server->AllTargetsStable());
 		TEST_ASSERT(server->connectCount == 1);
 		TEST_ASSERT(factoryCalls >= 3);
@@ -3036,6 +3082,8 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(server->Body(5) == L"fatal");
 		TEST_ASSERT(server->Body(6) == L"fatal");
 		TEST_ASSERT(server->Body(7) == L"fatal");
+		TEST_ASSERT(server->SameBodyBytes(5, 6));
+		TEST_ASSERT(server->SameBodyBytes(6, 7));
 		TEST_ASSERT(server->AllTargetsStable());
 		TEST_ASSERT(server->connectCount == 1);
 		TEST_ASSERT(callback.localErrors >= 5);
@@ -3113,6 +3161,7 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ERROR(client->GetConnection()->SendString(embeddedNul));
 		TEST_ERROR(client->GetConnection()->SendString(invalidUnicode));
 		TEST_ERROR(client->GetConnection()->SendString(oversized));
+		TEST_ASSERT(serverCallback.readCount == 0);
 		client->GetConnection()->SendString(exact);
 		TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(serverCallback.exact);
@@ -3124,6 +3173,7 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ERROR(serverConnection->SendString(embeddedNul));
 		TEST_ERROR(serverConnection->SendString(invalidUnicode));
 		TEST_ERROR(serverConnection->SendString(oversized));
+		TEST_ASSERT(clientCallback.readCount == 0);
 		serverConnection->SendString(exact);
 		TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(clientCallback.exact);
@@ -3160,7 +3210,10 @@ void RunSocketHttpFocusedTestCases()
 		auto requestPath = connectBody.Left(separator);
 		connectClient->Stop();
 
-		serverCallback.Connection()->SendString(L"requeue-message");
+		const WString requeueMessage = L"requeue-\x4F60";
+		Array<vuint8_t> requeueMessageBytes;
+		TEST_ASSERT(async_tcp_socket::EncodeStrictUtf8(requeueMessage, requeueMessageBytes));
+		serverCallback.Connection()->SendString(requeueMessage);
 		auto firstPoll = CreateFocusedSocketHttpApi<TNativeClient>(port);
 		firstPoll->WaitForServer();
 		auto firstPollState = Ptr(new SocketHttpQueryState);
@@ -3181,7 +3234,8 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(hookState->eventSecondCompletion.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(!replacementState->Failed());
 		TEST_ASSERT(replacementState->StatusCode() == 200);
-		TEST_ASSERT(replacementState->Body() == L"requeue-message");
+		TEST_ASSERT(replacementState->Body() == requeueMessage);
+		TEST_ASSERT(replacementState->BodyBytesEqual(requeueMessageBytes));
 		TEST_ASSERT(hookState->claimReleased);
 		TEST_ASSERT(hookState->Validate());
 		replacementPoll->Stop();

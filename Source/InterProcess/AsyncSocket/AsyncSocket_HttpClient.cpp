@@ -183,7 +183,7 @@ SocketHttpClient::Impl
 		class SendItem : public Object
 		{
 		public:
-			WString						body;
+			Array<char>					body;
 			vint						attempt = 1;
 		};
 
@@ -880,9 +880,7 @@ SocketHttpClient::Impl
 			}
 			if (!submit) return;
 
-			windows_http::HttpRequest encodedBody;
-			encodedBody.SetBodyUtf8(item->body);
-			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, encodedBody.body);
+			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, item->body);
 
 			auto self = RetainSelf();
 			try
@@ -1430,7 +1428,11 @@ SocketHttpClient::Impl
 			CHECK_ERROR(validated.Count() <= HttpBodySizeLimit, L"SocketHttpClient::SendString exceeds the HTTP body size limit.");
 
 			auto item = Ptr(new SendItem);
-			item->body = str;
+			item->body.Resize(validated.Count());
+			for (vint i = 0; i < validated.Count(); i++)
+			{
+				item->body[i] = (char)validated[i];
+			}
 			Ptr<SocketHttpClientApi> api;
 			bool submit = false;
 			CS_LOCK(lockState)

@@ -5944,7 +5944,7 @@ SocketHttpClient::Impl
 		class SendItem : public Object
 		{
 		public:
-			WString						body;
+			Array<char>					body;
 			vint						attempt = 1;
 		};
 
@@ -6641,9 +6641,7 @@ SocketHttpClient::Impl
 			}
 			if (!submit) return;
 
-			windows_http::HttpRequest encodedBody;
-			encodedBody.SetBodyUtf8(item->body);
-			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, encodedBody.body);
+			auto request = CreateHttpNetworkProtocolSendRequest(urlResponse, item->body);
 
 			auto self = RetainSelf();
 			try
@@ -7191,7 +7189,11 @@ SocketHttpClient::Impl
 			CHECK_ERROR(validated.Count() <= HttpBodySizeLimit, L"SocketHttpClient::SendString exceeds the HTTP body size limit.");
 
 			auto item = Ptr(new SendItem);
-			item->body = str;
+			item->body.Resize(validated.Count());
+			for (vint i = 0; i < validated.Count(); i++)
+			{
+				item->body[i] = (char)validated[i];
+			}
 			Ptr<SocketHttpClientApi> api;
 			bool submit = false;
 			CS_LOCK(lockState)
@@ -12275,6 +12277,11 @@ namespace vl::inter_process::async_tcp_socket
 
 		class SocketHttpServerConnection;
 		class SocketHttpServerLifecycle;
+		class SocketHttpServerOutboundMessage : public Object
+		{
+		public:
+			Array<vuint8_t>					body;
+		};
 
 		class SocketHttpServerConnectionLifecycle : public Object
 		{
@@ -12286,12 +12293,14 @@ namespace vl::inter_process::async_tcp_socket
 			WString								token;
 			INetworkProtocolCallback*			callback = nullptr;
 			List<WString>						queuedInbound;
-			List<WString>						queuedOutbound;
+			List<Ptr<SocketHttpServerOutboundMessage>>
+										queuedOutbound;
 			List<Ptr<SocketHttpRequestContext>>
 										queuedPollRegistrations;
 			Ptr<SocketHttpRequestContext>		pendingPoll;
 			Ptr<SocketHttpRequestContext>		inFlightPoll;
-			WString								inFlightMessage;
+			Ptr<SocketHttpServerOutboundMessage>
+										inFlightMessage;
 			vint								activeCallbacks = 0;
 			bool								callbackInstalling = false;
 			bool								pollRegistrationProcessing = false;
@@ -12321,7 +12330,8 @@ namespace vl::inter_process::async_tcp_socket
 			{
 				Ptr<SocketHttpServerConnectionLifecycle>	state;
 				InboundFrame*					previous = nullptr;
-				List<WString>					generated;
+				List<Ptr<SocketHttpServerOutboundMessage>>
+										generated;
 
 				InboundFrame(Ptr<SocketHttpServerConnectionLifecycle> _state);
 				~InboundFrame();
@@ -12330,7 +12340,8 @@ namespace vl::inter_process::async_tcp_socket
 			struct PollWork
 			{
 				Ptr<SocketHttpRequestContext>		context;
-				WString							message;
+				Ptr<SocketHttpServerOutboundMessage>
+										message;
 
 				operator bool() const { return context != nullptr; }
 			};
@@ -12357,7 +12368,7 @@ namespace vl::inter_process::async_tcp_socket
 			WString GetToken();
 			WaitForClientResult InvokeClientConnected(SocketHttpServer* server);
 			bool RegisterPoll(Ptr<SocketHttpRequestContext> context);
-			bool DispatchInbound(const WString& message, WString& response);
+			bool DispatchInbound(const WString& message, Ptr<SocketHttpServerOutboundMessage>& response);
 			void StopFromServer();
 			void WaitForPollCompletion();
 
@@ -12674,11 +12685,11 @@ namespace vl::inter_process::async_tcp_socket
 			bool submitted = false;
 			try
 			{
-				submitted = work.context->RespondUtf8(
+				submitted = work.context->RespondBytes(
 					200,
 					L"OK",
 					HttpNetworkProtocolContentType,
-					work.message,
+					work.message->body,
 					Func<void(bool)>([state, context = work.context](bool succeeded)
 					{
 						FinishPollResponse(state, context, succeeded);
@@ -12704,7 +12715,7 @@ namespace vl::inter_process::async_tcp_socket
 						state->queuedOutbound.Insert(0, state->inFlightMessage);
 					}
 					state->inFlightPoll = nullptr;
-					state->inFlightMessage = WString::Empty;
+					state->inFlightMessage = nullptr;
 					ClaimPollUnsafe(state, next);
 					state->cvState.WakeAllPendings();
 					completed = true;
@@ -12849,7 +12860,7 @@ namespace vl::inter_process::async_tcp_socket
 			return true;
 		}
 
-		bool SocketHttpServerConnection::DispatchInbound(const WString& message, WString& response)
+		bool SocketHttpServerConnection::DispatchInbound(const WString& message, Ptr<SocketHttpServerOutboundMessage>& response)
 		{
 			auto state = lifecycle;
 			INetworkProtocolCallback* installed = nullptr;
@@ -12880,7 +12891,7 @@ namespace vl::inter_process::async_tcp_socket
 				return true;
 			}
 
-			List<WString> generated;
+			List<Ptr<SocketHttpServerOutboundMessage>> generated;
 			{
 				CallbackFrame callbackFrame(state);
 				InboundFrame inboundFrame(state);
@@ -13136,6 +13147,8 @@ namespace vl::inter_process::async_tcp_socket
 			CHECK_ERROR(EncodeStrictUtf8(str, validated), ERROR_MESSAGE_PREFIX L"A logical HTTP message must contain valid Unicode without NUL.");
 			CHECK_ERROR(validated.Count() <= HttpBodySizeLimit, ERROR_MESSAGE_PREFIX L"The UTF-8 message exceeds HttpBodySizeLimit.");
 #undef ERROR_MESSAGE_PREFIX
+			auto message = Ptr(new SocketHttpServerOutboundMessage);
+			message->body = std::move(validated);
 			auto state = lifecycle;
 			PollWork work;
 			CS_LOCK(state->lockState)
@@ -13143,10 +13156,10 @@ namespace vl::inter_process::async_tcp_socket
 				CHECK_ERROR(!state->stopStarted, L"SocketHttpServerConnection::SendString cannot send on a stopped connection.");
 				if (currentInboundFrame && currentInboundFrame->state == state)
 				{
-					currentInboundFrame->generated.Add(str);
+					currentInboundFrame->generated.Add(message);
 					return;
 				}
-				state->queuedOutbound.Add(str);
+				state->queuedOutbound.Add(message);
 				ClaimPollUnsafe(state, work);
 			}
 			StartPollResponse(state, work);
@@ -13315,10 +13328,11 @@ namespace vl::inter_process::async_tcp_socket
 			if (request->method == L"POST" && ExtractToken(path, HttpServerUrl_Response, token) && DecodeSubmittedMessage(context, request, message))
 			{
 				auto connection = lifecycle->FindConnection(token);
-				WString response;
+				Ptr<SocketHttpServerOutboundMessage> response;
 				if (connection && connection->DispatchInbound(message, response))
 				{
-					context->RespondUtf8(200, L"OK", HttpNetworkProtocolContentType, response);
+					Array<vuint8_t> empty;
+					context->RespondBytes(200, L"OK", HttpNetworkProtocolContentType, response ? response->body : empty);
 					return;
 				}
 			}
