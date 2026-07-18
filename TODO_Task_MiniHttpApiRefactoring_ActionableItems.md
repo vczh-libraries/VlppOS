@@ -415,26 +415,28 @@ Refactor `Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.cpp` without ch
 
 ## Replace validation/construction
 
-- [ ] Build Connect, receive-poll, and send exchanges through the common request constructors.
-- [ ] Use `windows_http::HttpResponse::TryGetBodyUtf8` and apply only status, exact selected content type, NUL, and operation-specific message policy in layer 4. `/Connect` and delivered logical messages must be nonempty; an empty poll/send response still means no message.
-- [ ] Use the common strict Connect-pair parser, `ValidateHttpNetworkProtocolBaseUrl` for constructor input, and `ValidateHttpNetworkProtocolEndpointPath` for both returned paths.
-- [ ] In the constructor, validate GET `{baseUrl}/VlppInterProcess/Connect` with layer-2 `ValidateHttpRequestLine`; after Connect, validate both actual POST targets formed from `{baseUrl}` plus the returned paths.
-- [ ] In `SocketHttpClient::SendString`, call `EncodeStrictUtf8`, require nonempty/no-NUL text, and enforce encoded bytes `<= HttpBodySizeLimit` before queue/state mutation. The encoded array may be discarded until Phase 6.
-- [ ] Keep ordinary legal response framing accepted; do not inspect or require raw response `Content-Length`.
-- [ ] Reduce `DecodeSuccessfulResponse` to a small protocol-result check.
+- [x] Build Connect, receive-poll, and send exchanges through the common request constructors.
+- [x] Use `windows_http::HttpResponse::TryGetBodyUtf8` and apply only status, exact selected content type, NUL, and operation-specific message policy in layer 4. `/Connect` and delivered logical messages must be nonempty; an empty poll/send response still means no message.
+- [x] Use the common strict Connect-pair parser, `ValidateHttpNetworkProtocolBaseUrl` for constructor input, and `ValidateHttpNetworkProtocolEndpointPath` for both returned paths.
+- [x] In the constructor, validate GET `{baseUrl}/VlppInterProcess/Connect` with layer-2 `ValidateHttpRequestLine`; after Connect, validate both actual POST targets formed from `{baseUrl}` plus the returned paths.
+- [x] In `SocketHttpClient::SendString`, call `EncodeStrictUtf8`, require nonempty/no-NUL text, and enforce encoded bytes `<= HttpBodySizeLimit` before queue/state mutation. The encoded array may be discarded until Phase 6.
+- [x] Keep ordinary legal response framing accepted; do not inspect or require raw response `Content-Length`.
+- [x] Reduce `DecodeSuccessfulResponse` to a small protocol-result check.
 
 ## Delete obsolete helpers
 
-- [ ] Remove local `HexValue`, legal-path character logic, `ValidateOriginPath`, and `ValidateRequestTarget`.
-- [ ] Remove local `ValidateUtf8`, `ValidateWString`, `GetUtf8Size`, and `DecodeUtf8` after migration.
-- [ ] Remove the local media-type constant and Connect-pair parser.
-- [ ] Remove repeated Connect/poll/send request-shape construction.
+- [x] Remove local `HexValue`, legal-path character logic, `ValidateOriginPath`, and `ValidateRequestTarget`.
+- [x] Remove local `ValidateUtf8`, `ValidateWString`, `GetUtf8Size`, and `DecodeUtf8` after migration.
+- [x] Remove the local media-type constant and Connect-pair parser.
+- [x] Remove repeated Connect/poll/send request-shape construction.
 
 ## Keep local
 
-- [ ] Keep operation-specific error messages and retry ownership.
-- [ ] Keep the receive and send lanes, FIFO/head retry, replacement workers, receive-before-deliver ordering, callback draining, and shutdown behavior unchanged.
-- [ ] Keep the rule that an empty successful body does not call `OnReadString`.
+- [x] Keep operation-specific error messages and retry ownership.
+- [x] Keep the receive and send lanes, FIFO/head retry, replacement workers, receive-before-deliver ordering, callback draining, and shutdown behavior unchanged.
+- [x] Keep the rule that an empty successful body does not call `OnReadString`.
+
+Phase 5 verification (2026-07-18): Debug/x64 full solution build succeeded with 0 warnings and 0 errors; all 15 test files and 215 test cases passed with no memory-leak report. Regenerated `Release` outputs and compile-checked both packed and include-only common/Windows amalgamations. MiniHttpServer browser verification passed for both pages, deterministic interaction, module/fetch/CSS/SVG state, exact `/Assets` routing, both required zero-byte 404 responses, a clean warning/error console, clean newline shutdown, released ports 8888/8889, and unreachable endpoints after exit.
 
 # Phase 6: Eliminate repeated message encoding
 

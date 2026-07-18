@@ -18,7 +18,6 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 #endif
 
 #include <chrono>
-#include <cstring>
 
 namespace vl::inter_process::async_tcp_socket
 {
@@ -28,173 +27,6 @@ namespace vl::inter_process::async_tcp_socket
 	{
 		constexpr vint				HttpRequestMaxAttempts = 3;
 		constexpr vint				SendDrainTimeout = 1000;
-
-		vint HexValue(wchar_t c)
-		{
-			if (L'0' <= c && c <= L'9') return c - L'0';
-			if (L'a' <= c && c <= L'f') return c - L'a' + 10;
-			if (L'A' <= c && c <= L'F') return c - L'A' + 10;
-			return -1;
-		}
-
-		bool IsLegalOriginPathCharacter(wchar_t c)
-		{
-			if (L'a' <= c && c <= L'z') return true;
-			if (L'A' <= c && c <= L'Z') return true;
-			if (L'0' <= c && c <= L'9') return true;
-			switch (c)
-			{
-			case L'-': case L'.': case L'_': case L'~':
-			case L'!': case L'$': case L'&': case L'\'':
-			case L'(': case L')': case L'*': case L'+':
-			case L',': case L';': case L'=': case L':':
-			case L'@': case L'/':
-				return true;
-			default:
-				return false;
-			}
-		}
-
-		bool ValidateUtf8(const char* buffer, vint size)
-		{
-			for (vint i = 0; i < size;)
-			{
-				auto c = (vuint8_t)buffer[i];
-				if (c == 0) return false;
-				if (c <= 0x7F)
-				{
-					i++;
-					continue;
-				}
-
-				vint count = 0;
-				vuint32_t code = 0;
-				vuint32_t minimum = 0;
-				if (0xC2 <= c && c <= 0xDF)
-				{
-					count = 2;
-					code = c & 0x1F;
-					minimum = 0x80;
-				}
-				else if (0xE0 <= c && c <= 0xEF)
-				{
-					count = 3;
-					code = c & 0x0F;
-					minimum = 0x800;
-				}
-				else if (0xF0 <= c && c <= 0xF4)
-				{
-					count = 4;
-					code = c & 0x07;
-					minimum = 0x10000;
-				}
-				else
-				{
-					return false;
-				}
-
-				if (i > size - count) return false;
-				for (vint j = 1; j < count; j++)
-				{
-					auto continuation = (vuint8_t)buffer[i + j];
-					if ((continuation & 0xC0) != 0x80) return false;
-					code = (code << 6) | (continuation & 0x3F);
-				}
-				if (code < minimum || code > 0x10FFFF || (0xD800 <= code && code <= 0xDFFF)) return false;
-				i += count;
-			}
-			return true;
-		}
-
-		bool ValidateWString(const WString& text)
-		{
-			for (vint i = 0; i < text.Length(); i++)
-			{
-				auto code = (vuint32_t)text[i];
-				if (code == 0) return false;
-				if constexpr (sizeof(wchar_t) == 2)
-				{
-					if (0xD800 <= code && code <= 0xDBFF)
-					{
-						if (i + 1 >= text.Length()) return false;
-						auto low = (vuint32_t)text[++i];
-						if (low < 0xDC00 || low > 0xDFFF) return false;
-					}
-					else if (0xDC00 <= code && code <= 0xDFFF)
-					{
-						return false;
-					}
-				}
-				else
-				{
-					if (code > 0x10FFFF || (0xD800 <= code && code <= 0xDFFF)) return false;
-				}
-			}
-			return true;
-		}
-
-		bool GetUtf8Size(const WString& text, vint& size)
-		{
-			if (!ValidateWString(text)) return false;
-			auto utf8 = wtou8(text);
-			size = utf8.Length();
-			return true;
-		}
-
-		bool DecodeUtf8(const Array<char>& bytes, WString& text)
-		{
-			if (bytes.Count() == 0)
-			{
-				text = WString::Empty;
-				return true;
-			}
-			if (!ValidateUtf8(&bytes[0], bytes.Count())) return false;
-
-			Array<char8_t> utf8(bytes.Count());
-			for (vint i = 0; i < bytes.Count(); i++)
-			{
-				utf8[i] = (char8_t)bytes[i];
-			}
-			text = u8tow(U8String::CopyFrom(&utf8[0], utf8.Count()));
-			return ValidateWString(text);
-		}
-
-		bool ValidateOriginPath(const WString& path, bool rejectTrailingSlash)
-		{
-			if (path.Length() == 0 || path[0] != L'/') return false;
-			if (rejectTrailingSlash && path[path.Length() - 1] == L'/') return false;
-
-			List<char> decoded;
-			for (vint i = 0; i < path.Length(); i++)
-			{
-				auto c = path[i];
-				if (c == L'%')
-				{
-					if (i + 2 >= path.Length()) return false;
-					auto high = HexValue(path[i + 1]);
-					auto low = HexValue(path[i + 2]);
-					if (high == -1 || low == -1) return false;
-					auto value = (char)(high * 16 + low);
-					if (value == 0 || value == '/' || value == '\\') return false;
-					decoded.Add(value);
-					i += 2;
-				}
-				else
-				{
-					if (!IsLegalOriginPathCharacter(c)) return false;
-					decoded.Add((char)c);
-				}
-			}
-			return decoded.Count() == 0 || ValidateUtf8(&decoded[0], decoded.Count());
-		}
-
-		bool ValidateRequestTarget(const WString& target, const wchar_t* method)
-		{
-			if (!ValidateOriginPath(target, false)) return false;
-			vint methodLength = 0;
-			while (method[methodLength]) methodLength++;
-			return target.Length() <= HttpRequestLineSizeLimit - 10 - methodLength;
-		}
 
 		WString DescribeHttpError(const wchar_t* operation, const windows_http::HttpError& error)
 		{
@@ -218,7 +50,7 @@ namespace vl::inter_process::async_tcp_socket
 				error = WString::Unmanaged(operation) + L" did not return the required content type.";
 				return false;
 			}
-			if (!DecodeUtf8(response.body, body))
+			if (!response.TryGetBodyUtf8(body) || (body.Length() > 0 && !IsValidHttpNetworkProtocolMessage(body)))
 			{
 				error = WString::Unmanaged(operation) + L" returned malformed UTF-8 or an embedded NUL.";
 				return false;
@@ -774,19 +606,24 @@ SocketHttpClient::Impl
 				error = L"/Connect did not return exactly two paths.";
 				return false;
 			}
-			if (!ValidateOriginPath(requestPath, false) || !ValidateOriginPath(responsePath, false))
+			if (!ValidateHttpNetworkProtocolEndpointPath(requestPath) || !ValidateHttpNetworkProtocolEndpointPath(responsePath))
 			{
 				error = L"/Connect returned an illegal path.";
 				return false;
 			}
 
-			requestUrl = baseUrl + requestPath;
-			responseUrl = baseUrl + responsePath;
-			if (!ValidateRequestTarget(requestUrl, L"POST") || !ValidateRequestTarget(responseUrl, L"POST"))
+			auto requestTarget = baseUrl + requestPath;
+			auto responseTarget = baseUrl + responsePath;
+			if (
+				ValidateHttpRequestLine(L"POST", requestTarget) != HttpRequestLineValidationResult::Succeeded ||
+				ValidateHttpRequestLine(L"POST", responseTarget) != HttpRequestLineValidationResult::Succeeded
+				)
 			{
 				error = L"/Connect returned a path exceeding the HTTP request-target contract.";
 				return false;
 			}
+			requestUrl = std::move(requestTarget);
+			responseUrl = std::move(responseTarget);
 			return true;
 		}
 
@@ -1324,8 +1161,8 @@ SocketHttpClient::Impl
 			CHECK_ERROR(owner, L"SocketHttpClient requires an owning adapter.");
 			CHECK_ERROR(clientFactory, L"SocketHttpClient requires a native-client factory.");
 			CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClient requires a port in 1..65535.");
-			CHECK_ERROR(baseUrl == WString::Empty || ValidateOriginPath(baseUrl, true), L"SocketHttpClient requires an empty or legal origin-form base URL without a trailing slash.");
-			CHECK_ERROR(ValidateRequestTarget(urlConnect, L"GET"), L"SocketHttpClient base URL makes /Connect exceed the HTTP request-line limit.");
+			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(baseUrl), L"SocketHttpClient requires an empty or legal origin-form base URL without a trailing slash.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"GET", urlConnect) == HttpRequestLineValidationResult::Succeeded, L"SocketHttpClient base URL makes /Connect exceed the HTTP request-line limit.");
 		}
 
 		void Initialize(Ptr<Impl> self)
@@ -1586,10 +1423,11 @@ SocketHttpClient::Impl
 
 		void SendString(const WString& str)
 		{
-			vint utf8Size = 0;
 			CHECK_ERROR(str.Length() > 0, L"SocketHttpClient::SendString does not accept an empty string.");
-			CHECK_ERROR(GetUtf8Size(str, utf8Size), L"SocketHttpClient::SendString requires valid Unicode without embedded NUL characters.");
-			CHECK_ERROR(utf8Size <= HttpBodySizeLimit, L"SocketHttpClient::SendString exceeds the HTTP body size limit.");
+			CHECK_ERROR(IsValidHttpNetworkProtocolMessage(str), L"SocketHttpClient::SendString requires valid Unicode without embedded NUL characters.");
+			Array<vuint8_t> validated;
+			CHECK_ERROR(EncodeStrictUtf8(str, validated), L"SocketHttpClient::SendString requires valid Unicode without embedded NUL characters.");
+			CHECK_ERROR(validated.Count() <= HttpBodySizeLimit, L"SocketHttpClient::SendString exceeds the HTTP body size limit.");
 
 			auto item = Ptr(new SendItem);
 			item->body = str;

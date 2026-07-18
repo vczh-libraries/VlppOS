@@ -3088,15 +3088,13 @@ void RunSocketHttpFocusedTestCases()
 		auto oversized = exact + L"x";
 		const wchar_t embeddedNulBuffer[] = { L'a', 0, L'b' };
 		auto embeddedNul = WString::CopyFrom(embeddedNulBuffer, 3);
-		wchar_t invalidUnicodeBuffer[] = { 0 };
-		if constexpr (sizeof(wchar_t) == 2)
-		{
-			invalidUnicodeBuffer[0] = (wchar_t)0xD800;
-		}
-		else
-		{
-			invalidUnicodeBuffer[0] = (wchar_t)0x110000;
-		}
+		const wchar_t invalidUnicodeBuffer[] = {
+#if defined VCZH_MSVC
+			(wchar_t)0xD800
+#else
+			(wchar_t)0x110000
+#endif
+		};
 		auto invalidUnicode = WString::CopyFrom(invalidUnicodeBuffer, 1);
 		TEST_ASSERT(wtou8(exact).Length() == async_tcp_socket::HttpBodySizeLimit);
 		TEST_ASSERT(wtou8(oversized).Length() == async_tcp_socket::HttpBodySizeLimit + 1);
@@ -3111,6 +3109,9 @@ void RunSocketHttpFocusedTestCases()
 		client->GetConnection()->BeginReadingLoopUnsafe();
 		TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
 
+		TEST_ERROR(client->GetConnection()->SendString(WString::Empty));
+		TEST_ERROR(client->GetConnection()->SendString(embeddedNul));
+		TEST_ERROR(client->GetConnection()->SendString(invalidUnicode));
 		TEST_ERROR(client->GetConnection()->SendString(oversized));
 		client->GetConnection()->SendString(exact);
 		TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
