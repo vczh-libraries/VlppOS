@@ -43,34 +43,36 @@ Add characterization tests before deleting any current helper.
 
 ## Server request contract
 
-- [ ] Verify bodyless `/Connect` and `/Request/{token}` with no `Content-Length`.
-- [ ] Verify the same routes with one `Content-Length: 0`.
-- [ ] Reject positive, duplicate, comma-list, transfer-coded, trailer-bearing, or physically nonempty bodies on those routes.
-- [ ] For `/Response/{token}`, accept one positive plain-decimal length, including current leading-zero and surrounding-OWS behavior.
-- [ ] Reject missing, zero, duplicate, comma-list, conflicting, or transfer-coded lengths.
-- [ ] Reject missing, duplicate, or wrong `Content-Type`, trailers, malformed UTF-8, embedded NUL, and empty logical messages.
+- [x] Verify bodyless `/Connect` and `/Request/{token}` with no `Content-Length`.
+- [x] Verify the same routes with one `Content-Length: 0`.
+- [x] Reject positive, duplicate, comma-list, transfer-coded, trailer-bearing, or physically nonempty bodies on those routes.
+- [x] For `/Response/{token}`, accept one positive plain-decimal length, including current leading-zero and surrounding-OWS behavior.
+- [x] Reject missing, zero, duplicate, comma-list, conflicting, or transfer-coded lengths. Conflicting lengths are rejected by the canonical lower parser before layer 4 receives a request.
+- [x] Reject missing, duplicate, or wrong `Content-Type`, trailers, malformed UTF-8, embedded NUL, and empty logical messages.
 
 ## Client response contract
 
-- [ ] Preserve status `200` and literal `application/json; charset=utf8` checks.
-- [ ] Preserve acceptance of ordinary legal fixed-length and chunked response framing.
-- [ ] Preserve the current flat first-content-type projection, including existing header/trailer behavior.
-- [ ] Preserve rejection of unsupported `Content-Encoding` in the flat client API.
-- [ ] Reject malformed UTF-8 and embedded NUL after successful HTTP parsing.
-- [ ] Preserve empty successful bodies as “no logical message.”
-- [ ] Preserve `/Connect` rejection for empty, malformed, or multiple-semicolon endpoint pairs.
+- [x] Preserve status `200` and literal `application/json; charset=utf8` checks.
+- [x] Preserve acceptance of ordinary legal fixed-length and chunked response framing.
+- [x] Preserve the current flat first-content-type projection, including existing header/trailer behavior.
+- [x] Preserve rejection of unsupported `Content-Encoding` in the flat client API.
+- [x] Reject malformed UTF-8 and embedded NUL after successful HTTP parsing.
+- [x] Preserve empty successful bodies as “no logical message.”
+- [x] Preserve `/Connect` rejection for empty, malformed, or multiple-semicolon endpoint pairs.
 
 ## Configuration and path contract
 
-- [ ] Characterize empty and legal base prefixes plus trailing slash, query, fragment, backslash, raw non-ASCII, malformed escape, encoded separator, and NUL failures.
-- [ ] Characterize returned endpoint paths independently: empty is rejected, a trailing slash remains allowed by path validation, and invalid escaping/characters are rejected.
-- [ ] Verify server construction reserves a 36-character token for both POST targets.
-- [ ] Verify server GET/POST, client Connect GET, and both actual returned POST targets at exactly `HttpRequestLineSizeLimit` and one byte beyond it.
+- [x] Characterize empty and legal base prefixes plus trailing slash, query, fragment, backslash, raw non-ASCII, malformed escape, encoded separator, and NUL failures.
+- [x] Characterize returned endpoint paths independently: empty is rejected, a trailing slash remains allowed by path validation, and invalid escaping/characters are rejected.
+- [x] Verify server construction reserves a 36-character token for both POST targets.
+- [x] Verify every independently observable layer-4 request-line boundary: the server's longest tokenized POST target, the client Connect GET target, and both actual returned POST targets at exactly `HttpRequestLineSizeLimit` and one byte beyond it. The server Connect GET exact boundary is not independently constructible because the longer tokenized POST gate fails first.
 
 ## State-machine contract
 
-- [ ] Keep existing FIFO, retry-count, receive-before-deliver, piggyback, callback-drain, and shutdown tests unchanged.
-- [ ] Keep Windows/portable interoperability tests unchanged.
+- [x] Keep existing FIFO, retry-count, receive-before-deliver, piggyback, callback-drain, and shutdown tests unchanged.
+- [x] Keep Windows/portable interoperability tests unchanged.
+
+Phase 0 verification (2026-07-18): Debug x64 full-solution build succeeded with zero warnings/errors; all 15 test files and 197 test cases passed with no leak report; the MiniHttpServer home/second-page/Assets-prefix UI, module/fetch/action state, SVG/CSS, console, rejected asset paths, clean exit, and released ports were verified.
 
 # Phase 1: Expose canonical layer-2 capabilities
 
