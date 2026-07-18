@@ -2,6 +2,8 @@
 
 The **vl::inter_process** namespace is organized in layers. Feature code normally uses the channel interfaces, because they describe typed named message delivery between connected participants. Transport code implements the raw network protocol interfaces, because they describe how one server and many clients exchange asynchronous **WString** messages. Portable async-socket transports and Windows-specific transports are composition choices that connect these two layers.
 
+The transport-agnostic raw-protocol and channel interfaces, together with the default channel bridge, can be used in production. Every concrete raw-protocol implementation supplied by VlppOS is testing, validation and demonstration infrastructure and should not be used as a production transport. A production application should implement its own **INetworkProtocolServer**, **INetworkProtocolClient** and **INetworkProtocolConnection** for its security, deployment, performance, reconnection and delivery requirements, then reuse the channel layer over that implementation.
+
 Keep this boundary in application code:
 - Use **IChannelServer\<TPackage\>**, **IChannelClient\<TPackage\>**, **IChannel\<TPackage\>** and **IChannelReader\<TPackage\>** when the feature sends and receives packages.
 - Use **INetworkProtocolServer**, **INetworkProtocolClient**, **INetworkProtocolConnection** and **INetworkProtocolCallback** when adding a new pipe, socket, HTTP, shared-memory or other underlying transport.
