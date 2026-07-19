@@ -6093,6 +6093,8 @@ SocketHttpClient::Impl
 		bool							hardStopping = false;
 		bool							stopFinished = false;
 		bool							fatalStarted = false;
+		bool							remoteEndObserved = false;
+		vint							receiveUnavailableAttempts = 0;
 		bool							disconnectedNotified = false;
 		bool							disconnectDelivering = false;
 		bool							disconnectFinished = false;
@@ -6320,6 +6322,17 @@ SocketHttpClient::Impl
 			Stop(true);
 		}
 
+		void StopFromRemote()
+		{
+			CS_LOCK(lockState)
+			{
+				remoteEndObserved = true;
+				drainSends = false;
+				cvState.WakeAllPendings();
+			}
+			Stop(true);
+		}
+
 		bool HandleConnectFailure(WString error, vint& attempt)
 		{
 			if (IsStopped()) return false;
@@ -6457,15 +6470,25 @@ SocketHttpClient::Impl
 		void HandleReceiveTransportFailure(Ptr<SocketHttpClientApi> api)
 		{
 			bool schedule = false;
+			bool exhausted = false;
 			CS_LOCK(lockState)
 			{
 				if (receiveApi == api && CanReceiveUnsafe() && !receiveReconnecting)
 				{
 					receivePollActive = false;
-					receiveReconnecting = true;
-					activeWorkers++;
-					schedule = true;
+					exhausted = ++receiveUnavailableAttempts >= HttpRequestMaxAttempts;
+					if (!exhausted)
+					{
+						receiveReconnecting = true;
+						activeWorkers++;
+						schedule = true;
+					}
 				}
+			}
+			if (exhausted)
+			{
+				StopFromRemote();
+				return;
 			}
 			if (!schedule) return;
 
@@ -6547,7 +6570,8 @@ SocketHttpClient::Impl
 				}
 				catch (...)
 				{
-					continue;
+					ReportFatalError(L"/Request could not create a replacement HTTP client.");
+					return;
 				}
 				if (!PublishApi(api, true))
 				{
@@ -6565,8 +6589,25 @@ SocketHttpClient::Impl
 				}
 				if (!connected)
 				{
+					bool exhausted = false;
+					CS_LOCK(lockState)
+					{
+						if (receiveApi == api && CanReceiveUnsafe() && receiveReconnecting)
+						{
+							exhausted = ++receiveUnavailableAttempts >= HttpRequestMaxAttempts;
+						}
+						else
+						{
+							return;
+						}
+					}
 					StopApiNoThrow(api);
 					ClearApi(api, true);
+					if (exhausted)
+					{
+						StopFromRemote();
+						return;
+					}
 					continue;
 				}
 
@@ -6598,6 +6639,10 @@ SocketHttpClient::Impl
 				if (receiveApi == api && receivePollActive)
 				{
 					receivePollActive = false;
+					if (!result.TryGet<windows_http::HttpError>())
+					{
+						receiveUnavailableAttempts = 0;
+					}
 					current = true;
 				}
 			}
@@ -6611,7 +6656,13 @@ SocketHttpClient::Impl
 
 			WString body;
 			WString error;
-			auto valid = DecodeSuccessfulResponse(result.Get<windows_http::HttpResponse>(), L"/Request", body, error);
+			auto&& response = result.Get<windows_http::HttpResponse>();
+			if (response.statusCode == 404)
+			{
+				StopFromRemote();
+				return;
+			}
+			auto valid = DecodeSuccessfulResponse(response, L"/Request", body, error);
 			if (ReserveReceivePoll(api))
 			{
 				// SocketHttpClientApi starts this replacement from inside its response
@@ -6733,7 +6784,7 @@ SocketHttpClient::Impl
 			}
 		}
 
-		bool HandleSendPreparationFailure(Ptr<SendItem> item, const WString& error)
+		bool HandleSendPreparationFailure(Ptr<SendItem> item, const WString& error, bool remoteUnavailable)
 		{
 			bool fatal = false;
 			CS_LOCK(lockState)
@@ -6744,7 +6795,14 @@ SocketHttpClient::Impl
 			}
 			if (fatal)
 			{
-				ReportFatalError(error);
+				if (remoteUnavailable)
+				{
+					StopFromRemote();
+				}
+				else
+				{
+					ReportFatalError(error);
+				}
 				return false;
 			}
 			ReportLocalError(error, false);
@@ -6774,7 +6832,7 @@ SocketHttpClient::Impl
 				}
 				catch (...)
 				{
-					if (!HandleSendPreparationFailure(item, L"/Response could not create a replacement HTTP client.")) return;
+					if (!HandleSendPreparationFailure(item, L"/Response could not create a replacement HTTP client.", false)) return;
 					continue;
 				}
 				if (!PublishApi(api, false))
@@ -6795,7 +6853,7 @@ SocketHttpClient::Impl
 				{
 					StopApiNoThrow(api);
 					ClearApi(api, false);
-					if (!HandleSendPreparationFailure(item, L"/Response replacement failed to connect.")) return;
+					if (!HandleSendPreparationFailure(item, L"/Response replacement failed to connect.", true)) return;
 					continue;
 				}
 
@@ -6848,7 +6906,14 @@ SocketHttpClient::Impl
 
 			if (fatal)
 			{
-				ReportFatalError(error);
+				if (transportFailure)
+				{
+					StopFromRemote();
+				}
+				else
+				{
+					ReportFatalError(error);
+				}
 				return;
 			}
 
@@ -6874,9 +6939,16 @@ SocketHttpClient::Impl
 				return;
 			}
 
+			auto&& response = result.Get<windows_http::HttpResponse>();
+			if (response.statusCode == 404)
+			{
+				StopFromRemote();
+				return;
+			}
+
 			WString body;
 			WString error;
-			if (!DecodeSuccessfulResponse(result.Get<windows_http::HttpResponse>(), L"/Response", body, error))
+			if (!DecodeSuccessfulResponse(response, L"/Response", body, error))
 			{
 				HandleSendFailure(api, item, error, false);
 				return;
@@ -7040,6 +7112,7 @@ SocketHttpClient::Impl
 
 			// The logical token is already fixed. Failures in this second physical
 			// bootstrap are silent and never repeat /Connect.
+			vint unavailableAttempts = 0;
 			while (!IsStopped())
 			{
 				Ptr<SocketHttpClientApi> apiReceive;
@@ -7049,7 +7122,8 @@ SocketHttpClient::Impl
 				}
 				catch (...)
 				{
-					continue;
+					ReportFatalError(L"/Request could not create its receive HTTP client.");
+					return;
 				}
 				if (!PublishApi(apiReceive, true))
 				{
@@ -7068,6 +7142,11 @@ SocketHttpClient::Impl
 				{
 					StopApiNoThrow(apiReceive);
 					ClearApi(apiReceive, true);
+					if (++unavailableAttempts >= HttpRequestMaxAttempts)
+					{
+						StopFromRemote();
+						return;
+					}
 					continue;
 				}
 
@@ -7235,7 +7314,7 @@ SocketHttpClient::Impl
 			{
 				stopStarted = true;
 				state = State::Stopping;
-				drainSends = !fatalStarted && sendQueue.Count() > 0;
+				drainSends = !fatalStarted && !remoteEndObserved && sendQueue.Count() > 0;
 				cancellingReceive = receiveApi;
 				executeStop = true;
 			}
@@ -7263,7 +7342,7 @@ SocketHttpClient::Impl
 			if (drainSends)
 			{
 				auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(SendDrainTimeout);
-				while (sendQueue.Count() > 0)
+				while (drainSends && sendQueue.Count() > 0)
 				{
 					auto now = std::chrono::steady_clock::now();
 					if (now >= deadline) break;

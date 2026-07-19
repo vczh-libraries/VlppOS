@@ -28,6 +28,30 @@ protected:
 		Stopping,
 	};
 
+	class StopState : public Object
+	{
+	public:
+		SpinLock									lock;
+		EventObject								eventWaitForServer;
+		EventObject								eventSchedulingFinished;
+		EventObject								eventCallbacksFinished;
+		EventObject								eventCallbackChanged;
+		EventObject								eventFinished;
+		Ptr<HttpClientApi>							stoppingApi;
+		INetworkProtocolCallback*					disconnectedCallback = nullptr;
+		vint									activeCallbacks = 0;
+		bool									started = false;
+		bool									scheduling = false;
+		bool									executorClaimed = false;
+		bool									abortRequests = false;
+		bool									callbacksClosed = false;
+		bool									suppressDisconnected = false;
+		bool									disconnectDelivering = false;
+		bool									finished = false;
+
+		StopState();
+	};
+
 	State											state = State::Ready;
 	INetworkProtocolCallback*						callback = nullptr;
 	WString											baseUrl;
@@ -36,6 +60,7 @@ protected:
 	WString											urlRequest;
 	WString											urlResponse;
 	SpinLock										lockState;
+	Ptr<StopState>									stopState;
 
 /***********************************************************************
 HttpClient (Reading)
@@ -44,6 +69,12 @@ HttpClient (Reading)
 protected:
 	void											RaiseLocalError(WString errorMessage, bool fatal);
 	bool											IsStopping();
+	void											StopCore(bool callbackReentrant);
+	void											StopFromCallback();
+	static void									CompleteStop(Ptr<StopState> state);
+	static bool									BeginHttpCallback(Ptr<StopState> state);
+	static void									EndHttpCallback(Ptr<StopState> state);
+	vint											CurrentHttpCallbackDepth();
 public:
 
 	void											BeginReadingLoopUnsafe() override;
@@ -54,7 +85,6 @@ HttpClient (WaitForServer)
 
 protected:
 
-	EventObject										eventWaitForServer;
 	SpinLock										lockConnectResult;
 	bool											connectCompleted = false;
 	WString											connectResponse;
@@ -81,7 +111,7 @@ protected:
 
 	bool											SendHttpRequest(HttpRequestType requestType, const WString& url, const WString& body, vint attempt = 1);
 	void											OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Variant<HttpResponse, HttpError> result);
-	void											OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage);
+	void											OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage, bool remoteUnavailable = false);
 
 public:
 

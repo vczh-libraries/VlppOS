@@ -158,13 +158,19 @@ void HttpServerConnection::SendString(const WString& str)
 
 void HttpServerConnection::Stop()
 {
-	auto holding = Ptr(this);
+	Ptr<HttpServerConnection> holding;
 	if (server)
 	{
 		SPIN_LOCK(server->lockConnections)
 		{
-			server->connections.Remove(guid);
+			auto index = server->connections.Keys().IndexOf(guid);
+			if (index != -1)
+			{
+				holding = server->connections.Values()[index];
+				server->connections.Remove(guid);
+			}
 		}
+		if (!holding) return;
 		SPIN_LOCK(pendingRequestLock)
 		{
 			OnCancelCurrentHttpRequestForPendingRequest();

@@ -605,7 +605,35 @@ void HttpClientApi::HttpQuery(const HttpRequest& request, Func<void(Variant<Http
 	}
 }
 
-void HttpClientApi::Stop()
+void HttpClientApi::AbortRequests()
+{
+	List<HINTERNET> stoppingRequests;
+	SPIN_LOCK(lockActiveRequests)
+	{
+		for (auto&& context : activeRequests)
+		{
+			HINTERNET httpRequest = NULL;
+			SPIN_LOCK(context->lockContext)
+			{
+				if (!context->closing)
+				{
+					context->closing = true;
+					httpRequest = context->httpRequest;
+				}
+			}
+			if (httpRequest)
+			{
+				stoppingRequests.Add(httpRequest);
+			}
+		}
+	}
+	for (auto httpRequest : stoppingRequests)
+	{
+		WinHttpCloseHandle(httpRequest);
+	}
+}
+
+void HttpClientApi::Stop(bool keepAliveRequests)
 {
 	if (httpSession == NULL) return;
 
@@ -618,7 +646,7 @@ void HttpClientApi::Stop()
 			HINTERNET httpRequest = NULL;
 			SPIN_LOCK(context->lockContext)
 			{
-				if (!context->keepAliveOnStop && !context->closing)
+				if ((!keepAliveRequests || !context->keepAliveOnStop) && !context->closing)
 				{
 					context->closing = true;
 					httpRequest = context->httpRequest;

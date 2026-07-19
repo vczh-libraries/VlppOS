@@ -1936,6 +1936,121 @@ namespace mynamespace
 		}
 	};
 
+	class SocketHttpSessionEndServer : public async_tcp_socket::SocketHttpServerApi
+	{
+	private:
+		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/ended-token";
+		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/ended-token";
+		bool							cancelRequests;
+		bool							cancelResponses;
+		SpinLock						lockContexts;
+		Ptr<async_tcp_socket::SocketHttpRequestContext>
+									pendingRequest;
+		Ptr<async_tcp_socket::SocketHttpRequestContext>
+									pendingResponse;
+
+	protected:
+		void OnHttpRequestReceived(Ptr<async_tcp_socket::SocketHttpRequestContext> context) override
+		{
+			auto path = context->GetRelativePath();
+			if (path == HttpServerUrl_Connect)
+			{
+				connectCount++;
+				context->Respond(CreateSocketHttpResponse(200, requestPath + L";" + responsePath));
+				return;
+			}
+			if (path == requestPath)
+			{
+				requestCount++;
+				if (cancelRequests)
+				{
+					context->Cancel();
+				}
+				else
+				{
+					SPIN_LOCK(lockContexts)
+					{
+						pendingRequest = context;
+					}
+				}
+				eventRequest.Signal();
+				return;
+			}
+			if (path == responsePath)
+			{
+				responseCount++;
+				responseBody = ReadSocketHttpBody(context->GetRequest()->body);
+				if (cancelResponses)
+				{
+					context->Cancel();
+				}
+				else
+				{
+					SPIN_LOCK(lockContexts)
+					{
+						pendingResponse = context;
+					}
+				}
+				eventResponse.Signal();
+				return;
+			}
+			context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+		}
+
+	public:
+		EventObject						eventRequest;
+		EventObject						eventResponse;
+		atomic_vint					connectCount = 0;
+		atomic_vint					requestCount = 0;
+		atomic_vint					responseCount = 0;
+		WString							responseBody;
+
+		SocketHttpSessionEndServer(const WString& baseUrl, vint port, bool _cancelRequests = false, bool _cancelResponses = false)
+			: SocketHttpServerApi(L"http://localhost:" + itow(port) + baseUrl, false)
+			, cancelRequests(_cancelRequests)
+			, cancelResponses(_cancelResponses)
+		{
+			CHECK_ERROR(eventRequest.CreateManualUnsignal(false), L"Failed to create the session-end request event.");
+			CHECK_ERROR(eventResponse.CreateManualUnsignal(false), L"Failed to create the session-end response event.");
+		}
+
+		~SocketHttpSessionEndServer()
+		{
+			Stop();
+		}
+
+		bool RespondRequestNotFound()
+		{
+			Ptr<async_tcp_socket::SocketHttpRequestContext> context;
+			SPIN_LOCK(lockContexts)
+			{
+				context = pendingRequest;
+				pendingRequest = nullptr;
+			}
+			return context && context->RespondStatus(404, L"Connection not found");
+		}
+
+		bool RespondResponseNotFound()
+		{
+			Ptr<async_tcp_socket::SocketHttpRequestContext> context;
+			SPIN_LOCK(lockContexts)
+			{
+				context = pendingResponse;
+				pendingResponse = nullptr;
+			}
+			return context && context->RespondStatus(404, L"Connection not found");
+		}
+
+		void ReleasePendingContexts()
+		{
+			SPIN_LOCK(lockContexts)
+			{
+				pendingRequest = nullptr;
+				pendingResponse = nullptr;
+			}
+		}
+	};
+
 	class RetryScriptServer : public async_tcp_socket::SocketHttpServerApi
 	{
 	private:
@@ -2107,6 +2222,29 @@ namespace mynamespace
 		{
 			fatalBeforeDisconnected = fatalErrors == 1;
 			FocusedProtocolCallback::OnDisconnected();
+		}
+	};
+
+	class UninstallingRetryClientCallback : public RetryClientCallback
+	{
+	public:
+		EventObject						eventUninstalled;
+		atomic_vint					uninstalledCount = 0;
+
+		UninstallingRetryClientCallback()
+		{
+			CHECK_ERROR(eventUninstalled.CreateManualUnsignal(false), L"Failed to create the callback-uninstalled event.");
+		}
+
+		void OnLocalError(const WString& error, bool fatal) override
+		{
+			RetryClientCallback::OnLocalError(error, fatal);
+			if (fatal)
+			{
+				connection->InstallCallback(nullptr);
+				uninstalledCount++;
+				eventUninstalled.Signal();
+			}
 		}
 	};
 
@@ -2384,6 +2522,158 @@ void RunSocketHttpNetworkProtocolTestCases()
 }
 
 #ifdef VCZH_MSVC
+	class DeferredStopHttpClient : public HttpClient
+	{
+	private:
+		bool							callbackHeld = false;
+
+	public:
+		DeferredStopHttpClient(const WString& baseUrl, vint port)
+			: HttpClient(baseUrl, port)
+		{
+		}
+
+		~DeferredStopHttpClient()
+		{
+			ReleaseHttpCallback();
+		}
+
+		void HoldHttpCallback()
+		{
+			CHECK_ERROR(!callbackHeld, L"DeferredStopHttpClient cannot hold two callbacks.");
+			CHECK_ERROR(BeginHttpCallback(stopState), L"DeferredStopHttpClient cannot hold a callback after stopping.");
+			callbackHeld = true;
+		}
+
+		void ReleaseHttpCallback()
+		{
+			if (!callbackHeld) return;
+			callbackHeld = false;
+			EndHttpCallback(stopState);
+		}
+
+		void BeginDeferredStop()
+		{
+			StopCore(true);
+		}
+	};
+
+	class HeldDisconnectCallback : public FocusedProtocolCallback
+	{
+	public:
+		EventObject						eventRelease;
+		EventObject						eventReturned;
+
+		HeldDisconnectCallback()
+		{
+			CHECK_ERROR(eventRelease.CreateManualUnsignal(false), L"Failed to create the held-disconnect release event.");
+			CHECK_ERROR(eventReturned.CreateManualUnsignal(false), L"Failed to create the held-disconnect returned event.");
+		}
+
+		void OnReadString(const WString&) override
+		{
+		}
+
+		void OnDisconnected() override
+		{
+			FocusedProtocolCallback::OnDisconnected();
+			eventRelease.Wait();
+			eventReturned.Signal();
+		}
+	};
+
+	class ReplacingHttpChannelClient : public NetworkProtocolChannelClient<WString, WStringListSerializer>
+	{
+		using Base = NetworkProtocolChannelClient<WString, WStringListSerializer>;
+
+	private:
+		IChannelClient<WString>::ChannelMap	channelNames;
+
+	public:
+		EventObject						eventDisconnected;
+		atomic_vint					disconnectedCount = 0;
+		atomic_vint					localErrors = 0;
+		atomic_vint					fatalErrors = 0;
+
+		ReplacingHttpChannelClient(const WString& baseUrl, vint port)
+			: Base(Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port)))
+		{
+			CHECK_ERROR(eventDisconnected.CreateManualUnsignal(false), L"Failed to create the replacing HTTP channel client disconnected event.");
+			channelNames.Add(ChatChannelName, nullptr);
+		}
+
+		const IChannelClient<WString>::ChannelNameList& OnGetChannelNames() override
+		{
+			return channelNames.Keys();
+		}
+
+		void OnDisconnected() override
+		{
+			disconnectedCount++;
+			eventDisconnected.Signal();
+		}
+
+		void OnLocalError(const WString&, bool fatal) override
+		{
+			localErrors++;
+			if (fatal) fatalErrors++;
+		}
+	};
+
+	class ReplacingHttpChannelServer : public NetworkProtocolChannelServer<WString, WStringListSerializer, HttpServer>
+	{
+		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer, HttpServer>;
+
+	private:
+		// covers currentClientId
+		SpinLock						lockReplacement;
+		vint						currentClientId = -1;
+
+	protected:
+		void OnHttpRequestReceived(PHTTP_REQUEST pRequest) override
+		{
+			bool pendingRequest =
+				pRequest->Verb == HttpVerbPOST &&
+				wcsncmp(pRequest->CookedUrl.pAbsPath, urlRequestPrefix.Buffer(), urlRequestPrefix.Length()) == 0;
+			Base::OnHttpRequestReceived(pRequest);
+			if (pendingRequest)
+			{
+				eventPendingRequest.Signal();
+			}
+		}
+
+	public:
+		using Base::OnClientConnected;
+
+		EventObject						eventPendingRequest;
+		atomic_vint					replacementCount = 0;
+
+		ReplacingHttpChannelServer(const WString& baseUrl, vint port)
+			: Base(baseUrl, port)
+		{
+			CHECK_ERROR(eventPendingRequest.CreateManualUnsignal(false), L"Failed to create the replacing HTTP channel server pending-request event.");
+		}
+
+		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels, IChannelClient<WString>* localClient) override
+		{
+			CHECK_ERROR(!localClient, L"The replacing HTTP channel server only accepts network clients.");
+			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"The replacing HTTP channel client should provide the chat channel.");
+
+			vint oldClientId = -1;
+			SPIN_LOCK(lockReplacement)
+			{
+				oldClientId = currentClientId;
+				currentClientId = clientId;
+			}
+			if (oldClientId != -1)
+			{
+				CHECK_ERROR(this->DisconnectClient(oldClientId), L"The replacing HTTP channel server failed to disconnect the old client.");
+				replacementCount++;
+			}
+			return WaitForClientResult::Accept;
+		}
+	};
+
 template<typename TNativeServer, typename TNativeClient>
 void RunSocketHttpWindowsInteropTestCases()
 {
@@ -2439,6 +2729,177 @@ void RunSocketHttpWindowsInteropTestCases()
 		TEST_ASSERT(callback.Connection() == client->GetConnection());
 		client->GetConnection()->Stop();
 		server->Stop();
+	});
+
+	TEST_CASE(L"Windows HttpClient callback uninstall cancels deferred disconnection")
+	{
+		const vint port = 39641;
+		const WString baseUrl = L"/VlppOSTestWinClientUninstallDeferredDisconnect";
+		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		responses.Add(CreateSocketHttpScriptResponse(500, WString::Empty));
+		responses.Add(CreateSocketHttpScriptResponse(500, WString::Empty));
+		responses.Add(CreateSocketHttpScriptResponse(500, WString::Empty));
+		auto nativeServer = Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
+		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
+			nativeServer,
+			baseUrl + HttpServerUrl_Connect,
+			responses
+			));
+		server->Start();
+
+		UninstallingRetryClientCallback callback;
+		auto client = Ptr(new HttpClient(baseUrl, port));
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(callback.eventUninstalled.WaitForTime(SocketHttpFocusedTimeout));
+		client->GetConnection()->Stop();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.uninstalledCount == 1);
+		TEST_ASSERT(callback.disconnectedCount == 0);
+		TEST_ASSERT(!callback.eventDisconnected.WaitForTime(0));
+		server->Stop();
+	});
+
+	TEST_CASE(L"Windows HttpClient callback uninstall waits for claimed disconnection delivery")
+	{
+		auto callback = Ptr(new HeldDisconnectCallback);
+		auto client = Ptr(new DeferredStopHttpClient(WString::Empty, 39642));
+		{
+			SignalSocketHttpEventOnExit releaseDisconnect(callback->eventRelease);
+			client->GetConnection()->InstallCallback(callback.Obj());
+			client->HoldHttpCallback();
+			client->BeginDeferredStop();
+			client->ReleaseHttpCallback();
+			TEST_ASSERT(callback->eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+
+			EventObject eventUninstallStarted;
+			EventObject eventUninstallReturned;
+			CHECK_ERROR(eventUninstallStarted.CreateManualUnsignal(false), L"Failed to create the callback-uninstall started event.");
+			CHECK_ERROR(eventUninstallReturned.CreateManualUnsignal(false), L"Failed to create the callback-uninstall returned event.");
+			SocketHttpStopThreadScope threadScope(&callback->eventRelease);
+			auto uninstallThread = Thread::CreateAndStart([connection = client->GetConnection(), &eventUninstallStarted, &eventUninstallReturned]()
+			{
+				eventUninstallStarted.Signal();
+				connection->InstallCallback(nullptr);
+				eventUninstallReturned.Signal();
+			}, false);
+			CHECK_ERROR(uninstallThread, L"Failed to start the callback-uninstall thread.");
+			threadScope.SetFirst(uninstallThread);
+			TEST_ASSERT(eventUninstallStarted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!eventUninstallReturned.WaitForTime(100));
+
+			callback->eventRelease.Signal();
+			TEST_ASSERT(callback->eventReturned.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(eventUninstallReturned.WaitForTime(SocketHttpFocusedTimeout));
+			threadScope.JoinAll();
+			client->GetConnection()->Stop();
+			TEST_ASSERT(callback->disconnectedCount == 1);
+		}
+		callback = nullptr;
+		client->GetConnection()->Stop();
+	});
+
+	TEST_CASE(L"Windows HttpClient treats invalidated tokens and exhausted transport loss as disconnection")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		{
+			const vint port = 39637;
+			const WString baseUrl = L"/VlppOSTestWinClientRequestNotFound";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port));
+			server->Start();
+			RetryClientCallback callback;
+			auto client = Ptr(new HttpClient(baseUrl, port));
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(server->eventRequest.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"legacy-request-404-in-flight");
+			TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(server->RespondRequestNotFound());
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->requestCount == 1);
+			TEST_ASSERT(server->responseCount == 1);
+			TEST_ASSERT(callback.readCount == 0);
+			TEST_ASSERT(callback.localErrors == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			server->Stop();
+		}
+		{
+			const vint port = 39638;
+			const WString baseUrl = L"/VlppOSTestWinClientResponseNotFound";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port));
+			server->Start();
+			RetryClientCallback callback;
+			auto client = Ptr(new HttpClient(baseUrl, port));
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(server->eventRequest.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"legacy-response-404");
+			TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(server->RespondResponseNotFound());
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->requestCount == 1);
+			TEST_ASSERT(server->responseCount == 1);
+			TEST_ASSERT(callback.readCount == 0);
+			TEST_ASSERT(callback.localErrors == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			server->Stop();
+		}
+		{
+			const vint port = 39639;
+			const WString baseUrl = L"/VlppOSTestWinClientTransportCancelled";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port, true, false));
+			server->Start();
+			RetryClientCallback callback;
+			auto client = Ptr(new HttpClient(baseUrl, port));
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(5000));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->requestCount == 3);
+			TEST_ASSERT(server->responseCount == 0);
+			TEST_ASSERT(callback.readCount == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			server->Stop();
+		}
+	});
+
+	TEST_CASE(L"Windows HttpServer disconnects a pending channel client before accepting its replacement")
+	{
+		const vint port = 39643;
+		const WString baseUrl = L"/VlppOSTestWinServerReplacePendingChannel";
+		auto server = Ptr(new ReplacingHttpChannelServer(baseUrl, port));
+		server->Start();
+		{
+			auto firstClient = Ptr(new ReplacingHttpChannelClient(baseUrl, port));
+			firstClient->WaitForServer();
+			TEST_ASSERT(firstClient->GetStatus() == ClientStatus::Connected);
+			TEST_ASSERT(server->eventPendingRequest.WaitForTime(SocketHttpFocusedTimeout));
+
+			auto secondClient = Ptr(new ReplacingHttpChannelClient(baseUrl, port));
+			secondClient->WaitForServer();
+			TEST_ASSERT(secondClient->GetStatus() == ClientStatus::Connected);
+			TEST_ASSERT(firstClient->eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(firstClient->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(firstClient->disconnectedCount == 1);
+			TEST_ASSERT(firstClient->localErrors == 0);
+			TEST_ASSERT(firstClient->fatalErrors == 0);
+			TEST_ASSERT(server->replacementCount == 1);
+		}
+		server->Stop();
+		TEST_ASSERT(server->IsStopped());
 	});
 
 	TEST_CASE(L"Windows HttpServer with SocketHttpClient (NetworkProtocol)")
@@ -2917,6 +3378,127 @@ void RunSocketHttpFocusedTestCases()
 		server->Stop();
 	});
 
+	TEST_CASE(L"SocketHttp treats invalidated tokens and an ended server as disconnection")
+	{
+		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
+		{
+			const vint port = 39634;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRequestNotFound";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port));
+			server->Start();
+			atomic_vint factoryCalls = 0;
+			RetryClientCallback callback;
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(server->eventRequest.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"request-404-head");
+			TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"request-404-tail");
+			TEST_ASSERT(server->RespondRequestNotFound());
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->requestCount == 1);
+			TEST_ASSERT(server->responseCount == 1);
+			TEST_ASSERT(server->responseBody == L"request-404-head");
+			TEST_ASSERT(factoryCalls == 2);
+			TEST_ASSERT(callback.localErrors == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ERROR(client->GetConnection()->SendString(L"after-request-404"));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			server->Stop();
+		}
+		{
+			const vint port = 39635;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedResponseNotFound";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port));
+			server->Start();
+			atomic_vint factoryCalls = 0;
+			RetryClientCallback callback;
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(server->eventRequest.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"response-404-head");
+			TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"response-404-tail-1");
+			client->GetConnection()->SendString(L"response-404-tail-2");
+			TEST_ASSERT(server->RespondResponseNotFound());
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->requestCount == 1);
+			TEST_ASSERT(server->responseCount == 1);
+			TEST_ASSERT(server->responseBody == L"response-404-head");
+			TEST_ASSERT(factoryCalls == 2);
+			TEST_ASSERT(callback.localErrors == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ERROR(client->GetConnection()->SendString(L"after-response-404"));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			server->Stop();
+		}
+		{
+			const vint port = 39636;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedTransportClosed";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port));
+			server->Start();
+			atomic_vint factoryCalls = 0;
+			RetryClientCallback callback;
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(server->eventRequest.WaitForTime(SocketHttpFocusedTimeout));
+			client->GetConnection()->SendString(L"response-while-core-exits");
+			TEST_ASSERT(server->eventResponse.WaitForTime(SocketHttpFocusedTimeout));
+			server->Stop();
+			server->ReleasePendingContexts();
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(5000));
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->requestCount == 1);
+			TEST_ASSERT(server->responseCount == 1);
+			TEST_ASSERT(factoryCalls > 2);
+			TEST_ASSERT(factoryCalls <= 8);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ERROR(client->GetConnection()->SendString(L"after-core-exit"));
+			client->GetConnection()->Stop();
+			TEST_ASSERT(callback.disconnectedCount == 1);
+		}
+		{
+			const vint port = 39640;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRepeatedPollCancellation";
+			auto server = Ptr(new SocketHttpSessionEndServer(baseUrl, port, true));
+			server->Start();
+			atomic_vint factoryCalls = 0;
+			RetryClientCallback callback;
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(callback.eventDisconnected.WaitForTime(5000));
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->requestCount == 3);
+			TEST_ASSERT(factoryCalls == 4);
+			TEST_ASSERT(callback.localErrors == 0);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			client->GetConnection()->Stop();
+			server->Stop();
+		}
+	});
+
 	TEST_CASE(L"SocketHttp replacement poll precedes callback and Response reply is piggybacked")
 	{
 		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
@@ -3266,6 +3848,32 @@ void RunSocketHttpFocusedTestCases()
 			TEST_ASSERT(serverCallback.disconnectedCount == 1);
 			TEST_ASSERT(server->IsStopped());
 			client->GetConnection()->Stop();
+
+			ExactMessageCallback replacementCallback(L"unused");
+			auto replacementServer = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &replacementCallback));
+			replacementServer->Start();
+			replacementServer->Stop();
+		}
+		{
+			const vint port = 39626;
+			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedReentrantConnectionStop";
+			StopActionCallback serverCallback(L"trigger-connection-stop");
+			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			serverCallback.SetStopAction(Func<void()>([&serverCallback]() { serverCallback.Connection()->Stop(); }));
+			server->Start();
+			ExactMessageCallback clientCallback(L"unused");
+			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			client->GetConnection()->InstallCallback(&clientCallback);
+			client->WaitForServer();
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			client->GetConnection()->SendString(L"trigger-connection-stop");
+			TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.exact);
+			TEST_ASSERT(serverCallback.stopReturned);
+			TEST_ASSERT(serverCallback.disconnectedCount == 1);
+			client->GetConnection()->Stop();
+			server->Stop();
 		}
 		{
 			const vint port = 39610;

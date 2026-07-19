@@ -71,7 +71,8 @@ public:
 	HttpClientApi& operator=(HttpClientApi&&) = delete;
 
 	void												HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback);
-	void												Stop();
+	void												AbortRequests();
+	void												Stop(bool keepAliveRequests = true);
 
 	static WString										UrlEncodeQuery(const WString& query);
 	static WString										UrlDecodeQuery(const WString& query);
