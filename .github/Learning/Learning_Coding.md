@@ -20,6 +20,9 @@
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 - `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
 - `Thread::Wait` completion belongs to the native thread entry point [1]
+- Socket HTTP adapters keep async sockets caller-injected [1]
+- Share Socket HTTP listeners by exact server identity and segment-bounded prefixes [1]
+- `HttpRequestClient` owns the fatal HTTP 404 policy [1]
 
 # Refinements
 
@@ -114,3 +117,21 @@ Keep Windows, Linux, and macOS concrete async-socket server/client constructors 
 On GCC platforms, the common native `Thread` entry path must publish `Thread::Stopped` and signal completion for every derived class after `Run()` returns. `ProceduredThread` and `LambdaThread` should invoke only their supplied work; putting completion in those wrappers leaves arbitrary custom subclasses permanently blocked in `Thread::Wait()`.
 
 Publish `Thread::Running` before `pthread_create` and restore `Thread::NotStarted` if creation fails, so a fast thread cannot publish `Stopped` and then have `Thread::Start()` overwrite it. Capture any auto-delete policy before calling virtual `Run()`, publish completion before deletion, and never read the object after waiters can resume.
+
+## Socket HTTP adapters keep async sockets caller-injected
+
+Requiring `Ptr<IAsyncSocketServer>` or `Ptr<IAsyncSocketClient>` in Socket HTTP constructors is an intentional composition boundary. These adapters must not select a platform implementation or create their transport internally, and endpoint facts such as the port should come from the injected socket instead of a duplicate constructor argument.
+
+`SocketHttpClient` should consume the exact injected client for its first physical lane. Concurrent lanes and recovery connections come from `IAsyncSocketClient::CreateSameEndpointClient()`; require each clone to be distinct, ready, and on the same port, and treat violations as terminal contract failures instead of retrying indefinitely.
+
+## Share Socket HTTP listeners by exact server identity and segment-bounded prefixes
+
+Multiple `SocketHttpServerApi` objects may share a listener only when they receive the same `IAsyncSocketServer` object. Key shared dispatch state by exact server identity rather than port, start the listener once, keep registrations independently stoppable, and stop it after the final prefix is removed.
+
+Normalize a trailing slash from each origin-form prefix and route only the exact prefix or slash-delimited descendants. Preserve longest-prefix selection, but never let a textual near-match such as `/ABC/defghi` match `/ABC/def`.
+
+## `HttpRequestClient` owns the fatal HTTP 404 policy
+
+Keep `HttpRequestConnection` permissive so it can parse and deliver an ordinary 404 response. `HttpRequestClient`, which owns the physical socket client, applies the stricter policy: classify 404 as `HttpResponseFailure::NotFound`, skip normal response delivery, report the structured failure, and stop the connection.
+
+Map that failure through `SocketHttpClientApi` as `SocketHttpClientErrorCode::ResponseNotFound`. The high-level client treats it as one fatal local error on `/Connect`, `/Request`, or `/Response` and does not retry the endpoint.

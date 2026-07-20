@@ -10,6 +10,7 @@
 - Search project metadata after source file renames [1]
 - Test inherited `Thread` completion with a custom subclass [1]
 - Synchronize server startup outside dedicated retry tests [1]
+- Test shared Socket HTTP routing through one injected listener and client [1]
 
 # Refinements
 
@@ -52,3 +53,7 @@ Keep a focused test whose directly derived `Thread` returns immediately from `Ru
 Shared protocol scenarios should deterministically start the listener before clients when their purpose is framing, callback ordering, FIFO sends, channel routing, and shutdown. On Windows, posting `ConnectEx` just before `listen` can leave one pending attempt waiting for the TCP retransmission interval even though the library's retry path never runs; use an explicit startup barrier for that scenario instead of changing socket options or retry timing.
 
 Keep client-before-server behavior in a dedicated native async-socket test that intentionally and deterministically exercises retry. Preserve repeated protocol runs and consecutive sends, but do not make an incidental scheduling race responsible for unrelated coverage.
+
+## Test shared Socket HTTP routing through one injected listener and client
+
+To verify the Socket HTTP composition boundary, construct multiple server APIs with the exact same server pointer and distinct prefixes, then call all of them through one client API. Cover exact and descendant routes, a textual near-match that must return 404, longest-prefix selection, independent registration shutdown, and final listener shutdown.
