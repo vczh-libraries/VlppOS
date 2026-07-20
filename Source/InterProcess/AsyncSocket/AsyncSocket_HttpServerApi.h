@@ -79,9 +79,11 @@ namespace vl::inter_process::async_tcp_socket
 		virtual void						OnHttpServerStopping();
 
 	public:
+		/// <remarks>Requiring an asynchronous socket server is intentional. The caller selects and owns the transport composition, the port comes from the supplied server, and multiple APIs share one listener only by receiving the same server. Keep this dependency explicit; do not add internal server creation.</remarks>
 		SocketHttpServerApi(
+			Ptr<IAsyncSocketServer> server,
 			const WString& urlPrefix,
-			bool respondToOptions
+			bool respondToOptions = true
 			);
 		virtual ~SocketHttpServerApi();
 

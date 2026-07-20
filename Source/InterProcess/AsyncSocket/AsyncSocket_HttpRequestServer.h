@@ -29,6 +29,7 @@ namespace vl::inter_process::async_tcp_socket
 			);
 
 	public:
+		/// <remarks>Requiring an asynchronous socket server is intentional. The caller selects and owns the transport composition, and this request adapter never creates or replaces the supplied server. Keep this dependency explicit; do not add internal server creation.</remarks>
 		explicit HttpRequestServer(Ptr<IAsyncSocketServer> server);
 		/// <remarks>A derived destructor must call <see cref="Stop"/> before destroying any state accessed by <see cref="OnClientConnected"/>.</remarks>
 		virtual ~HttpRequestServer();

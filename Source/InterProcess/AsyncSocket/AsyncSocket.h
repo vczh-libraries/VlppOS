@@ -59,6 +59,11 @@ namespace vl::inter_process::async_tcp_socket
 	class IAsyncSocketClient : public virtual Interface
 	{
 	public:
+		/// <summary>Returns the immutable loopback port selected during construction.</summary>
+		virtual vint							GetPort() = 0;
+		/// <summary>Creates a fresh independent client with the same transport configuration and endpoint.</summary>
+		/// <remarks>The returned client must be distinct, report the same port, and have <see cref="ClientStatus::Ready"/> status. This operation remains available while the source client is active or stopped.</remarks>
+		virtual Ptr<IAsyncSocketClient>			CreateSameEndpointClient() = 0;
 		virtual IAsyncSocketConnection*			GetConnection() = 0;
 		virtual void							WaitForServer() = 0;
 		virtual ClientStatus					GetStatus() = 0;
@@ -94,6 +99,8 @@ namespace vl::inter_process::async_tcp_socket
 	class IAsyncSocketServer : public virtual Interface
 	{
 	public:
+		/// <summary>Returns the immutable loopback port selected during construction.</summary>
+		virtual vint							GetPort() = 0;
 		virtual void							Start(IAsyncSocketServerCallback* callback) = 0;
 		virtual void							Stop() = 0;
 		virtual bool							IsStopped() = 0;
@@ -103,6 +110,9 @@ namespace vl::inter_process::async_tcp_socket
 	// a fresh native socket and is followed by an asynchronous millisecond delay.
 	constexpr vint AsyncSocketClientRetryCount = 50;
 	constexpr vint AsyncSocketClientRetryDelay = 100;
+
+	extern Ptr<IAsyncSocketServer>			CreateDefaultAsyncSocketServer(vint port);
+	extern Ptr<IAsyncSocketClient>			CreateDefaultAsyncSocketClient(vint port);
 
 /***********************************************************************
 NetworkProtocolConnection

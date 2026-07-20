@@ -11,16 +11,20 @@ namespace vl::inter_process::async_tcp_socket
 	{
 		constexpr vint						GeneratedTokenLength = 36;
 
-		WString CreateServerUrlPrefix(const WString& baseUrl, vint port)
+		WString ValidateServerUrlPrefix(const WString& urlPrefix)
 		{
-#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServer::SocketHttpServer(const WString&, vint)#"
-			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(baseUrl), ERROR_MESSAGE_PREFIX L"baseUrl must be empty or a legal ASCII origin-form path prefix without a trailing slash.");
-			CHECK_ERROR(1 <= port && port <= 65535, ERROR_MESSAGE_PREFIX L"port must be in 1..65535.");
-			CHECK_ERROR(ValidateHttpRequestLine(L"GET", baseUrl + HttpServerUrl_Connect) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Connect target exceeds the HTTP request-line limit.");
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServer::SocketHttpServer(Ptr<IAsyncSocketServer>, const WString&)#"
+			auto normalizedUrlPrefix = urlPrefix;
+			while (normalizedUrlPrefix.Length() > 0 && normalizedUrlPrefix[normalizedUrlPrefix.Length() - 1] == L'/')
+			{
+				normalizedUrlPrefix = normalizedUrlPrefix.Left(normalizedUrlPrefix.Length() - 1);
+			}
+			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(normalizedUrlPrefix), ERROR_MESSAGE_PREFIX L"urlPrefix must be empty or a legal ASCII origin-form path prefix.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"GET", normalizedUrlPrefix + HttpServerUrl_Connect) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Connect target exceeds the HTTP request-line limit.");
 			const WString tokenPlaceholder = L"000000000000000000000000000000000000";
-			CHECK_ERROR(ValidateHttpRequestLine(L"POST", baseUrl + HttpServerUrl_Request + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Request target plus a generated token exceeds the HTTP request-line limit.");
-			CHECK_ERROR(ValidateHttpRequestLine(L"POST", baseUrl + HttpServerUrl_Response + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Response target plus a generated token exceeds the HTTP request-line limit.");
-			return L"http://localhost:" + itow(port) + baseUrl;
+			CHECK_ERROR(ValidateHttpRequestLine(L"POST", normalizedUrlPrefix + HttpServerUrl_Request + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Request target plus a generated token exceeds the HTTP request-line limit.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"POST", normalizedUrlPrefix + HttpServerUrl_Response + L"/" + tokenPlaceholder) == HttpRequestLineValidationResult::Succeeded, ERROR_MESSAGE_PREFIX L"The /Response target plus a generated token exceeds the HTTP request-line limit.");
+			return normalizedUrlPrefix;
 #undef ERROR_MESSAGE_PREFIX
 		}
 
@@ -1214,8 +1218,8 @@ namespace vl::inter_process::async_tcp_socket
 		SetSocketHttpServerPollCallbacksForTesting({}, {}, {});
 	}
 
-	SocketHttpServer::SocketHttpServer(const WString& baseUrl, vint port)
-		: SocketHttpServerApi(CreateServerUrlPrefix(baseUrl, port), true)
+	SocketHttpServer::SocketHttpServer(Ptr<IAsyncSocketServer> server, const WString& urlPrefix)
+		: SocketHttpServerApi(server, ValidateServerUrlPrefix(urlPrefix))
 		, impl(Ptr(new Impl(this)))
 	{
 	}

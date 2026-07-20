@@ -3,13 +3,8 @@
 #include "../../Source/Threading.h"
 
 #if defined VCZH_MSVC
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClientApi.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServerApi.Windows.h"
-#elif defined VCZH_GCC && defined VCZH_APPLE
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
-#elif defined VCZH_GCC && !defined VCZH_APPLE
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h"
 #endif
 
 using namespace vl;
@@ -233,9 +228,48 @@ namespace http_request_test
 		}
 	};
 
+	class FakeAsyncSocketClient : public Object, public virtual IAsyncSocketClient
+	{
+	private:
+		Ptr<FakeAsyncSocketConnection>	connection;
+		ClientStatus					status = ClientStatus::Ready;
+
+	public:
+		FakeAsyncSocketClient(Ptr<FakeAsyncSocketConnection> _connection)
+			: connection(_connection)
+		{
+		}
+
+		vint GetPort() override
+		{
+			return 1;
+		}
+
+		Ptr<IAsyncSocketClient> CreateSameEndpointClient() override
+		{
+			return Ptr<IAsyncSocketClient>(new FakeAsyncSocketClient(Ptr(new FakeAsyncSocketConnection)));
+		}
+
+		IAsyncSocketConnection* GetConnection() override
+		{
+			return connection.Obj();
+		}
+
+		void WaitForServer() override
+		{
+			status = ClientStatus::Connected;
+		}
+
+		ClientStatus GetStatus() override
+		{
+			return connection->stopCount == 0 ? status : ClientStatus::Disconnected;
+		}
+	};
+
 	class FakeAsyncSocketServer : public Object, public virtual IAsyncSocketServer
 	{
 	private:
+		vint						port = 1;
 		IAsyncSocketServerCallback*		callback = nullptr;
 		bool						stopped = true;
 
@@ -243,6 +277,11 @@ namespace http_request_test
 		vint						startCount = 0;
 		vint						stopCount = 0;
 		bool						callbackPresentDuringFirstStop = false;
+
+		vint GetPort() override
+		{
+			return port;
+		}
 
 		void Start(IAsyncSocketServerCallback* value) override
 		{
@@ -507,6 +546,7 @@ namespace http_request_test
 		List<Ptr<HttpRequest>>			requests;
 		List<HttpRequestFailure>		requestFailures;
 		List<Ptr<HttpResponse>>			responses;
+		List<HttpResponseFailure>		responseFailures;
 		List<WString>					events;
 		WString						lastError;
 		bool						lastErrorFatal = false;
@@ -535,6 +575,12 @@ namespace http_request_test
 		{
 			responses.Add(response);
 			events.Add(L"response");
+		}
+
+		void OnReadResponseFailure(HttpResponseFailure failure) override
+		{
+			responseFailures.Add(failure);
+			IHttpRequestCallback::OnReadResponseFailure(failure);
 		}
 
 		void OnWriteCompleted() override
@@ -1263,6 +1309,53 @@ namespace http_request_test
 			TEST_ASSERT(callback.responses[0]->reason == L"Accepted");
 			TEST_ASSERT(callback.events.IndexOf(L"write") < callback.events.IndexOf(L"response"));
 			connection->Stop();
+		});
+
+		TEST_CASE(L"HttpRequestClient treats 404 as a structured fatal response failure")
+		{
+			auto permissiveSocket = Ptr(new FakeAsyncSocketConnection);
+			permissiveSocket->completeWritesImmediately = true;
+			auto permissiveConnection = Ptr(new HttpRequestConnection(permissiveSocket.Obj(), HttpRequestConnectionDirection::Client));
+			RecordingHttpCallback permissiveCallback;
+			permissiveConnection->InstallCallback(&permissiveCallback);
+			permissiveConnection->BeginReadingLoopUnsafe();
+			auto permissiveRequest = Ptr(new HttpRequest);
+			permissiveRequest->method = L"GET";
+			permissiveRequest->requestTarget = L"/not-found";
+			permissiveConnection->SendRequest(permissiveRequest);
+			permissiveSocket->Feed(ByteArray("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"));
+			TEST_ASSERT(permissiveCallback.responses.Count() == 1);
+			TEST_ASSERT(permissiveCallback.responses[0]->statusCode == 404);
+			TEST_ASSERT(permissiveCallback.responseFailures.Count() == 0);
+			TEST_ASSERT(permissiveCallback.lastError == WString::Empty);
+			permissiveConnection->Stop();
+
+			auto socket = Ptr(new FakeAsyncSocketConnection);
+			socket->completeWritesImmediately = true;
+			auto nativeClient = Ptr(new FakeAsyncSocketClient(socket));
+			auto client = Ptr(new HttpRequestClient(nativeClient));
+			client->WaitForServer();
+			RecordingHttpCallback callback;
+			auto connection = client->GetConnection();
+			connection->InstallCallback(&callback);
+			connection->BeginReadingLoopUnsafe();
+			auto request = Ptr(new HttpRequest);
+			request->method = L"GET";
+			request->requestTarget = L"/not-found";
+			connection->SendRequest(request);
+			socket->Feed(ByteArray("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"));
+
+			TEST_ASSERT(callback.responses.Count() == 0);
+			TEST_ASSERT(callback.responseFailures.Count() == 1);
+			TEST_ASSERT(callback.responseFailures[0] == HttpResponseFailure::NotFound);
+			TEST_ASSERT(callback.lastError == L"The HTTP client received a 404 Not Found response.");
+			TEST_ASSERT(callback.lastErrorFatal);
+			TEST_ASSERT(callback.disconnectedCount == 1);
+			TEST_ASSERT(callback.events.IndexOf(L"write") < callback.events.IndexOf(L"fatal"));
+			TEST_ASSERT(callback.events.IndexOf(L"fatal") < callback.events.IndexOf(L"disconnected"));
+			TEST_ASSERT(socket->stopCount == 1);
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+			TEST_ERROR(connection->SendRequest(request));
 		});
 
 		TEST_CASE(L"HTTP client accepts one cross-thread request while a response callback is delivering")
@@ -2958,13 +3051,12 @@ namespace http_request_test
 		TEST_ASSERT(failure == L"");
 	}
 
-	template<typename TNativeServer, typename TNativeClient>
 	void RunNativeScenario()
 	{
 		auto state = Ptr(new NativeScenarioState);
 		NativeServerHttpCallback serverCallback(*state.Obj());
 		NativeClientHttpCallback clientCallback(*state.Obj());
-		auto nativeServer = Ptr<IAsyncSocketServer>(new TNativeServer(38800));
+		auto nativeServer = CreateDefaultAsyncSocketServer(38800);
 		auto server = Ptr(new NativeScenarioServer(nativeServer, *state.Obj(), serverCallback));
 		Ptr<HttpRequestClient> client;
 		bool waitQueued = false;
@@ -2973,7 +3065,7 @@ namespace http_request_test
 		try
 		{
 			server->Start();
-			auto nativeClient = Ptr<IAsyncSocketClient>(new TNativeClient(38800));
+			auto nativeClient = CreateDefaultAsyncSocketClient(38800);
 			client = Ptr(new HttpRequestClient(nativeClient));
 			client->GetConnection()->InstallCallback(&clientCallback);
 			waitQueued = ThreadPoolLite::Queue(Func<void()>([client, state]()
@@ -3228,10 +3320,9 @@ namespace http_request_test
 
 	void RunWindowsClientApiToHttpRequestServer()
 	{
-		using namespace vl::inter_process::async_tcp_socket::windows_socket;
 		NativeScenarioState state;
 		WindowsClientApiServerCallback serverCallback(state);
-		auto nativeServer = Ptr<IAsyncSocketServer>(new AsyncSocketServer(38801));
+		auto nativeServer = CreateDefaultAsyncSocketServer(38801);
 		auto server = Ptr(new WindowsClientApiInteropServer(nativeServer, state, serverCallback));
 		server->Start();
 
@@ -3379,13 +3470,12 @@ namespace http_request_test
 
 	void RunHttpRequestClientToWindowsServerApi()
 	{
-		using namespace vl::inter_process::async_tcp_socket::windows_socket;
 		auto state = Ptr(new NativeScenarioState);
 		HttpSysInteropServer server(*state.Obj());
 		server.Start();
 
 		HttpSysInteropClientCallback clientCallback(*state.Obj());
-		auto nativeClient = Ptr<IAsyncSocketClient>(new AsyncSocketClient(38802));
+		auto nativeClient = CreateDefaultAsyncSocketClient(38802);
 		auto client = Ptr(new HttpRequestClient(nativeClient));
 		client->GetConnection()->InstallCallback(&clientCallback);
 		bool waitQueued = ThreadPoolLite::Queue(Func<void()>([client, state]()
@@ -3468,16 +3558,7 @@ TEST_FILE
 
 	TEST_CASE(L"HTTP request and response complete two native sequential exchanges")
 	{
-#if defined VCZH_MSVC
-		using namespace vl::inter_process::async_tcp_socket::windows_socket;
-		RunNativeScenario<AsyncSocketServer, AsyncSocketClient>();
-#elif defined VCZH_GCC && defined VCZH_APPLE
-		using namespace vl::inter_process::async_tcp_socket::macos_socket;
-		RunNativeScenario<AsyncSocketServer, AsyncSocketClient>();
-#elif defined VCZH_GCC && !defined VCZH_APPLE
-		using namespace vl::inter_process::async_tcp_socket::linux_socket;
-		RunNativeScenario<AsyncSocketServer, AsyncSocketClient>();
-#endif
+		RunNativeScenario();
 	});
 
 #if defined VCZH_MSVC

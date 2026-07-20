@@ -25,8 +25,6 @@ using namespace vl::inter_process::windows_http;
 
 namespace vl::inter_process::async_tcp_socket
 {
-	extern void SetSocketHttpServerListenerFactoryForTesting(const Func<Ptr<IAsyncSocketServer>(vint)>& factory);
-	extern void ResetSocketHttpServerListenerFactoryForTesting();
 	extern void SetSocketHttpServerPollCallbacksForTesting(
 		const Func<void(const WString&)>& claimed,
 		const Func<void(const WString&, bool)>& completed,
@@ -884,30 +882,6 @@ namespace mynamespace
 {
 	constexpr vint SocketHttpFocusedTimeout = 30000;
 
-	template<typename TNativeServer>
-	class SocketHttpListenerFactoryScope
-	{
-	public:
-		SocketHttpListenerFactoryScope()
-		{
-			async_tcp_socket::SetSocketHttpServerListenerFactoryForTesting(Func<Ptr<async_tcp_socket::IAsyncSocketServer>(vint)>([](vint port)
-			{
-				return Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
-			}));
-		}
-
-		~SocketHttpListenerFactoryScope()
-		{
-			try
-			{
-				async_tcp_socket::ResetSocketHttpServerListenerFactoryForTesting();
-			}
-			catch (...)
-			{
-			}
-		}
-	};
-
 	class SocketHttpPollHookScope
 	{
 	public:
@@ -997,9 +971,9 @@ namespace mynamespace
 		, public async_tcp_socket::SocketHttpServer
 	{
 	public:
-		SocketHttpTextServer(ChatData& chatData, const WString& baseUrl, vint port)
+		SocketHttpTextServer(ChatData& chatData, Ptr<async_tcp_socket::IAsyncSocketServer> socketServer, const WString& baseUrl)
 			: TextServerCallbackHost(chatData)
-			, SocketHttpServer(baseUrl, port)
+			, SocketHttpServer(socketServer, baseUrl)
 		{
 		}
 
@@ -1019,8 +993,8 @@ namespace mynamespace
 		using Base = ChannelServer<async_tcp_socket::SocketHttpServer>;
 
 	public:
-		SocketHttpChannelServer(ChannelChatData& chatData, const WString& baseUrl, vint port)
-			: Base(chatData, baseUrl, port)
+		SocketHttpChannelServer(ChannelChatData& chatData, Ptr<async_tcp_socket::IAsyncSocketServer> socketServer, const WString& baseUrl)
+			: Base(chatData, socketServer, baseUrl)
 		{
 		}
 
@@ -1156,8 +1130,8 @@ namespace mynamespace
 		INetworkProtocolCallback*		callback = nullptr;
 
 	public:
-		SingleConnectionSocketHttpServer(const WString& baseUrl, vint port, INetworkProtocolCallback* _callback)
-			: SocketHttpServer(baseUrl, port)
+		SingleConnectionSocketHttpServer(Ptr<async_tcp_socket::IAsyncSocketServer> socketServer, const WString& baseUrl, INetworkProtocolCallback* _callback)
+			: SocketHttpServer(socketServer, baseUrl)
 			, callback(_callback)
 		{
 		}
@@ -1236,8 +1210,8 @@ namespace mynamespace
 		}
 
 	public:
-		SocketHttpStopRaceServer(const WString& baseUrl, vint port, INetworkProtocolCallback* callback, Ptr<SocketHttpStopRaceState> _state)
-			: SingleConnectionSocketHttpServer(baseUrl, port, callback)
+		SocketHttpStopRaceServer(Ptr<async_tcp_socket::IAsyncSocketServer> socketServer, const WString& baseUrl, INetworkProtocolCallback* callback, Ptr<SocketHttpStopRaceState> _state)
+			: SingleConnectionSocketHttpServer(socketServer, baseUrl, callback)
 			, state(_state)
 		{
 		}
@@ -1375,12 +1349,12 @@ namespace mynamespace
 
 	public:
 		TwoConnectionSocketHttpServer(
+			Ptr<async_tcp_socket::IAsyncSocketServer> socketServer,
 			const WString& baseUrl,
-			vint port,
 			INetworkProtocolCallback* firstCallback,
 			INetworkProtocolCallback* secondCallback
 			)
-			: SocketHttpServer(baseUrl, port)
+			: SocketHttpServer(socketServer, baseUrl)
 		{
 			callbacks[0] = firstCallback;
 			callbacks[1] = secondCallback;
@@ -1533,21 +1507,23 @@ namespace mynamespace
 		}
 	};
 
-	template<typename TNativeClient>
 	Ptr<async_tcp_socket::HttpResponse> SubmitSocketHttpRawQuery(vint port, Ptr<async_tcp_socket::HttpRequest> request)
 	{
 		SocketHttpRawQueryCallback callback;
-		auto nativeClient = Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(port));
-		auto client = Ptr(new async_tcp_socket::HttpRequestClient(nativeClient));
-		client->GetConnection()->InstallCallback(&callback);
-		client->WaitForServer();
-		client->GetConnection()->BeginReadingLoopUnsafe();
-		client->GetConnection()->SendRequest(request);
+		auto nativeClient = async_tcp_socket::CreateDefaultAsyncSocketClient(port);
+		auto connection = Ptr(new async_tcp_socket::HttpRequestConnection(
+			nativeClient->GetConnection(),
+			async_tcp_socket::HttpRequestConnectionDirection::Client
+			));
+		connection->InstallCallback(&callback);
+		nativeClient->WaitForServer();
+		connection->BeginReadingLoopUnsafe();
+		connection->SendRequest(request);
 		CHECK_ERROR(callback.eventCompleted.WaitForTime(SocketHttpFocusedTimeout), L"The raw SocketHttp query timed out.");
 		auto response = callback.GetResponse();
 		auto failure = callback.GetFailure();
-		client->GetConnection()->Stop();
-		client->GetConnection()->InstallCallback(nullptr);
+		connection->Stop();
+		connection->InstallCallback(nullptr);
 		auto failureMessage = L"The raw SocketHttp query failed: " + failure;
 		CHECK_ERROR(failure == WString::Empty, failureMessage.Buffer());
 		CHECK_ERROR(response, L"The raw SocketHttp query completed without a response.");
@@ -1682,6 +1658,15 @@ namespace mynamespace
 			}
 		}
 
+		vint ResponseCount()
+		{
+			CS_LOCK(lockState)
+			{
+				return responseIndex;
+			}
+			return 0;
+		}
+
 		WaitForClientResult OnClientConnected(async_tcp_socket::IHttpRequestConnection* connection) override
 		{
 			auto callback = Ptr(new Callback(this));
@@ -1804,20 +1789,27 @@ namespace mynamespace
 		}));
 	}
 
-	template<typename TNativeClient>
 	Ptr<async_tcp_socket::SocketHttpClientApi> CreateFocusedSocketHttpApi(vint port)
 	{
 		return Ptr(new async_tcp_socket::SocketHttpClientApi(
-			Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(port)),
-			L"localhost:" + itow(port)
+			async_tcp_socket::CreateDefaultAsyncSocketClient(port),
+			L"localhost"
 			));
 	}
+
+	enum class PollScriptNotFoundRoute
+	{
+		None,
+		Request,
+		Response,
+	};
 
 	class PollScriptServer : public async_tcp_socket::SocketHttpServerApi
 	{
 	private:
 		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/focused-token";
 		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/focused-token";
+		PollScriptNotFoundRoute			notFoundRoute = PollScriptNotFoundRoute::None;
 		SpinLock						lockContexts;
 		Ptr<async_tcp_socket::SocketHttpRequestContext>
 									firstPoll;
@@ -1836,6 +1828,11 @@ namespace mynamespace
 			else if (path == requestPath)
 			{
 				auto index = ++pollCount;
+				if (notFoundRoute == PollScriptNotFoundRoute::Request)
+				{
+					context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+					return;
+				}
 				if (index == 1)
 				{
 					SPIN_LOCK(lockContexts)
@@ -1857,7 +1854,14 @@ namespace mynamespace
 			{
 				responseCount++;
 				responseBody = ReadSocketHttpBody(context->GetRequest()->body);
-				context->Respond(CreateSocketHttpResponse(200, L"piggyback-reply"));
+				if (notFoundRoute == PollScriptNotFoundRoute::Response)
+				{
+					context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+				}
+				else
+				{
+					context->Respond(CreateSocketHttpResponse(200, L"piggyback-reply"));
+				}
 				eventResponse.Signal();
 			}
 			else
@@ -1875,8 +1879,13 @@ namespace mynamespace
 		atomic_vint					responseCount = 0;
 		WString							responseBody;
 
-		PollScriptServer(const WString& _baseUrl, vint port)
-			: SocketHttpServerApi(L"http://localhost:" + itow(port) + _baseUrl, false)
+		PollScriptServer(
+			Ptr<async_tcp_socket::IAsyncSocketServer> socketServer,
+			const WString& _baseUrl,
+			PollScriptNotFoundRoute _notFoundRoute = PollScriptNotFoundRoute::None
+			)
+			: SocketHttpServerApi(socketServer, _baseUrl, false)
+			, notFoundRoute(_notFoundRoute)
 		{
 			CHECK_ERROR(eventFirstPoll.CreateManualUnsignal(false), L"Failed to create the first-poll event.");
 			CHECK_ERROR(eventReplacementPoll.CreateManualUnsignal(false), L"Failed to create the replacement-poll event.");
@@ -2019,8 +2028,8 @@ namespace mynamespace
 		EventObject						eventFatalAttempts;
 		atomic_vint					connectCount = 0;
 
-		RetryScriptServer(const WString& baseUrl, vint port)
-			: SocketHttpServerApi(L"http://localhost:" + itow(port) + baseUrl, false)
+		RetryScriptServer(Ptr<async_tcp_socket::IAsyncSocketServer> socketServer, const WString& baseUrl)
+			: SocketHttpServerApi(socketServer, baseUrl, false)
 		{
 			CHECK_ERROR(eventFirstAttempt.CreateManualUnsignal(false), L"Failed to create the first-attempt event.");
 			CHECK_ERROR(eventReleaseFirstAttempt.CreateManualUnsignal(false), L"Failed to create the release-first-attempt event.");
@@ -2146,15 +2155,13 @@ namespace mynamespace
 		}
 	};
 
-	template<typename TNativeClient>
-	Ptr<INetworkProtocolClient> CreateSocketHttpProtocolClient(const WString& baseUrl, vint port, atomic_vint* factoryCalls = nullptr)
+	Ptr<INetworkProtocolClient> CreateSocketHttpProtocolClient(const WString& baseUrl, vint port)
 	{
-		auto factory = async_tcp_socket::SocketHttpClient::NativeClientFactory([factoryCalls](vint nativePort)
-		{
-			if (factoryCalls) (*factoryCalls)++;
-			return Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(nativePort));
-		});
-		return Ptr<INetworkProtocolClient>(new async_tcp_socket::SocketHttpClient(baseUrl, port, factory));
+		return Ptr<INetworkProtocolClient>(new async_tcp_socket::SocketHttpClient(
+			async_tcp_socket::CreateDefaultAsyncSocketClient(port),
+			L"localhost",
+			baseUrl
+			));
 	}
 
 	WString RepeatSocketHttpCharacter(wchar_t character, vint count)
@@ -2349,19 +2356,17 @@ void RunAsyncSocketNetworkProtocolTestCases(bool synchronizeServerStartup)
 	});
 }
 
-template<typename TNativeServer, typename TNativeClient>
 void RunSocketHttpNetworkProtocolTestCases()
 {
 	TEST_CASE(L"SocketHttp portable pair (NetworkProtocol)")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			const vint port = 39000 + i;
 			const WString baseUrl = L"/VlppOSTestSocketHttpProtocol";
 			RunTextNetworkProtocol(
-				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, baseUrl, port)); },
-				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
 				true
 			);
 		}
@@ -2369,14 +2374,13 @@ void RunSocketHttpNetworkProtocolTestCases()
 
 	TEST_CASE(L"SocketHttp portable pair (Channel)")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			const vint port = 39100 + i;
 			const WString baseUrl = L"/VlppOSTestSocketHttpChannel";
 			RunNetworkProtocolChannel(
-				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, baseUrl, port)); },
-				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl)); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
 				true
 			);
 		}
@@ -2384,18 +2388,16 @@ void RunSocketHttpNetworkProtocolTestCases()
 }
 
 #ifdef VCZH_MSVC
-template<typename TNativeServer, typename TNativeClient>
 void RunSocketHttpWindowsInteropTestCases()
 {
 	TEST_CASE(L"SocketHttpServer with Windows HttpClient (NetworkProtocol)")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			const vint port = 39200 + i;
 			const WString baseUrl = L"/VlppOSTestSocketHttpWinClientProtocol";
 			RunTextNetworkProtocol(
-				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, baseUrl, port)); },
+				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new SocketHttpTextServer(chatData, async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl)); },
 				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port)); },
 				true
 			);
@@ -2404,13 +2406,12 @@ void RunSocketHttpWindowsInteropTestCases()
 
 	TEST_CASE(L"SocketHttpServer with Windows HttpClient (Channel)")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			const vint port = 39300 + i;
 			const WString baseUrl = L"/VlppOSTestSocketHttpWinClientChannel";
 			RunNetworkProtocolChannel(
-				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, baseUrl, port)); },
+				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new SocketHttpChannelServer(chatData, async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl)); },
 				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port)); },
 				true
 			);
@@ -2423,7 +2424,7 @@ void RunSocketHttpWindowsInteropTestCases()
 		const WString baseUrl = L"/VlppOSTestWinClientLegacyConnect";
 		List<Ptr<async_tcp_socket::HttpResponse>> responses;
 		responses.Add(CreateSocketHttpScriptResponse(200, L"/request-path;/response-path;legacy-suffix"));
-		auto nativeServer = Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
+		auto nativeServer = async_tcp_socket::CreateDefaultAsyncSocketServer(port);
 		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
 			nativeServer,
 			baseUrl + HttpServerUrl_Connect,
@@ -2449,7 +2450,7 @@ void RunSocketHttpWindowsInteropTestCases()
 			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpProtocol";
 			RunTextNetworkProtocol(
 				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, baseUrl, port)); },
-				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
 				true
 			);
 		}
@@ -2463,7 +2464,7 @@ void RunSocketHttpWindowsInteropTestCases()
 			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpChannel";
 			RunNetworkProtocolChannel(
 				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, baseUrl, port)); },
-				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port); },
+				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
 				true
 			);
 		}
@@ -2471,21 +2472,19 @@ void RunSocketHttpWindowsInteropTestCases()
 }
 #endif
 
-template<typename TNativeServer, typename TNativeClient>
 void RunSocketHttpFocusedTestCases()
 {
 	TEST_CASE(L"SocketHttp server preserves strict Network Protocol request wire forms")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39611;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedWireServer";
 		SocketHttpRecordingCallback callback;
-		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &callback));
+		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &callback));
 		server->Start();
 
 		auto expectStatus = [port](Ptr<async_tcp_socket::HttpRequest> request, vint statusCode)
 		{
-			auto response = SubmitSocketHttpRawQuery<TNativeClient>(port, request);
+			auto response = SubmitSocketHttpRawQuery(port, request);
 			TEST_ASSERT(response->statusCode == statusCode);
 			return response;
 		};
@@ -2657,11 +2656,11 @@ void RunSocketHttpFocusedTestCases()
 		auto normalPair = WString::Unmanaged(HttpServerUrl_Request) + L"/script-token;" + HttpServerUrl_Response + L"/script-token";
 		auto runScript = [normalPair](vint port, const List<Ptr<async_tcp_socket::HttpResponse>>& responses, vint expectedErrors)
 		{
-			auto nativeServer = Ptr<async_tcp_socket::IAsyncSocketServer>(new TNativeServer(port));
+			auto nativeServer = async_tcp_socket::CreateDefaultAsyncSocketServer(port);
 			auto server = Ptr(new SocketHttpConnectResponseScriptServer(nativeServer, HttpServerUrl_Connect, responses));
 			server->Start();
 			RetryClientCallback callback;
-			auto client = CreateSocketHttpProtocolClient<TNativeClient>(WString::Empty, port);
+			auto client = CreateSocketHttpProtocolClient(WString::Empty, port);
 			client->GetConnection()->InstallCallback(&callback);
 			client->WaitForServer();
 			TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
@@ -2832,19 +2831,18 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp constructors preserve base-prefix and request-line boundaries")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39618;
-		auto clientFactory = async_tcp_socket::SocketHttpClient::NativeClientFactory([](vint nativePort)
-		{
-			return Ptr<async_tcp_socket::IAsyncSocketClient>(new TNativeClient(nativePort));
-		});
 		auto createServer = [port](const WString& baseUrl)
 		{
-			return Ptr(new async_tcp_socket::SocketHttpServer(baseUrl, port));
+			return Ptr(new async_tcp_socket::SocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl));
 		};
-		auto createClient = [port, clientFactory](const WString& baseUrl)
+		auto createClient = [port](const WString& baseUrl)
 		{
-			return Ptr(new async_tcp_socket::SocketHttpClient(baseUrl, port, clientFactory));
+			return Ptr(new async_tcp_socket::SocketHttpClient(
+				async_tcp_socket::CreateDefaultAsyncSocketClient(port),
+				L"localhost",
+				baseUrl
+				));
 		};
 
 		{
@@ -2856,10 +2854,16 @@ void RunSocketHttpFocusedTestCases()
 			auto server = createServer(legal);
 			auto client = createClient(legal);
 		}
+		{
+			auto rootServer = createServer(L"/");
+			auto trailingServer = createServer(L"/trailing///");
+			auto rootClient = createClient(L"/");
+			auto trailingClient = createClient(L"/trailing///");
+			TEST_ASSERT(rootServer->GetUrlPrefix() == L"http://localhost:39618");
+			TEST_ASSERT(trailingServer->GetUrlPrefix() == L"http://localhost:39618/trailing");
+		}
 
 		List<WString> invalidBaseUrls;
-		invalidBaseUrls.Add(L"/");
-		invalidBaseUrls.Add(L"/trailing/");
 		invalidBaseUrls.Add(L"/query?value");
 		invalidBaseUrls.Add(L"/fragment#value");
 		invalidBaseUrls.Add(L"/back\\slash");
@@ -2895,16 +2899,110 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ERROR(createClient(exactClientBaseUrl + L"a"));
 	});
 
+	TEST_CASE(L"SocketHttp treats Connect 404 as one fatal local error without retry")
+	{
+		const vint port = 39631;
+		const WString baseUrl = L"/VlppOSTestSocketHttpMissing";
+		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
+		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl + HttpServerUrl_Connect,
+			responses
+			));
+		server->Start();
+
+		RetryClientCallback callback;
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+
+		TEST_ASSERT(server->ResponseCount() == 1);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(callback.fatalBeforeDisconnected);
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp treats Request 404 as one fatal local error without retry")
+	{
+		const vint port = 39632;
+		const WString baseUrl = L"/VlppOSTestSocketHttpRequestMissing";
+		auto server = Ptr(new PollScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl,
+			PollScriptNotFoundRoute::Request
+			));
+		server->Start();
+
+		RetryClientCallback callback;
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(server->pollCount == 1);
+		TEST_ASSERT(server->responseCount == 0);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(callback.fatalBeforeDisconnected);
+		TEST_ASSERT(callback.eventFatalError.WaitForTime(0));
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"SocketHttp treats Response 404 as one fatal local error without retry")
+	{
+		const vint port = 39633;
+		const WString baseUrl = L"/VlppOSTestSocketHttpResponseMissing";
+		auto server = Ptr(new PollScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl,
+			PollScriptNotFoundRoute::Response
+			));
+		server->Start();
+
+		RetryClientCallback callback;
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(server->eventFirstPoll.WaitForTime(SocketHttpFocusedTimeout));
+		client->GetConnection()->SendString(L"not-found-response");
+		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(server->pollCount == 1);
+		TEST_ASSERT(server->responseCount == 1);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(callback.fatalBeforeDisconnected);
+		TEST_ASSERT(callback.eventFatalError.WaitForTime(0));
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
 	TEST_CASE(L"SocketHttp empty poll response submits a replacement without delivering a message")
 	{
 		const vint port = 39619;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedEmptyPoll";
-		auto server = Ptr(new PollScriptServer(baseUrl, port));
+		auto server = Ptr(new PollScriptServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl));
 		server->Start();
 		atomic_vint receiveSubmissions = 0;
 		SocketHttpReceiveSubmissionHookScope receiveSubmissionHook(Func<void()>([&receiveSubmissions]() { receiveSubmissions++; }));
 		PollClientCallback callback(&receiveSubmissions);
-		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 		client->GetConnection()->InstallCallback(&callback);
 		client->WaitForServer();
 		client->GetConnection()->BeginReadingLoopUnsafe();
@@ -2919,15 +3017,14 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp replacement poll precedes callback and Response reply is piggybacked")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39600;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedPoll";
 		atomic_vint receiveSubmissions = 0;
 		SocketHttpReceiveSubmissionHookScope receiveSubmissionHook(Func<void()>([&receiveSubmissions]() { receiveSubmissions++; }));
-		auto server = Ptr(new PollScriptServer(baseUrl, port));
+		auto server = Ptr(new PollScriptServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl));
 		server->Start();
 		PollClientCallback callback(&receiveSubmissions);
-		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 		client->GetConnection()->InstallCallback(&callback);
 		client->WaitForServer();
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
@@ -2955,9 +3052,9 @@ void RunSocketHttpFocusedTestCases()
 		const vint piggybackPort = 39607;
 		const WString piggybackBaseUrl = L"/VlppOSTestSocketHttpFocusedServerPiggyback";
 		ExactMessageCallback piggybackServerCallback(L"inbound-response", L"server-piggyback");
-		auto piggybackServer = Ptr(new SingleConnectionSocketHttpServer(piggybackBaseUrl, piggybackPort, &piggybackServerCallback));
+		auto piggybackServer = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(piggybackPort), piggybackBaseUrl, &piggybackServerCallback));
 		piggybackServer->Start();
-		auto piggybackClient = CreateFocusedSocketHttpApi<TNativeClient>(piggybackPort);
+		auto piggybackClient = CreateFocusedSocketHttpApi(piggybackPort);
 		piggybackClient->WaitForServer();
 
 		auto connectState = Ptr(new SocketHttpQueryState);
@@ -2985,18 +3082,15 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp send FIFO retries its head, replaces one physical lane, and disconnects after attempt three")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39601;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRetry";
-		auto server = Ptr(new RetryScriptServer(baseUrl, port));
+		auto server = Ptr(new RetryScriptServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl));
 		server->Start();
-		atomic_vint factoryCalls = 0;
 		RetryClientCallback callback;
-		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port, &factoryCalls);
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 		client->GetConnection()->InstallCallback(&callback);
 		client->WaitForServer();
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
-		TEST_ASSERT(factoryCalls == 2);
 		SignalSocketHttpEventOnExit releaseFirstAttempt(server->eventReleaseFirstAttempt);
 
 		client->GetConnection()->SendString(L"first");
@@ -3019,7 +3113,6 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(server->SameBodyBytes(3, 4));
 		TEST_ASSERT(server->AllTargetsStable());
 		TEST_ASSERT(server->connectCount == 1);
-		TEST_ASSERT(factoryCalls >= 3);
 		TEST_ASSERT(callback.localErrors >= 2);
 		TEST_ASSERT(callback.fatalErrors == 0);
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
@@ -3083,16 +3176,15 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp preserves non-ASCII WString values and a synchronous server reply")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39602;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedUnicode";
 		const WString request = L"Client: \x4F60\x597D, \x4E16\x754C";
 		const WString reply = L"Server: \x3053\x3093\x306B\x3061\x306F";
 		ExactMessageCallback serverCallback(request, reply);
-		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 		server->Start();
 		ExactMessageCallback clientCallback(reply);
-		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 		client->GetConnection()->InstallCallback(&clientCallback);
 		client->WaitForServer();
 		client->GetConnection()->BeginReadingLoopUnsafe();
@@ -3109,7 +3201,6 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp accepts the UTF-8 body limit and rejects one encoded byte beyond each FIFO")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39603;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedLimit";
 		auto exact = RepeatSocketHttpCharacter(L'a', async_tcp_socket::HttpBodySizeLimit - 3) + L"\x4F60";
@@ -3128,10 +3219,10 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(wtou8(oversized).Length() == async_tcp_socket::HttpBodySizeLimit + 1);
 
 		ExactMessageCallback serverCallback(exact);
-		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 		server->Start();
 		ExactMessageCallback clientCallback(exact);
-		auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 		client->GetConnection()->InstallCallback(&clientCallback);
 		client->WaitForServer();
 		client->GetConnection()->BeginReadingLoopUnsafe();
@@ -3164,7 +3255,6 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp failed poll delivery is requeued before a replacement poll")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		const vint port = 39606;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedRequeue";
 		auto hookState = Ptr(new FailedPollHookState);
@@ -3173,10 +3263,10 @@ void RunSocketHttpFocusedTestCases()
 			Func<void(const WString&, bool)>([hookState](const WString& token, bool succeeded) { hookState->Completed(token, succeeded); })
 			);
 		ExactMessageCallback serverCallback(L"unused");
-		auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 		server->Start();
 
-		auto connectClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		auto connectClient = CreateFocusedSocketHttpApi(port);
 		connectClient->WaitForServer();
 		auto connectState = Ptr(new SocketHttpQueryState);
 		SubmitSocketHttpQuery(connectClient, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
@@ -3194,7 +3284,7 @@ void RunSocketHttpFocusedTestCases()
 		Array<vuint8_t> requeueMessageBytes;
 		TEST_ASSERT(async_tcp_socket::EncodeStrictUtf8(requeueMessage, requeueMessageBytes));
 		serverCallback.Connection()->SendString(requeueMessage);
-		auto firstPoll = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		auto firstPoll = CreateFocusedSocketHttpApi(port);
 		firstPoll->WaitForServer();
 		auto firstPollState = Ptr(new SocketHttpQueryState);
 		SignalSocketHttpEventOnExit releaseClaim(hookState->eventReleaseClaim);
@@ -3206,7 +3296,7 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(firstPollState->Failed());
 		TEST_ASSERT(hookState->eventFirstCompletion.WaitForTime(SocketHttpFocusedTimeout));
 
-		auto replacementPoll = CreateFocusedSocketHttpApi<TNativeClient>(port);
+		auto replacementPoll = CreateFocusedSocketHttpApi(port);
 		replacementPoll->WaitForServer();
 		auto replacementState = Ptr(new SocketHttpQueryState);
 		SubmitSocketHttpQuery(replacementPoll, L"POST", baseUrl + requestPath, WString::Empty, 0, replacementState);
@@ -3224,15 +3314,14 @@ void RunSocketHttpFocusedTestCases()
 
 	TEST_CASE(L"SocketHttp Stop is callback-reentrant for client and whole server")
 	{
-		SocketHttpListenerFactoryScope<TNativeServer> listenerFactory;
 		{
 			const vint port = 39604;
 			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedClientStop";
 			ExactMessageCallback serverCallback(L"trigger-client-stop", L"stop-client");
-			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 			server->Start();
 			StopActionCallback clientCallback(L"stop-client");
-			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 			clientCallback.SetStopAction(Func<void()>([connection = client->GetConnection()]() { connection->Stop(); }));
 			client->GetConnection()->InstallCallback(&clientCallback);
 			client->WaitForServer();
@@ -3250,11 +3339,11 @@ void RunSocketHttpFocusedTestCases()
 			const vint port = 39605;
 			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedServerStop";
 			StopActionCallback serverCallback(L"trigger-server-stop");
-			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 			serverCallback.SetStopAction(Func<void()>([&server]() { server->Stop(); }));
 			server->Start();
 			ExactMessageCallback clientCallback(L"unused");
-			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 			client->GetConnection()->InstallCallback(&clientCallback);
 			client->WaitForServer();
 			client->GetConnection()->BeginReadingLoopUnsafe();
@@ -3271,10 +3360,10 @@ void RunSocketHttpFocusedTestCases()
 			const vint port = 39610;
 			const WString baseUrl = L"/VlppOSTestSocketHttpFocusedThrowingDisconnect";
 			ExactMessageCallback serverCallback(L"unused");
-			auto server = Ptr(new SingleConnectionSocketHttpServer(baseUrl, port, &serverCallback));
+			auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
 			server->Start();
 			ThrowingDisconnectCallback clientCallback;
-			auto client = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			auto client = CreateSocketHttpProtocolClient(baseUrl, port);
 			client->GetConnection()->InstallCallback(&clientCallback);
 			client->WaitForServer();
 			client->GetConnection()->BeginReadingLoopUnsafe();
@@ -3319,10 +3408,10 @@ void RunSocketHttpFocusedTestCases()
 				Func<void(const WString&)>([state](const WString&) { state->PollRegistered(); })
 				);
 			ExactMessageCallback serverCallback(L"unused");
-			auto server = Ptr(new SocketHttpStopRaceServer(baseUrl, port, &serverCallback, state));
+			auto server = Ptr(new SocketHttpStopRaceServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback, state));
 			server->Start();
 
-			auto connectClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+			auto connectClient = CreateFocusedSocketHttpApi(port);
 			connectClient->WaitForServer();
 			auto connectState = Ptr(new SocketHttpQueryState);
 			SubmitSocketHttpQuery(connectClient, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
@@ -3336,7 +3425,7 @@ void RunSocketHttpFocusedTestCases()
 			auto requestPath = connectBody.Left(separator);
 			connectClient->Stop();
 
-			auto pollClient = CreateFocusedSocketHttpApi<TNativeClient>(port);
+			auto pollClient = CreateFocusedSocketHttpApi(port);
 			pollClient->WaitForServer();
 			auto pollState = Ptr(new SocketHttpQueryState);
 			SocketHttpStopThreadScope threadScope(&state->eventReleasePoll);
@@ -3418,19 +3507,19 @@ void RunSocketHttpFocusedTestCases()
 			auto state = Ptr(new SocketHttpReentrantFollowerState);
 			SocketHttpReentrantFollowerCallback firstServerCallback(state);
 			SocketHttpReentrantFollowerCallback secondServerCallback(state);
-			auto server = Ptr(new TwoConnectionSocketHttpServer(baseUrl, port, &firstServerCallback, &secondServerCallback));
+			auto server = Ptr(new TwoConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &firstServerCallback, &secondServerCallback));
 			state->server = server.Obj();
 			server->Start();
 
 			ExactMessageCallback firstClientCallback(L"unused");
-			auto firstClient = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			auto firstClient = CreateSocketHttpProtocolClient(baseUrl, port);
 			firstClient->GetConnection()->InstallCallback(&firstClientCallback);
 			firstClient->WaitForServer();
 			firstClient->GetConnection()->BeginReadingLoopUnsafe();
 			TEST_ASSERT(firstServerCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
 
 			ExactMessageCallback secondClientCallback(L"unused");
-			auto secondClient = CreateSocketHttpProtocolClient<TNativeClient>(baseUrl, port);
+			auto secondClient = CreateSocketHttpProtocolClient(baseUrl, port);
 			secondClient->GetConnection()->InstallCallback(&secondClientCallback);
 			secondClient->WaitForServer();
 			secondClient->GetConnection()->BeginReadingLoopUnsafe();
@@ -3513,23 +3602,15 @@ TEST_FILE
 		TEST_ASSERT(emptyPackage.messageBody == L"Message");
 	});
 
+	RunSocketHttpNetworkProtocolTestCases();
+	RunSocketHttpFocusedTestCases();
+
 #ifdef VCZH_MSVC
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::windows_socket::AsyncSocketServer,
 		async_tcp_socket::windows_socket::AsyncSocketClient
 	>(true);
-	RunSocketHttpNetworkProtocolTestCases<
-		async_tcp_socket::windows_socket::AsyncSocketServer,
-		async_tcp_socket::windows_socket::AsyncSocketClient
-	>();
-	RunSocketHttpWindowsInteropTestCases<
-		async_tcp_socket::windows_socket::AsyncSocketServer,
-		async_tcp_socket::windows_socket::AsyncSocketClient
-	>();
-	RunSocketHttpFocusedTestCases<
-		async_tcp_socket::windows_socket::AsyncSocketServer,
-		async_tcp_socket::windows_socket::AsyncSocketClient
-	>();
+	RunSocketHttpWindowsInteropTestCases();
 
 	TEST_CASE(L"NamedPipe (NetworkProtocol)")
 	{
@@ -3579,26 +3660,10 @@ TEST_FILE
 		async_tcp_socket::macos_socket::AsyncSocketServer,
 		async_tcp_socket::macos_socket::AsyncSocketClient
 	>(false);
-	RunSocketHttpNetworkProtocolTestCases<
-		async_tcp_socket::macos_socket::AsyncSocketServer,
-		async_tcp_socket::macos_socket::AsyncSocketClient
-	>();
-	RunSocketHttpFocusedTestCases<
-		async_tcp_socket::macos_socket::AsyncSocketServer,
-		async_tcp_socket::macos_socket::AsyncSocketClient
-	>();
 #elif defined VCZH_GCC && !defined VCZH_APPLE
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::linux_socket::AsyncSocketServer,
 		async_tcp_socket::linux_socket::AsyncSocketClient
 	>(true);
-	RunSocketHttpNetworkProtocolTestCases<
-		async_tcp_socket::linux_socket::AsyncSocketServer,
-		async_tcp_socket::linux_socket::AsyncSocketClient
-	>();
-	RunSocketHttpFocusedTestCases<
-		async_tcp_socket::linux_socket::AsyncSocketServer,
-		async_tcp_socket::linux_socket::AsyncSocketClient
-	>();
 #endif
 }

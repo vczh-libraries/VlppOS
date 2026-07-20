@@ -86,6 +86,7 @@ namespace vl::inter_process::async_tcp_socket
 		static void						InstallTimeout(Ptr<Lifecycle> state, vint milliseconds, const WString& error);
 		static void						RefreshTimeout(Ptr<Lifecycle> state);
 		static void						ReportRequestFailure(Ptr<Lifecycle> state, HttpRequestFailure failure, bool timeoutOnly = false, bool reserved = false);
+		static void						ReportResponseFailure(Ptr<Lifecycle> state, HttpResponseFailure failure);
 		static void						DeliverResponse(Ptr<Lifecycle> state, Ptr<HttpResponse> response, bool closeAfterDelivery);
 		static void						ProcessBufferedInput(Ptr<Lifecycle> state);
 		static void						NotifyDisconnected(Ptr<Lifecycle> state);
@@ -97,7 +98,8 @@ namespace vl::inter_process::async_tcp_socket
 			IAsyncSocketConnection* connection,
 			HttpRequestConnectionDirection direction,
 			Ptr<HttpRequestCallbackDomain> callbackDomain = nullptr,
-			Ptr<IHttpRequestTimeoutController> timeoutController = nullptr
+			Ptr<IHttpRequestTimeoutController> timeoutController = nullptr,
+			bool responseNotFoundIsFatal = false
 			);
 		~HttpRequestConnection();
 

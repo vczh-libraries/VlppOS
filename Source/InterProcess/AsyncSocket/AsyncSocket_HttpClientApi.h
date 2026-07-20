@@ -15,15 +15,25 @@ Interfaces:
 
 namespace vl::inter_process::async_tcp_socket
 {
+	enum class SocketHttpClientErrorCode : vuint32_t
+	{
+		InvalidRequest = 1,
+		Stopped = 2,
+		Transport = 3,
+		UnsupportedCoding = 4,
+		ResponseNotFound = 5,
+	};
+
 	class SocketHttpClientApi : public Object
 	{
 		class Impl;
 		Ptr<Impl>							impl;
 
 	public:
+		/// <remarks>Requiring an asynchronous socket client is intentional. The caller selects and owns the transport composition, the client supplies its locked-in port, and this API never creates or replaces it. Keep this dependency explicit; do not add internal client creation.</remarks>
 		SocketHttpClientApi(
 			Ptr<IAsyncSocketClient> client,
-			const WString& authority
+			const WString& server
 			);
 		~SocketHttpClientApi();
 

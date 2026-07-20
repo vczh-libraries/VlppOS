@@ -37,26 +37,18 @@ All native implementations bind and connect to numeric IPv4 loopback. The public
 
 The repository build scripts already supply these dependencies. A custom build must preserve the same link and compile options.
 
-Source-tree code can select a native pair at the composition boundary:
+Platform-neutral code selects the compiled native backend through the common factories declared in `AsyncSocket.h`:
 
 ```C++
-#if defined VCZH_MSVC
-using NativeServer = vl::inter_process::async_tcp_socket::windows_socket::AsyncSocketServer;
-using NativeClient = vl::inter_process::async_tcp_socket::windows_socket::AsyncSocketClient;
-#elif defined VCZH_GCC && defined VCZH_APPLE
-using NativeServer = vl::inter_process::async_tcp_socket::macos_socket::AsyncSocketServer;
-using NativeClient = vl::inter_process::async_tcp_socket::macos_socket::AsyncSocketClient;
-#elif defined VCZH_GCC
-using NativeServer = vl::inter_process::async_tcp_socket::linux_socket::AsyncSocketServer;
-using NativeClient = vl::inter_process::async_tcp_socket::linux_socket::AsyncSocketClient;
-#endif
+auto socketServer = CreateDefaultAsyncSocketServer(port);
+auto socketClient = CreateDefaultAsyncSocketClient(port);
 ```
 
-The released platform umbrella is `VlppOS.Windows.h` on Windows and `VlppOS.Linux.h` on Linux and macOS. The common Mini HTTP server APIs select `NativeServer` internally. `SocketHttpClientApi` and the HTTP request wrappers intentionally require an explicit native client or server, while the higher `SocketHttpClient` selects its native client internally.
+The released platform umbrella is `VlppOS.Windows.h` on Windows and `VlppOS.Linux.h` on Linux and macOS. Each compiled platform translation unit defines the same two factories. Higher HTTP layers never select a backend internally: inject the returned server or client at the composition boundary. `SocketHttpClient` takes only one client pointer, uses that exact object for its first physical lane, and obtains the additional independent lanes required by the logical protocol through `IAsyncSocketClient::CreateSameEndpointClient()`.
 
 ## Async Socket API
 
-The async socket interfaces are defined in `Source/InterProcess/AsyncSocket/AsyncSocket.h`.
+The async socket interfaces are defined in `Source/InterProcess/AsyncSocket/AsyncSocket.h`. `IAsyncSocketServer::GetPort()` and `IAsyncSocketClient::GetPort()` return the immutable loopback port selected during construction, so higher adapters do not accept a duplicate port argument. `IAsyncSocketClient::CreateSameEndpointClient()` returns a distinct fresh `Ready` client with the same transport configuration and port; it is the transport-preserving way for a multi-lane adapter to acquire another physical connection without accepting a separate factory.
 
 ### Connections and Callbacks
 
@@ -75,10 +67,10 @@ The async socket interfaces are defined in `Source/InterProcess/AsyncSocket/Asyn
 An `IAsyncSocketServerCallback` accepts or rejects each physical connection. For an accepted connection, install its `IAsyncSocketCallback`, start reading, and then return `WaitForClientResult::Accept`.
 
 ```C++
-auto server = Ptr<IAsyncSocketServer>(new NativeServer(port));
+auto server = CreateDefaultAsyncSocketServer(port);
 server->Start(&serverCallback);
 
-auto client = Ptr<IAsyncSocketClient>(new NativeClient(port));
+auto client = CreateDefaultAsyncSocketClient(port);
 auto connection = client->GetConnection();
 connection->InstallCallback(&clientCallback);
 client->WaitForServer();
@@ -164,11 +156,11 @@ When directly constructing lower-layer `HttpRequest` or `HttpResponse` values, h
 Derive from `HttpRequestServer`, inject `Ptr<IAsyncSocketServer>`, and override `OnClientConnected(IHttpRequestConnection*)`. The override retains and installs one thread-safe `IHttpRequestCallback`, calls `BeginReadingLoopUnsafe`, and accepts or rejects the connection. A most-derived destructor must call `HttpRequestServer::Stop` before destroying callback-visible state.
 
 ```C++
-auto nativeServer = Ptr<IAsyncSocketServer>(new NativeServer(port));
+auto nativeServer = CreateDefaultAsyncSocketServer(port);
 RequestServer server(nativeServer); // Derives from HttpRequestServer.
 server.Start();
 
-auto nativeClient = Ptr<IAsyncSocketClient>(new NativeClient(port));
+auto nativeClient = CreateDefaultAsyncSocketClient(port);
 HttpRequestClient client(nativeClient);
 auto connection = client.GetConnection();
 connection->InstallCallback(&clientCallback);
@@ -194,20 +186,21 @@ The lower request layer does not synthesize `Host`, route a target, decode a que
 
 ## Mini HTTP Server API
 
-`SocketHttpServerApi`, defined in `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.h`, owns a URL-prefix registration. Construction parses and stores the prefix. `Start` registers it; the first active API on a port creates and starts the native listener, while later prefixes join that shared listener.
+`SocketHttpServerApi`, defined in `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.h`, owns a URL-prefix registration over a caller-injected `IAsyncSocketServer`. Construction parses and stores the prefix and reads the port from the server. `Start` registers it; the first active API receiving a particular server pointer starts that listener, while later APIs receiving the same pointer join it. The API never creates or replaces the socket server.
 
 ### Prefixes and Dispatch
 
-Construct a derived server with `SocketHttpServerApi(urlPrefix, respondToOptions)`.
+Construct a derived server with `SocketHttpServerApi(socketServer, urlPrefix, respondToOptions)`. `respondToOptions` defaults to `true`.
 
-- The prefix must use plain `http://`, `localhost` or `127.0.0.1`, and an explicit port from 1 through 65535.
-- An optional path may be percent-encoded UTF-8. Raw non-ASCII characters and backslashes are rejected; non-ASCII text must use percent-encoded UTF-8. Query and fragment components, NUL, invalid UTF-8, encoded separators and malformed escapes are also rejected.
-- Trailing slashes are removed. `GetUrlPrefix` returns the normalized prefix.
-- Multiple API objects with different prefixes can share one native listener on a port.
+- The injected server supplies a port from 1 through 65535. The prefix is an empty origin path or begins with `/`; it does not contain a scheme, host or port.
+- The path may contain percent-encoded UTF-8. Raw non-ASCII characters and backslashes are rejected; non-ASCII text must use percent-encoded UTF-8. Query and fragment components, NUL, invalid UTF-8, encoded separators and malformed escapes are also rejected.
+- Trailing slashes are removed. `GetUrlPrefix` returns the absolute normalized value `http://localhost:PORT{urlPrefix}`.
+- A prefix matches its exact path and slash-delimited descendants. For example, `/ABC/def` matches `/ABC/def` and `/ABC/def/item`, but not `/ABC/defghi`.
+- Multiple API objects with different prefixes share one listener only when they receive the exact same `Ptr<IAsyncSocketServer>`. Different server objects that report the same port do not join each other.
 - Every request is dispatched to the longest matching active prefix, including later requests on a persistent connection.
-- A duplicate normalized prefix on the same port is rejected.
+- A duplicate normalized prefix sharing the same socket server is rejected.
 
-Before routing, the dispatcher requires HTTP/1.1 and exactly one valid `Host` whose authority matches an active prefix. `SocketHttpClientApi` supplies this field automatically; a manually constructed lower-layer request must supply it. The dispatcher accepts `GET`, `HEAD`, `POST` and `OPTIONS`. Unsupported methods and malformed requests receive automatic responses. When `respondToOptions` is true, supported browser preflight requests are answered before application dispatch.
+Before routing, the dispatcher requires HTTP/1.1 and exactly one valid `Host` whose name is `localhost` or `127.0.0.1` and whose port matches the injected listener. `SocketHttpClientApi` supplies this field automatically; a manually constructed lower-layer request must supply it. The dispatcher accepts `GET`, `HEAD`, `POST` and `OPTIONS`. Unsupported methods and malformed requests receive automatic responses. When `respondToOptions` is true, supported browser preflight requests are answered before application dispatch.
 
 ### Handling a Request
 
@@ -245,8 +238,8 @@ protected:
     }
 
 public:
-    StatusApi()
-        : SocketHttpServerApi(L"http://localhost:8888/api", true)
+    StatusApi(Ptr<IAsyncSocketServer> socketServer)
+        : SocketHttpServerApi(socketServer, L"/api")
     {
     }
 
@@ -256,7 +249,8 @@ public:
     }
 };
 
-StatusApi api;
+auto socketServer = CreateDefaultAsyncSocketServer(8888);
+StatusApi api(socketServer);
 api.Start();
 shutdownRequested.Wait(); // Application/test coordination.
 api.Stop();
@@ -264,17 +258,17 @@ api.Stop();
 
 `Respond` normalizes the response. It validates the status, reason, headers and body; rejects response transfer coding and trailers; supplies missing `Date`, `Cache-Control: no-store` and `Access-Control-Allow-Origin: *` policy fields; and validates then rebuilds `Content-Length` framing. It also enforces `HEAD`, 204 and 304 body rules.
 
-Always call `Stop` in the most-derived destructor before destroying fields used by `OnHttpRequestReceived`, response completions or `OnHttpServerStopping`. From outside callbacks, `Stop` unregisters the prefix, cancels its pending contexts and drains callbacks. A callback-reentrant call cannot unwind its current frame, so that frame's visible state must remain alive until it returns. The final API on a port also stops the shared listener.
+Always call `Stop` in the most-derived destructor before destroying fields used by `OnHttpRequestReceived`, response completions or `OnHttpServerStopping`. From outside callbacks, `Stop` unregisters the prefix, cancels its pending contexts and drains callbacks. A callback-reentrant call cannot unwind its current frame, so that frame's visible state must remain alive until it returns. The final active API sharing an injected server also stops that listener.
 
 The portable file-serving example is `Test/UnitTest/MiniHttpServer/Main.cpp`. It demonstrates multiple prefixes on different ports, binary response bodies, content types and explicit start/stop ordering.
 
 ## Mini HTTP Client API
 
-`SocketHttpClientApi`, defined in `Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.h`, owns one `HttpRequestClient` and one physical persistent connection. Inject a platform `IAsyncSocketClient` and supply the HTTP authority explicitly because the socket interface exposes only the port.
+`SocketHttpClientApi`, defined in `Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.h`, owns one `HttpRequestClient` and one physical persistent connection. Inject an `IAsyncSocketClient` and the loopback server name; the client supplies its locked-in port. This keeps socket selection and endpoint ownership outside the HTTP API.
 
 ```C++
-auto nativeClient = Ptr<IAsyncSocketClient>(new NativeClient(8888));
-auto client = Ptr(new SocketHttpClientApi(nativeClient, L"localhost:8888"));
+auto nativeClient = CreateDefaultAsyncSocketClient(8888);
+auto client = Ptr(new SocketHttpClientApi(nativeClient, L"localhost"));
 client->WaitForServer();
 
 vl::EventObject queryCompleted;
@@ -327,14 +321,14 @@ client->Stop();
 These convenient values differ from the lower binary-oriented message types:
 
 - `windows_http::HttpRequest` has method, target query, flat body bytes, content type, accept values, cookie, extra headers and timeout fields.
-- `SocketHttpClientApi` adds `Host` and `Accept-Encoding: identity`, then maps the flat request to `async_tcp_socket::HttpRequest`.
-- TLS, credentials and `keepAliveOnStop` are rejected. A caller-provided `Host` must match the constructor authority, and response compression other than identity is unsupported.
+- `SocketHttpClientApi` combines the constructor server and `client->GetPort()` into the `Host` authority, adds `Accept-Encoding: identity`, then maps the flat request to `async_tcp_socket::HttpRequest`.
+- TLS, credentials and `keepAliveOnStop` are rejected. A caller-provided `Host` must match the authority formed from the constructor server and injected-client port, and response compression other than identity is unsupported.
 - The injected socket owns connection and send timing. Only `receiveTimeout` controls the response deadline for an accepted HTTP exchange.
 - `windows_http::HttpResponse` contains status, a flattened body, the first content type and the first returned cookie.
 - `windows_http::HttpResponse::TryGetBodyUtf8` strictly decodes that flat body and distinguishes malformed UTF-8 from a valid empty body without changing its output on failure. `GetBodyUtf8` remains available for compatibility but does not provide this failure signal.
-- HTTP status codes such as 404 are successful `HttpResponse` values. `HttpError` represents client validation or physical HTTP failure.
+- Status codes other than 404 remain successful `HttpResponse` values. `HttpRequestClient` classifies 404 as the structured fatal failure `HttpResponseFailure::NotFound`, stops its injected socket connection, and `SocketHttpClientApi` reports `HttpError` with `SocketHttpClientErrorCode::ResponseNotFound`.
 
-A transport, framing, unsupported-coding or response-timeout failure makes that `SocketHttpClientApi` terminal and completes its accepted queue with errors. Create a new API with a fresh native client when a higher layer requires physical reconnection. From outside callbacks, `Stop` cancels current and queued work and drains callbacks. A callback-reentrant `Stop` is supported, but the current callback must return before its captured state can be destroyed.
+A 404, transport, framing, unsupported-coding or response-timeout failure makes that `SocketHttpClientApi` terminal and completes its accepted queue with errors. The API never creates or replaces the injected client; create a new API with a fresh native client when a higher layer requires physical reconnection. From outside callbacks, `Stop` cancels current and queued work and drains callbacks. A callback-reentrant `Stop` is supported, but the current callback must return before its captured state can be destroyed.
 
 ## Lifecycle Rules Across the Stack
 

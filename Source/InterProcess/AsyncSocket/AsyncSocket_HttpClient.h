@@ -23,10 +23,12 @@ namespace vl::inter_process::async_tcp_socket
 		Ptr<Impl>						impl;
 
 	public:
-		using NativeClientFactory = Func<Ptr<IAsyncSocketClient>(vint)>;
-
-		SocketHttpClient(const WString& baseUrl, vint port);
-		SocketHttpClient(const WString& baseUrl, vint port, NativeClientFactory clientFactory);
+		/// <remarks>Requiring an asynchronous socket client is intentional. The supplied client is used directly for the first physical lane and creates fresh same-endpoint clients for the second lane and transport recovery. Keep this dependency explicit; do not add a factory parameter or select a platform socket internally.</remarks>
+		SocketHttpClient(
+			Ptr<IAsyncSocketClient> client,
+			const WString& server,
+			const WString& urlPrefix
+			);
 		~SocketHttpClient();
 
 		SocketHttpClient(const SocketHttpClient&) = delete;

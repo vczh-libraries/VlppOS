@@ -3,13 +3,8 @@
 #include "../../Source/InterProcess/NetworkProtocolHttp.h"
 
 #if defined VCZH_MSVC
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClientApi.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServerApi.Windows.h"
-#elif defined VCZH_GCC && defined VCZH_APPLE
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
-#elif defined VCZH_GCC
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h"
 #endif
 
 using namespace vl;
@@ -19,8 +14,6 @@ using namespace vl::inter_process::async_tcp_socket;
 
 namespace vl::inter_process::async_tcp_socket
 {
-	extern void SetSocketHttpServerListenerFactoryForTesting(const Func<Ptr<IAsyncSocketServer>(vint)>& factory);
-	extern void ResetSocketHttpServerListenerFactoryForTesting();
 	extern void SetSocketHttpServerTimeoutControllerFactoryForTesting(const Func<Ptr<IHttpRequestTimeoutController>()>& factory);
 	extern void ResetSocketHttpServerTimeoutControllerFactoryForTesting();
 }
@@ -83,7 +76,6 @@ namespace mini_http_api_test
 		atomic_vint stoppingCallbacks = 0;
 		atomic_vint callbacksAfterStop = 0;
 		atomic_vint stopReturned = 0;
-		atomic_vint listenerFactoryCalls = 0;
 
 		TestState(vint _expectedRecords = 0)
 			: expectedRecords(_expectedRecords)
@@ -474,8 +466,8 @@ namespace mini_http_api_test
 		}
 
 	public:
-		TestServerApi(const WString& urlPrefix, bool respondToOptions, Ptr<TestState> _state)
-			: SocketHttpServerApi(urlPrefix, respondToOptions)
+		TestServerApi(Ptr<IAsyncSocketServer> server, const WString& urlPrefix, bool respondToOptions, Ptr<TestState> _state)
+			: SocketHttpServerApi(server, urlPrefix, respondToOptions)
 			, state(_state)
 		{
 		}
@@ -525,8 +517,8 @@ namespace mini_http_api_test
 		}
 
 	public:
-		PolicyServerApi(Ptr<TestState> _state)
-			: SocketHttpServerApi(L"http://localhost:38910/errors", false)
+		PolicyServerApi(Ptr<IAsyncSocketServer> server, Ptr<TestState> _state)
+			: SocketHttpServerApi(server, L"/errors", false)
 			, state(_state)
 		{
 		}
@@ -539,14 +531,13 @@ namespace mini_http_api_test
 
 	Ptr<TestServerApi> CreateValidationServer(const WString& urlPrefix)
 	{
-		return Ptr(new TestServerApi(urlPrefix, false, Ptr(new TestState)));
+		return Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38910), urlPrefix, false, Ptr(new TestState)));
 	}
 
-	template<typename TNativeClient>
 	Ptr<SocketHttpClientApi> CreateConnectedClient(vint port, Ptr<TestState> state)
 	{
-		auto nativeClient = Ptr<IAsyncSocketClient>(new TNativeClient(port));
-		auto client = Ptr(new SocketHttpClientApi(nativeClient, L"localhost:" + itow(port)));
+		auto nativeClient = CreateDefaultAsyncSocketClient(port);
+		auto client = Ptr(new SocketHttpClientApi(nativeClient, L"localhost"));
 		auto queued = ThreadPoolLite::Queue(Func<void()>([client, state]()
 		{
 			SignalEventOnExit signal(state->eventConnected);
@@ -615,55 +606,10 @@ namespace mini_http_api_test
 		}));
 	}
 
-	template<typename TNativeClient>
-	Ptr<SocketHttpClientApi> CreateClientWithAuthority(vint port, const WString& authority)
+	Ptr<SocketHttpClientApi> CreateClientWithServer(vint port, const WString& server)
 	{
-		return Ptr(new SocketHttpClientApi(Ptr<IAsyncSocketClient>(new TNativeClient(port)), authority));
+		return Ptr(new SocketHttpClientApi(CreateDefaultAsyncSocketClient(port), server));
 	}
-
-	template<typename TNativeServer>
-	class NativeListenerFactoryScope
-	{
-	public:
-		NativeListenerFactoryScope()
-		{
-			SetSocketHttpServerListenerFactoryForTesting(Func<Ptr<IAsyncSocketServer>(vint)>([](vint port)
-			{
-				return Ptr<IAsyncSocketServer>(new TNativeServer(port));
-			}));
-		}
-
-		~NativeListenerFactoryScope()
-		{
-			try
-			{
-				ResetSocketHttpServerListenerFactoryForTesting();
-			}
-			catch (...)
-			{
-			}
-		}
-	};
-
-	class ListenerFactoryScope
-	{
-	public:
-		ListenerFactoryScope(const Func<Ptr<IAsyncSocketServer>(vint)>& factory)
-		{
-			SetSocketHttpServerListenerFactoryForTesting(factory);
-		}
-
-		~ListenerFactoryScope()
-		{
-			try
-			{
-				ResetSocketHttpServerListenerFactoryForTesting();
-			}
-			catch (...)
-			{
-			}
-		}
-	};
 
 	class TimeoutControllerFactoryScope
 	{
@@ -693,7 +639,6 @@ namespace mini_http_api_test
 		EventObject eventFirstReturned;
 		EventObject eventSecondCalling;
 		EventObject eventSecondReturned;
-		atomic_vint factoryCalls = 0;
 		atomic_vint startCalls = 0;
 		atomic_vint stopCalls = 0;
 		Ptr<TestState> testState = Ptr(new TestState);
@@ -711,13 +656,20 @@ namespace mini_http_api_test
 	class BarrierAsyncSocketServer : public Object, public virtual IAsyncSocketServer
 	{
 	private:
+		vint port = 0;
 		Ptr<BarrierListenerState> state;
 		atomic_vint stopped = 0;
 
 	public:
-		BarrierAsyncSocketServer(Ptr<BarrierListenerState> _state)
-			: state(_state)
+		BarrierAsyncSocketServer(vint _port, Ptr<BarrierListenerState> _state)
+			: port(_port)
+			, state(_state)
 		{
+		}
+
+		vint GetPort() override
+		{
+			return port;
 		}
 
 		void Start(IAsyncSocketServerCallback*) override
@@ -840,7 +792,6 @@ namespace mini_http_api_test
 		return buffer;
 	}
 
-	template<typename TNativeClient>
 	vint ProbeWireStatus(
 		vint port,
 		const WString& request,
@@ -849,7 +800,7 @@ namespace mini_http_api_test
 		)
 	{
 		auto state = Ptr(new WireProbeState);
-		auto client = Ptr<IAsyncSocketClient>(new TNativeClient(port));
+		auto client = CreateDefaultAsyncSocketClient(port);
 		auto callback = Ptr(new WireProbeCallback(state));
 		client->GetConnection()->InstallCallback(callback.Obj());
 		auto queued = ThreadPoolLite::Queue(Func<void()>([client, state]()
@@ -1119,10 +1070,9 @@ namespace mini_http_api_test
 		return request;
 	}
 
-	template<typename TNativeClient>
 	void RunRawSequence(vint port, Ptr<RawSequenceState> state)
 	{
-		auto nativeClient = Ptr<IAsyncSocketClient>(new TNativeClient(port));
+		auto nativeClient = CreateDefaultAsyncSocketClient(port);
 		auto connection = Ptr(new HttpRequestConnection(
 			nativeClient->GetConnection(),
 			HttpRequestConnectionDirection::Client
@@ -1183,7 +1133,6 @@ namespace mini_http_api_test
 		}
 	}
 
-	template<typename TNativeServer, typename TNativeClient>
 	void RunCrossPlatformMiniHttpApiTestCases()
 	{
 		TEST_CASE(L"Common HTTP values, UTF-8 helpers, query helpers, and route constants are platform-neutral")
@@ -1232,10 +1181,10 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpServerApi rejects duplicate normalized prefixes")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
+			auto socketServer = CreateDefaultAsyncSocketServer(38903);
 			auto state = Ptr(new TestState);
-			auto first = Ptr(new TestServerApi(L"http://localhost:38903/duplicate///", false, state));
-			auto second = Ptr(new TestServerApi(L"http://LOCALHOST:38903/duplicate", false, state));
+			auto first = Ptr(new TestServerApi(socketServer, L"/duplicate///", false, state));
+			auto second = Ptr(new TestServerApi(socketServer, L"/duplicate", false, state));
 			first->Start();
 			TEST_ERROR(second->Start());
 			second->Stop();
@@ -1245,11 +1194,53 @@ namespace mini_http_api_test
 			AssertState(*state.Obj());
 		});
 
+		TEST_CASE(L"Multiple SocketHttpServerApi objects share one injected port with distinct prefixes")
+		{
+			constexpr vint port = 38916;
+			auto socketServer = CreateDefaultAsyncSocketServer(port);
+			TEST_ASSERT(socketServer->GetPort() == port);
+			auto state = Ptr(new TestState(4));
+			auto def = Ptr(new TestServerApi(socketServer, L"/ABC/def/", false, state));
+			auto xyz = Ptr(new TestServerApi(socketServer, L"/XYZ", false, state));
+			InstallEchoHandler(def, state, L"D", 220);
+			InstallEchoHandler(xyz, state, L"X", 221);
+			def->Start();
+			xyz->Start();
+
+			auto client = CreateConnectedClient(port, state);
+			for (auto&& target : { L"/ABC/def", L"/ABC/def/child", L"/XYZ/item", L"/ABC/defghi" })
+			{
+				windows_http::HttpRequest request;
+				request.method = L"GET";
+				request.query = target;
+				SubmitQuery(client, state, request);
+			}
+			state->Expect(state->eventDone.WaitForTime(TransferTimeout), L"The shared-prefix MiniHttp sequence timed out.");
+			client->Stop();
+			xyz->Stop();
+			def->Stop();
+
+			auto records = state->CopyRecords();
+			TEST_ASSERT(records.Count() == 4);
+			if (records.Count() == 4)
+			{
+				TEST_ASSERT(!records[0].isError && records[0].statusCode == 220 && records[0].body == L"D:/?");
+				TEST_ASSERT(!records[1].isError && records[1].statusCode == 220 && records[1].body == L"D:/child?");
+				TEST_ASSERT(!records[2].isError && records[2].statusCode == 221 && records[2].body == L"X:/item?");
+				TEST_ASSERT(records[3].isError && records[3].errorCode == (vuint32_t)SocketHttpClientErrorCode::ResponseNotFound);
+			}
+			TEST_ASSERT(def->GetUrlPrefix() == L"http://localhost:38916/ABC/def");
+			TEST_ASSERT(state->serverRequests == 3);
+			TEST_ASSERT(state->successfulCompletions == 3);
+			TEST_ASSERT(def->IsStopped());
+			TEST_ASSERT(xyz->IsStopped());
+			AssertState(*state.Obj());
+		});
+
 		TEST_CASE(L"SocketHttpRequestContext strictly decodes complete UTF-8 bodies across chunk boundaries")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto serverState = Ptr(new TestState);
-			auto server = Ptr(new TestServerApi(L"http://localhost:38913/strict", false, serverState));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38913), L"/strict", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
 			{
 				WString body = L"unchanged";
@@ -1303,7 +1294,7 @@ namespace mini_http_api_test
 			AddBodyChunk(nul->body, nulBytes, 3);
 			state->requests.Add(nul);
 
-			RunRawSequence<TNativeClient>(38913, state);
+			RunRawSequence(38913, state);
 			server->Stop();
 			AssertState(*state.Obj());
 			AssertState(*serverState.Obj());
@@ -1313,9 +1304,8 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpRequestContext response conveniences preserve normalization and framing policy")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto serverState = Ptr(new TestState);
-			auto server = Ptr(new TestServerApi(L"http://localhost:38914/convenience", false, serverState));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38914), L"/convenience", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
 			{
 				auto path = context->GetRelativePath();
@@ -1422,7 +1412,7 @@ namespace mini_http_api_test
 			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/not-modified-explicit", 38914));
 			state->requests.Add(CreateRawRequest(L"HEAD", L"/convenience/head-not-modified", 38914));
 			state->requests.Add(CreateRawRequest(L"GET", L"/convenience/reject-framing", 38914));
-			RunRawSequence<TNativeClient>(38914, state);
+			RunRawSequence(38914, state);
 			server->Stop();
 
 			AssertState(*state.Obj());
@@ -1459,7 +1449,7 @@ namespace mini_http_api_test
 		TEST_CASE(L"SocketHttpClientApi preserves permissive ordered response-field projection")
 		{
 			auto state = Ptr(new TestState(3));
-			auto nativeServer = Ptr<IAsyncSocketServer>(new TNativeServer(38915));
+			auto nativeServer = CreateDefaultAsyncSocketServer(38915);
 			auto server = Ptr(new ProjectionResponseServer(nativeServer, state));
 
 			auto nonAscii = Ptr(new async_tcp_socket::HttpResponse);
@@ -1494,7 +1484,7 @@ namespace mini_http_api_test
 			server->AddResponse(trailerOnly);
 
 			server->Start();
-			auto client = CreateConnectedClient<TNativeClient>(38915, state);
+			auto client = CreateConnectedClient(38915, state);
 			for (vint i = 0; i < 3; i++)
 			{
 				windows_http::HttpRequest request;
@@ -1526,17 +1516,12 @@ namespace mini_http_api_test
 			AssertState(*state.Obj());
 		});
 
-		TEST_CASE(L"SocketHttpServerApi concurrent Start joins one barrier-controlled in-progress listener")
+		TEST_CASE(L"SocketHttpServerApi concurrent Start shares one barrier-controlled injected listener")
 		{
 			auto barrier = Ptr(new BarrierListenerState);
-			ListenerFactoryScope listenerFactory(Func<Ptr<IAsyncSocketServer>(vint)>([barrier](vint port)
-			{
-				barrier->testState->Expect(port == 38908, L"The barrier listener factory received the wrong port.");
-				barrier->factoryCalls++;
-				return Ptr<IAsyncSocketServer>(new BarrierAsyncSocketServer(barrier));
-			}));
-			auto first = Ptr(new TestServerApi(L"http://localhost:38908/first", false, barrier->testState));
-			auto second = Ptr(new TestServerApi(L"http://localhost:38908/second", false, barrier->testState));
+			auto socketServer = Ptr<IAsyncSocketServer>(new BarrierAsyncSocketServer(38908, barrier));
+			auto first = Ptr(new TestServerApi(socketServer, L"/first", false, barrier->testState));
+			auto second = Ptr(new TestServerApi(socketServer, L"/second", false, barrier->testState));
 
 			auto firstQueued = ThreadPoolLite::Queue(Func<void()>([first, barrier]()
 			{
@@ -1575,7 +1560,6 @@ namespace mini_http_api_test
 
 			first->Stop();
 			second->Stop();
-			TEST_ASSERT(barrier->factoryCalls == 1);
 			TEST_ASSERT(barrier->startCalls == 1);
 			TEST_ASSERT(barrier->stopCalls == 1);
 			TEST_ASSERT(first->IsStopped());
@@ -1583,36 +1567,30 @@ namespace mini_http_api_test
 			AssertState(*barrier->testState.Obj());
 		});
 
-		TEST_CASE(L"SocketHttpServerApi retries a genuinely occupied native port exactly five times")
+		TEST_CASE(L"SocketHttpServerApi reports AddressInUse from its injected native server")
 		{
 			RejectingServerCallback occupiedCallback;
-			auto occupied = Ptr<IAsyncSocketServer>(new TNativeServer(38909));
+			auto occupied = CreateDefaultAsyncSocketServer(38909);
 			occupied->Start(&occupiedCallback);
 			auto state = Ptr(new TestState);
-			ListenerFactoryScope listenerFactory(Func<Ptr<IAsyncSocketServer>(vint)>([state](vint port)
-			{
-				state->listenerFactoryCalls++;
-				return Ptr<IAsyncSocketServer>(new TNativeServer(port));
-			}));
-			auto blocked = Ptr(new TestServerApi(L"http://localhost:38909/blocked", false, state));
+			auto blocked = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38909), L"/blocked", false, state));
 			TEST_EXCEPTION(blocked->Start(), AsyncSocketServerStartException, [state](const AsyncSocketServerStartException& exception)
 			{
 				state->Expect(exception.GetFailure() == AsyncSocketServerStartFailure::AddressInUse, L"An occupied MiniHttp port was not classified as AddressInUse.");
 			});
 			blocked->Stop();
 			occupied->Stop();
-			TEST_ASSERT(state->listenerFactoryCalls == 5);
 			TEST_ASSERT(blocked->IsStopped());
 			AssertState(*state.Obj());
 		});
 
 		TEST_CASE(L"SocketHttpServerApi shares one port and dispatches every persistent request to the longest prefix")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
+			auto socketServer = CreateDefaultAsyncSocketServer(38900);
 			auto serverState = Ptr(new TestState);
-			auto root = Ptr(new TestServerApi(L"http://localhost:38900////", false, serverState));
-			auto api = Ptr(new TestServerApi(L"http://localhost:38900/api///", false, serverState));
-			auto nested = Ptr(new TestServerApi(L"http://localhost:38900/api/nested/", false, serverState));
+			auto root = Ptr(new TestServerApi(socketServer, L"////", false, serverState));
+			auto api = Ptr(new TestServerApi(socketServer, L"/api///", false, serverState));
+			auto nested = Ptr(new TestServerApi(socketServer, L"/api/nested/", false, serverState));
 			InstallEchoHandler(root, serverState, L"R", 209);
 			InstallEchoHandler(api, serverState, L"A", 210);
 			nested->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
@@ -1640,7 +1618,7 @@ namespace mini_http_api_test
 			nested->Start();
 
 			auto phase1 = Ptr(new TestState(5));
-			auto client = CreateConnectedClient<TNativeClient>(38900, phase1);
+			auto client = CreateConnectedClient(38900, phase1);
 			windows_http::HttpRequest request1;
 			request1.method = L"GET";
 			request1.query = L"/root-only?raw=a%2Fb";
@@ -1686,16 +1664,18 @@ namespace mini_http_api_test
 
 			nested->Stop();
 			auto phase3 = Ptr(new TestState(2));
+			auto phase3Client = CreateConnectedClient(38900, phase3);
 			windows_http::HttpRequest fallback;
 			fallback.method = L"GET";
 			fallback.query = L"/api/nested/after-stop";
 			windows_http::HttpRequest unknownMethod;
 			unknownMethod.method = L"PUT";
 			unknownMethod.query = L"/api/put";
-			SubmitQuery(client, phase3, fallback);
-			SubmitQuery(client, phase3, unknownMethod);
+			SubmitQuery(phase3Client, phase3, fallback);
+			SubmitQuery(phase3Client, phase3, unknownMethod);
 			phase3->Expect(phase3->eventDone.WaitForTime(TransferTimeout), L"The MiniHttp stopped-prefix fallback phase timed out.");
 
+			phase3Client->Stop();
 			client->Stop();
 			phase3->stopReturned = 1;
 			api->Stop();
@@ -1718,7 +1698,7 @@ namespace mini_http_api_test
 				TEST_ASSERT(records[4].body == WString::Empty);
 			}
 			auto phase2Records = phase2->CopyRecords();
-			TEST_ASSERT(phase2Records.Count() == 1 && !phase2Records[0].isError && phase2Records[0].statusCode == 404);
+			TEST_ASSERT(phase2Records.Count() == 1 && phase2Records[0].isError && phase2Records[0].errorCode == (vuint32_t)SocketHttpClientErrorCode::ResponseNotFound);
 			auto phase3Records = phase3->CopyRecords();
 			TEST_ASSERT(phase3Records.Count() == 2);
 			if (phase3Records.Count() == 2)
@@ -1735,7 +1715,7 @@ namespace mini_http_api_test
 			TEST_ASSERT(api->IsStopped());
 			TEST_ASSERT(nested->IsStopped());
 
-			auto replacement = Ptr(new TestServerApi(L"http://localhost:38900/replacement", false, serverState));
+			auto replacement = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38900), L"/replacement", false, serverState));
 			replacement->Start();
 			replacement->Stop();
 			TEST_ASSERT(replacement->IsStopped());
@@ -1745,20 +1725,19 @@ namespace mini_http_api_test
 			AssertState(*serverState.Obj());
 		});
 
-		TEST_CASE(L"SocketHttpClientApi validates authority and maps unsupported WinHTTP-shaped options to HttpError")
+		TEST_CASE(L"SocketHttpClientApi validates its server and maps unsupported WinHTTP-shaped options to HttpError")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
-			TEST_ERROR(CreateClientWithAuthority<TNativeClient>(38904, L"localhost"));
-			TEST_ERROR(CreateClientWithAuthority<TNativeClient>(38904, L"example.com:38904"));
-			TEST_ERROR(CreateClientWithAuthority<TNativeClient>(38904, L"user@localhost:38904"));
-			TEST_ERROR(CreateClientWithAuthority<TNativeClient>(38904, L"localhost:0"));
-			TEST_ERROR(CreateClientWithAuthority<TNativeClient>(38904, L"localhost:65536"));
+			TEST_ERROR(CreateClientWithServer(38904, WString::Empty));
+			TEST_ERROR(CreateClientWithServer(38904, L"example.com"));
+			TEST_ERROR(CreateClientWithServer(38904, L"localhost:38904"));
+			TEST_ERROR(CreateClientWithServer(38904, L"localhost/path"));
+			CreateClientWithServer(38904, L"LOCALHOST")->Stop();
 
 			auto state = Ptr(new TestState(6));
-			auto server = Ptr(new TestServerApi(L"http://localhost:38904/client", false, state));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38904), L"/client", false, state));
 			InstallEchoHandler(server, state, L"V", 212);
 			server->Start();
-			auto client = CreateConnectedClient<TNativeClient>(38904, state);
+			auto client = CreateConnectedClient(38904, state);
 
 			windows_http::HttpRequest secure;
 			secure.method = L"GET";
@@ -1824,12 +1803,11 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpServerApi delivers application 405 and 415 and converts a pending application exception to 500")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto serverState = Ptr(new TestState);
-			auto server = Ptr(new PolicyServerApi(serverState));
+			auto server = Ptr(new PolicyServerApi(CreateDefaultAsyncSocketServer(38910), serverState));
 			server->Start();
 			auto state = Ptr(new TestState(4));
-			auto client = CreateConnectedClient<TNativeClient>(38910, state);
+			auto client = CreateConnectedClient(38910, state);
 			windows_http::HttpRequest method;
 			method.method = L"POST";
 			method.query = L"/errors/method";
@@ -1867,14 +1845,13 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpServerApi maps malformed wire requests to structured 400 408 413 414 417 431 501 and 505 responses")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto timeoutFactory = Ptr(new SelectiveTimeoutControllerFactory);
 			TimeoutControllerFactoryScope timeoutFactoryScope(Func<Ptr<IHttpRequestTimeoutController>()>([timeoutFactory]()
 			{
 				return timeoutFactory->Create();
 			}));
 			auto serverState = Ptr(new TestState);
-			auto server = Ptr(new TestServerApi(L"http://localhost:38911/errors", false, serverState));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38911), L"/errors", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
 			{
 				serverState->Fail(L"A malformed MiniHttp wire probe reached application dispatch.");
@@ -1882,25 +1859,25 @@ namespace mini_http_api_test
 			}));
 			server->Start();
 
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors HTTP/1.1\r\n\r\n"
 				) == 400);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors HTTP/1.1\r\nHost: localhost:38911\r\nHost: localhost:38911\r\n\r\n"
 				) == 400);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors/%2Fchild HTTP/1.1\r\nHost: localhost:38911\r\n\r\n"
 				) == 400);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors/%C0%AF HTTP/1.1\r\nHost: localhost:38911\r\n\r\n"
 				) == 400);
 			auto manualTimeout = Ptr(new ManualServerTimeoutController);
 			timeoutFactory->SetNext(manualTimeout);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors HTTP/1.1\r\nHost: localhost:38911\r\n",
 				ConnectTimeout,
@@ -1912,27 +1889,27 @@ namespace mini_http_api_test
 				) == 408);
 			TEST_ASSERT(manualTimeout->armCount == 1);
 			TEST_ASSERT(manualTimeout->lastArmDuration == HttpIncompleteMessageTimeout);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"POST /errors HTTP/1.1\r\nHost: localhost:38911\r\nContent-Length: 16777217\r\n\r\n"
 				) == 413);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /" + RepeatCharacter(L'a', HttpRequestLineSizeLimit) + L" HTTP/1.1\r\nHost: localhost:38911\r\n\r\n"
 				) == 414);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"POST /errors HTTP/1.1\r\nHost: localhost:38911\r\nContent-Length: 10\r\nExpect: unsupported\r\n\r\n"
 				) == 417);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors HTTP/1.1\r\nHost: localhost:38911\r\nX-Large: " + RepeatCharacter(L'x', HttpHeaderBlockSizeLimit) + L"\r\n\r\n"
 				) == 431);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"POST /errors HTTP/1.1\r\nHost: localhost:38911\r\nTransfer-Encoding: gzip\r\n\r\n"
 				) == 501);
-			TEST_ASSERT(ProbeWireStatus<TNativeClient>(
+			TEST_ASSERT(ProbeWireStatus(
 				38911,
 				L"GET /errors HTTP/1.0\r\nHost: localhost:38911\r\n\r\n"
 				) == 505);
@@ -1944,9 +1921,8 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpServerApi provides CORS preflight, ordinary OPTIONS, and bodyless response semantics")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto serverState = Ptr(new TestState);
-			auto server = Ptr(new TestServerApi(L"http://localhost:38905/cors", true, serverState));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38905), L"/cors", true, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState](Ptr<SocketHttpRequestContext> context)
 			{
 				auto request = context->GetRequest();
@@ -1995,7 +1971,7 @@ namespace mini_http_api_test
 			state->requests.Add(CreateRawRequest(L"GET", L"/cors/no-content", 38905));
 			state->requests.Add(CreateRawRequest(L"GET", L"/cors/not-modified", 38905));
 
-			RunRawSequence<TNativeClient>(38905, state);
+			RunRawSequence(38905, state);
 			AssertState(*state.Obj());
 			server->Stop();
 
@@ -2040,9 +2016,8 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpRequestContext supports deferred one-shot responses and callback-reentrant FIFO submission")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto state = Ptr(new DeferredState(3));
-			auto server = Ptr(new TestServerApi(L"http://localhost:38906/deferred", false, state));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38906), L"/deferred", false, state));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([state](Ptr<SocketHttpRequestContext> context)
 			{
 				state->AddTarget(context->GetRequest()->requestTarget);
@@ -2059,7 +2034,7 @@ namespace mini_http_api_test
 				})), L"A queued deferred/FIFO response was rejected.");
 			}));
 			server->Start();
-			auto client = CreateConnectedClient<TNativeClient>(38906, state);
+			auto client = CreateConnectedClient(38906, state);
 
 			windows_http::HttpRequest first;
 			first.method = L"GET";
@@ -2182,12 +2157,11 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpRequestContext cancellation and client/server Stop hard-drain accepted callbacks")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto serverState = Ptr(new TestState);
 			auto cancelState = Ptr(new DeferredState(1));
 			auto clientStopState = Ptr(new DeferredState(2));
 			auto serverStopState = Ptr(new DeferredState(1));
-			auto server = Ptr(new TestServerApi(L"http://localhost:38907/lifecycle", false, serverState));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38907), L"/lifecycle", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState, cancelState, clientStopState, serverStopState](Ptr<SocketHttpRequestContext> context)
 			{
 				auto relative = context->GetRelativePath();
@@ -2203,7 +2177,7 @@ namespace mini_http_api_test
 			}));
 			server->Start();
 
-			auto cancelClient = CreateConnectedClient<TNativeClient>(38907, cancelState);
+			auto cancelClient = CreateConnectedClient(38907, cancelState);
 			windows_http::HttpRequest cancelRequest;
 			cancelRequest.method = L"GET";
 			cancelRequest.query = L"/lifecycle/cancel";
@@ -2220,7 +2194,7 @@ namespace mini_http_api_test
 			cancelState->Expect(cancelState->eventDone.WaitForTime(TransferTimeout), L"Explicit context cancellation did not fail the client query.");
 			cancelClient->Stop();
 
-			auto clientStopClient = CreateConnectedClient<TNativeClient>(38907, clientStopState);
+			auto clientStopClient = CreateConnectedClient(38907, clientStopState);
 			windows_http::HttpRequest heldRequest;
 			heldRequest.method = L"GET";
 			heldRequest.query = L"/lifecycle/client-stop";
@@ -2234,7 +2208,7 @@ namespace mini_http_api_test
 			clientStopState->stopReturned = 1;
 			clientStopState->Expect(clientStopState->eventDone.WaitForTime(TransferTimeout), L"SocketHttpClientApi::Stop did not complete all accepted callbacks.");
 
-			auto serverStopClient = CreateConnectedClient<TNativeClient>(38907, serverStopState);
+			auto serverStopClient = CreateConnectedClient(38907, serverStopState);
 			windows_http::HttpRequest serverStopRequest;
 			serverStopRequest.method = L"GET";
 			serverStopRequest.query = L"/lifecycle/server-stop";
@@ -2269,15 +2243,14 @@ namespace mini_http_api_test
 
 		TEST_CASE(L"SocketHttpClientApi maps receiveTimeout to a per-exchange response deadline")
 		{
-			NativeListenerFactoryScope<TNativeServer> listenerFactory;
 			auto state = Ptr(new DeferredState(1));
-			auto server = Ptr(new TestServerApi(L"http://localhost:38912/timeout", false, state));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38912), L"/timeout", false, state));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([state](Ptr<SocketHttpRequestContext> context)
 			{
 				state->SetContext(context);
 			}));
 			server->Start();
-			auto client = CreateConnectedClient<TNativeClient>(38912, state);
+			auto client = CreateConnectedClient(38912, state);
 			windows_http::HttpRequest request;
 			request.method = L"GET";
 			request.query = L"/timeout/retained";
@@ -2345,8 +2318,8 @@ namespace mini_http_api_test
 	class WindowsToSocketServerApi : public TestServerApi
 	{
 	public:
-		WindowsToSocketServerApi(Ptr<TestState> state)
-			: TestServerApi(L"http://localhost:38901/vlppos-mini-http/", false, state)
+		WindowsToSocketServerApi(Ptr<IAsyncSocketServer> server, Ptr<TestState> state)
+			: TestServerApi(server, L"/vlppos-mini-http/", false, state)
 		{
 			SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([state](Ptr<SocketHttpRequestContext> context)
 			{
@@ -2399,7 +2372,7 @@ namespace mini_http_api_test
 	void RunWindowsHttpClientToSocketHttpServerApi()
 	{
 		auto state = Ptr(new TestState);
-		auto server = Ptr(new WindowsToSocketServerApi(state));
+		auto server = Ptr(new WindowsToSocketServerApi(CreateDefaultAsyncSocketServer(38901), state));
 		TEST_ASSERT(server->GetUrlPrefix() == L"http://localhost:38901/vlppos-mini-http");
 		server->Start();
 
@@ -2500,7 +2473,7 @@ namespace mini_http_api_test
 		auto state = Ptr(new TestState(1));
 		SocketToWindowsServerApi server(state);
 		server.Start();
-		auto client = CreateConnectedClient<windows_socket::AsyncSocketClient>(38902, state);
+		auto client = CreateConnectedClient(38902, state);
 
 		windows_http::HttpRequest request;
 		request.method = L"POST";
@@ -2653,45 +2626,32 @@ TEST_FILE
 		TEST_ASSERT(send.keepAliveOnStop);
 	});
 
-	TEST_CASE(L"SocketHttpServerApi validates and normalizes loopback URL prefixes")
+	TEST_CASE(L"SocketHttpServerApi validates path prefixes and builds normalized loopback URLs")
 	{
-		auto root = CreateValidationServer(L"http://LOCALHOST:38910////");
+		auto root = CreateValidationServer(L"////");
 		TEST_ASSERT(root->GetUrlPrefix() == L"http://localhost:38910");
 		root->Stop();
 
-		auto unicode = CreateValidationServer(L"http://127.0.0.1:38910/%E4%BD%A0///");
-		TEST_ASSERT(unicode->GetUrlPrefix() == L"http://127.0.0.1:38910/%E4%BD%A0");
+		auto unicode = CreateValidationServer(L"/%E4%BD%A0///");
+		TEST_ASSERT(unicode->GetUrlPrefix() == L"http://localhost:38910/%E4%BD%A0");
 		unicode->Stop();
 
-		auto bracket = CreateValidationServer(L"http://localhost:38910/api[part]///");
+		auto bracket = CreateValidationServer(L"/api[part]///");
 		TEST_ASSERT(bracket->GetUrlPrefix() == L"http://localhost:38910/api[part]");
 		bracket->Stop();
 
-		TEST_ERROR(CreateValidationServer(L"https://localhost:38910/api"));
-		TEST_ERROR(CreateValidationServer(L"http://example.com:38910/api"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost/api"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:0/api"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:65536/api"));
-		TEST_ERROR(CreateValidationServer(L"http://user@localhost:38910/api"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api?query"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api#fragment"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api%2Fchild"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api%5cchild"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api%00child"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api%ZZ"));
-		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/%C0%AF"));
+		TEST_ERROR(CreateValidationServer(L"relative"));
+		TEST_ERROR(CreateValidationServer(L"http://localhost:38910/api"));
+		TEST_ERROR(CreateValidationServer(L"/api?query"));
+		TEST_ERROR(CreateValidationServer(L"/api#fragment"));
+		TEST_ERROR(CreateValidationServer(L"/api%2Fchild"));
+		TEST_ERROR(CreateValidationServer(L"/api%5cchild"));
+		TEST_ERROR(CreateValidationServer(L"/api%00child"));
+		TEST_ERROR(CreateValidationServer(L"/api%ZZ"));
+		TEST_ERROR(CreateValidationServer(L"/%C0%AF"));
 	});
 
-#if defined VCZH_MSVC
-	using namespace vl::inter_process::async_tcp_socket::windows_socket;
-	RunCrossPlatformMiniHttpApiTestCases<AsyncSocketServer, AsyncSocketClient>();
-#elif defined VCZH_GCC && defined VCZH_APPLE
-	using namespace vl::inter_process::async_tcp_socket::macos_socket;
-	RunCrossPlatformMiniHttpApiTestCases<AsyncSocketServer, AsyncSocketClient>();
-#elif defined VCZH_GCC
-	using namespace vl::inter_process::async_tcp_socket::linux_socket;
-	RunCrossPlatformMiniHttpApiTestCases<AsyncSocketServer, AsyncSocketClient>();
-#endif
+	RunCrossPlatformMiniHttpApiTestCases();
 
 #if defined VCZH_MSVC
 	TEST_CASE(L"Windows HttpClientApi interoperates with SocketHttpServerApi")

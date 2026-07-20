@@ -1,12 +1,5 @@
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.h"
 #include "../../Source/Threading.h"
-#if defined VCZH_MSVC
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
-#elif defined VCZH_GCC && defined VCZH_APPLE
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
-#elif defined VCZH_GCC && !defined VCZH_APPLE
-#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.h"
-#endif
 
 using namespace vl;
 using namespace vl::collections;
@@ -1404,23 +1397,10 @@ namespace async_socket_test
 
 #endif
 
-	template<typename TServerBase>
-	Ptr<IAsyncSocketServer> CreateTestServer(vint port)
-	{
-		return Ptr<IAsyncSocketServer>(new TServerBase(port));
-	}
-
-	template<typename TClient>
-	Ptr<IAsyncSocketClient> CreateTestClient(vint port)
-	{
-		return Ptr<IAsyncSocketClient>(new TClient(port));
-	}
-
-	template<typename TServerBase, typename TClient>
 	void RunAsyncSocketTestCases(vint maximumReadBlockSize, const WaitForEvent& waitForEvent)
 	{
-		CreateServer createServer(&CreateTestServer<TServerBase>);
-		CreateClient createClient(&CreateTestClient<TClient>);
+		CreateServer createServer(&CreateDefaultAsyncSocketServer);
+		CreateClient createClient(&CreateDefaultAsyncSocketClient);
 
 		TEST_CASE(L"AsyncSocket full-duplex long data")
 		{
@@ -1456,11 +1436,10 @@ namespace async_socket_test
 
 #if defined VCZH_MSVC
 
-	template<typename TServerBase, typename TClient>
 	void RunWindowsAsyncSocketServerCallbackTestCases(const WaitForEvent& waitForEvent)
 	{
-		CreateServer createServer(&CreateTestServer<TServerBase>);
-		CreateClient createClient(&CreateTestClient<TClient>);
+		CreateServer createServer(&CreateDefaultAsyncSocketServer);
+		CreateClient createClient(&CreateDefaultAsyncSocketClient);
 
 		TEST_CASE(L"AsyncSocket Start rejects a null server callback")
 		{
@@ -1484,49 +1463,34 @@ namespace async_socket_test
 #endif
 }
 
-#if defined VCZH_MSVC
-
 namespace async_socket_test
 {
-	bool WaitForWindowsEvent(EventObject& eventObject, vint timeout)
+	bool WaitForNativeEvent(EventObject& eventObject, vint timeout)
 	{
 		return eventObject.WaitForTime(timeout);
 	}
 }
-
-#elif defined VCZH_GCC && defined VCZH_APPLE
-
-namespace async_socket_test
-{
-	bool WaitForGccEvent(EventObject& eventObject, vint timeout)
-	{
-		return eventObject.WaitForTime(timeout);
-	}
-}
-
-#elif defined VCZH_GCC && !defined VCZH_APPLE
-namespace async_socket_test
-{
-	bool WaitForLinuxEvent(EventObject& eventObject, vint timeout)
-	{
-		return eventObject.WaitForTime(timeout);
-	}
-}
-#endif
 
 using namespace async_socket_test;
 
 TEST_FILE
 {
+	TEST_CASE(L"Default async socket factories expose their locked-in port")
+	{
+		constexpr vint port = 38699;
+		auto server = CreateDefaultAsyncSocketServer(port);
+		auto client = CreateDefaultAsyncSocketClient(port);
+		TEST_ASSERT(server->GetPort() == port);
+		TEST_ASSERT(client->GetPort() == port);
+		auto sameEndpointClient = client->CreateSameEndpointClient();
+		TEST_ASSERT(sameEndpointClient);
+		TEST_ASSERT(sameEndpointClient.Obj() != client.Obj());
+		TEST_ASSERT(sameEndpointClient->GetPort() == port);
+		TEST_ASSERT(sameEndpointClient->GetStatus() == ClientStatus::Ready);
+	});
+
+	RunAsyncSocketTestCases(65536, WaitForEvent(&WaitForNativeEvent));
 #if defined VCZH_MSVC
-	using namespace vl::inter_process::async_tcp_socket::windows_socket;
-	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForWindowsEvent));
-	RunWindowsAsyncSocketServerCallbackTestCases<AsyncSocketServer, AsyncSocketClient>(WaitForEvent(&WaitForWindowsEvent));
-#elif defined VCZH_GCC && defined VCZH_APPLE
-	using namespace vl::inter_process::async_tcp_socket::macos_socket;
-	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForGccEvent));
-#elif defined VCZH_GCC && !defined VCZH_APPLE
-	using namespace vl::inter_process::async_tcp_socket::linux_socket;
-	RunAsyncSocketTestCases<AsyncSocketServer, AsyncSocketClient>(65536, WaitForEvent(&WaitForLinuxEvent));
+	RunWindowsAsyncSocketServerCallbackTestCases(WaitForEvent(&WaitForNativeEvent));
 #endif
 }

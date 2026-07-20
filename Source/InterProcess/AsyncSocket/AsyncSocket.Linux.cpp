@@ -2220,19 +2220,26 @@ AsyncSocketServer::Impl
 	class AsyncSocketServer::Impl : public Object
 	{
 	private:
+		vint								port = 0;
 		Ptr<RingRuntime>					runtime;
 		Ptr<ServerState>					state;
 
 	public:
-		Impl(vint port)
-			: runtime(RingRuntime::Create(false))
-			, state(Ptr(new ServerState(runtime, port)))
+		Impl(vint _port)
+			: port(_port)
+			, runtime(RingRuntime::Create(false))
+			, state(Ptr(new ServerState(runtime, _port)))
 		{
 		}
 
 		~Impl()
 		{
 			Stop();
+		}
+
+		vint GetPort()
+		{
+			return port;
 		}
 
 		void Start(IAsyncSocketServerCallback* callback)
@@ -2268,6 +2275,11 @@ AsyncSocketServer
 		delete impl;
 	}
 
+	vint AsyncSocketServer::GetPort()
+	{
+		return impl->GetPort();
+	}
+
 	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
 		impl->Start(callback);
@@ -2290,14 +2302,16 @@ AsyncSocketClient::Impl
 	class AsyncSocketClient::Impl : public Object
 	{
 	private:
+		vint								port = 0;
 		Ptr<RingRuntime>					runtime;
 		Ptr<ConnectionState>				state;
 		Ptr<AsyncSocketConnection>		connection;
 
 	public:
-		Impl(vint port)
-			: runtime(RingRuntime::Create(true))
-			, state(Ptr(new ConnectionState(runtime, true, port)))
+		Impl(vint _port)
+			: port(_port)
+			, runtime(RingRuntime::Create(true))
+			, state(Ptr(new ConnectionState(runtime, true, _port)))
 			, connection(Ptr(new AsyncSocketConnection(state)))
 		{
 		}
@@ -2305,6 +2319,11 @@ AsyncSocketClient::Impl
 		~Impl()
 		{
 			Stop();
+		}
+
+		vint GetPort()
+		{
+			return port;
 		}
 
 		void Stop()
@@ -2346,6 +2365,16 @@ AsyncSocketClient
 		delete impl;
 	}
 
+	vint AsyncSocketClient::GetPort()
+	{
+		return impl->GetPort();
+	}
+
+	Ptr<IAsyncSocketClient> AsyncSocketClient::CreateSameEndpointClient()
+	{
+		return Ptr(new AsyncSocketClient(GetPort()));
+	}
+
 	IAsyncSocketConnection* AsyncSocketClient::GetConnection()
 	{
 		return impl->GetConnection();
@@ -2361,14 +2390,18 @@ AsyncSocketClient
 		return impl->GetStatus();
 	}
 
+}
+
+namespace vl::inter_process::async_tcp_socket
+{
 	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
 	{
-		return Ptr(new AsyncSocketServer(port));
+		return Ptr(new linux_socket::AsyncSocketServer(port));
 	}
 
 	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
 	{
-		return Ptr(new AsyncSocketClient(port));
+		return Ptr(new linux_socket::AsyncSocketClient(port));
 	}
 }
 

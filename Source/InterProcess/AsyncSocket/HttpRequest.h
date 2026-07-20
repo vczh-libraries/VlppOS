@@ -110,6 +110,11 @@ namespace vl::inter_process::async_tcp_socket
 		HttpBody						body;
 	};
 
+	enum class HttpResponseFailure
+	{
+		NotFound = 404,
+	};
+
 	enum class HttpRequestBodyParsingResult
 	{
 		Succeeded,
@@ -144,6 +149,7 @@ namespace vl::inter_process::async_tcp_socket
 		virtual void						OnReadRequest(Ptr<HttpRequest> request);
 		virtual void						OnReadRequestFailure(HttpRequestFailure failure);
 		virtual void						OnReadResponse(Ptr<HttpResponse> response);
+		virtual void						OnReadResponseFailure(HttpResponseFailure failure);
 		virtual void						OnWriteCompleted();
 		virtual void						OnError(const WString& error, bool fatal);
 		virtual void						OnConnected();

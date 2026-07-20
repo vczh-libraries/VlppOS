@@ -182,8 +182,8 @@ namespace
 		}
 
 	public:
-		PhysicalFolderHttpServer(const WString& urlPrefix, const FilePath& _root)
-			: SocketHttpServerApi(urlPrefix, true)
+		PhysicalFolderHttpServer(Ptr<IAsyncSocketServer> server, const WString& urlPrefix, const FilePath& _root)
+			: SocketHttpServerApi(server, urlPrefix, true)
 			, root(_root)
 		{
 		}
@@ -209,8 +209,8 @@ namespace
 			return 1;
 		}
 
-		PhysicalFolderHttpServer website(L"http://localhost:8888", websiteRoot);
-		PhysicalFolderHttpServer assets(L"http://localhost:8889/Assets", assetsRoot);
+		PhysicalFolderHttpServer website(CreateDefaultAsyncSocketServer(8888), WString::Empty, websiteRoot);
+		PhysicalFolderHttpServer assets(CreateDefaultAsyncSocketServer(8889), L"/Assets", assetsRoot);
 		website.Start();
 		assets.Start();
 		Console::WriteLine(L"Website ready: " + website.GetUrlPrefix());

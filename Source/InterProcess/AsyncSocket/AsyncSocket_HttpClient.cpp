@@ -1,22 +1,5 @@
 #include "AsyncSocket_HttpClient.h"
 
-#if defined VCZH_MSVC
-namespace vl::inter_process::async_tcp_socket::windows_socket
-{
-	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
-}
-#elif defined VCZH_GCC && defined VCZH_APPLE
-namespace vl::inter_process::async_tcp_socket::macos_socket
-{
-	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
-}
-#elif defined VCZH_GCC
-namespace vl::inter_process::async_tcp_socket::linux_socket
-{
-	extern Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port);
-}
-#endif
-
 #include <chrono>
 
 namespace vl::inter_process::async_tcp_socket
@@ -28,9 +11,50 @@ namespace vl::inter_process::async_tcp_socket
 		constexpr vint				HttpRequestMaxAttempts = 3;
 		constexpr vint				SendDrainTimeout = 1000;
 
+		class SameEndpointClientContractException : public Exception
+		{
+		public:
+			SameEndpointClientContractException(const WString& message)
+				: Exception(message)
+			{
+			}
+		};
+
+		wchar_t FoldServerCharacter(wchar_t c)
+		{
+			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
+		}
+
+		bool ValidateLoopbackServer(const WString& server)
+		{
+			if (server == L"127.0.0.1") return true;
+			const wchar_t localhost[] = L"localhost";
+			if (server.Length() != 9) return false;
+			for (vint i = 0; i < 9; i++)
+			{
+				if (FoldServerCharacter(server[i]) != localhost[i]) return false;
+			}
+			return true;
+		}
+
+		WString NormalizeUrlPrefix(const WString& urlPrefix)
+		{
+			auto normalizedUrlPrefix = urlPrefix;
+			while (normalizedUrlPrefix.Length() > 0 && normalizedUrlPrefix[normalizedUrlPrefix.Length() - 1] == L'/')
+			{
+				normalizedUrlPrefix = normalizedUrlPrefix.Left(normalizedUrlPrefix.Length() - 1);
+			}
+			return normalizedUrlPrefix;
+		}
+
 		WString DescribeHttpError(const wchar_t* operation, const windows_http::HttpError& error)
 		{
 			return WString::Unmanaged(operation) + L" failed: " + error.message;
+		}
+
+		bool IsResponseNotFoundError(const windows_http::HttpError& error)
+		{
+			return error.errorCode == (vuint32_t)SocketHttpClientErrorCode::ResponseNotFound;
 		}
 
 		bool DecodeSuccessfulResponse(
@@ -118,18 +142,6 @@ namespace vl::inter_process::async_tcp_socket
 			}
 		}
 
-		SocketHttpClient::NativeClientFactory CreateDefaultClientFactory()
-		{
-#if defined VCZH_MSVC
-			return windows_socket::CreateDefaultAsyncSocketClient;
-#elif defined VCZH_GCC && defined VCZH_APPLE
-			return macos_socket::CreateDefaultAsyncSocketClient;
-#elif defined VCZH_GCC
-			return linux_socket::CreateDefaultAsyncSocketClient;
-#else
-			return {};
-#endif
-		}
 	}
 
 	void SetSocketHttpClientReceiveSubmittedCallbackForTesting(const Func<void()>& callback)
@@ -304,10 +316,11 @@ SocketHttpClient::Impl
 		static thread_local WaitFrame*		currentWaitFrame;
 
 		SocketHttpClient*				owner = nullptr;
-		NativeClientFactory				clientFactory;
+		WString							server;
 		vint							port = 0;
-		WString							baseUrl;
-		WString							authority;
+		Ptr<IAsyncSocketClient>			clientSource;
+		Ptr<IAsyncSocketClient>			initialClient;
+		WString							urlPrefix;
 		WString							urlConnect;
 		WString							urlRequest;
 		WString							urlResponse;
@@ -315,6 +328,7 @@ SocketHttpClient::Impl
 		Ptr<NetworkProtocolCallbackDomain>	callbackDomain = Ptr(new NetworkProtocolCallbackDomain);
 
 		CriticalSection					lockState;
+		CriticalSection					lockClientCreation;
 		ConditionVariable				cvState;
 		State							state = State::Ready;
 		INetworkProtocolCallback*		callback = nullptr;
@@ -435,9 +449,50 @@ SocketHttpClient::Impl
 
 		Ptr<SocketHttpClientApi> CreateApi()
 		{
-			auto nativeClient = clientFactory(port);
-			CHECK_ERROR(nativeClient, L"SocketHttpClient::NativeClientFactory returned null.");
-			return Ptr(new SocketHttpClientApi(nativeClient, authority));
+			Ptr<IAsyncSocketClient> nativeClient;
+			bool sameEndpointClient = false;
+			try
+			{
+				CS_LOCK(lockClientCreation)
+				{
+					nativeClient = initialClient;
+					initialClient = nullptr;
+					if (!nativeClient)
+					{
+						sameEndpointClient = true;
+						nativeClient = clientSource->CreateSameEndpointClient();
+					}
+				}
+				if (!nativeClient)
+				{
+					throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient returned null.");
+				}
+				if (sameEndpointClient && nativeClient.Obj() == clientSource.Obj())
+				{
+					throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient returned the source client instead of a fresh client.");
+				}
+				if (nativeClient->GetPort() != port)
+				{
+					throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient returned a client for a different port.");
+				}
+				if (nativeClient->GetStatus() != ClientStatus::Ready)
+				{
+					throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient returned a client that is not ready.");
+				}
+				return Ptr(new SocketHttpClientApi(nativeClient, server));
+			}
+			catch (const SameEndpointClientContractException&)
+			{
+				throw;
+			}
+			catch (const Exception& exception)
+			{
+				throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient failed: " + exception.Message());
+			}
+			catch (...)
+			{
+				throw SameEndpointClientContractException(L"IAsyncSocketClient::CreateSameEndpointClient failed.");
+			}
 		}
 
 		bool WaitApiForServer(Ptr<SocketHttpClientApi> api)
@@ -612,8 +667,8 @@ SocketHttpClient::Impl
 				return false;
 			}
 
-			auto requestTarget = baseUrl + requestPath;
-			auto responseTarget = baseUrl + responsePath;
+			auto requestTarget = urlPrefix + requestPath;
+			auto responseTarget = urlPrefix + responsePath;
 			if (
 				ValidateHttpRequestLine(L"POST", requestTarget) != HttpRequestLineValidationResult::Succeeded ||
 				ValidateHttpRequestLine(L"POST", responseTarget) != HttpRequestLineValidationResult::Succeeded
@@ -784,9 +839,15 @@ SocketHttpClient::Impl
 				{
 					api = CreateApi();
 				}
+				catch (const SameEndpointClientContractException& exception)
+				{
+					ReportFatalError(exception.Message());
+					return;
+				}
 				catch (...)
 				{
-					continue;
+					ReportFatalError(L"IAsyncSocketClient::CreateSameEndpointClient failed.");
+					return;
 				}
 				if (!PublishApi(api, true))
 				{
@@ -842,8 +903,13 @@ SocketHttpClient::Impl
 			}
 			if (!current) return;
 
-			if (result.TryGet<windows_http::HttpError>())
+			if (auto httpError = result.TryGet<windows_http::HttpError>())
 			{
+				if (IsResponseNotFoundError(*httpError))
+				{
+					ReportFatalError(DescribeHttpError(L"/Request", *httpError));
+					return;
+				}
 				HandleReceiveTransportFailure(api);
 				return;
 			}
@@ -1011,10 +1077,15 @@ SocketHttpClient::Impl
 				{
 					api = CreateApi();
 				}
+				catch (const SameEndpointClientContractException& exception)
+				{
+					ReportFatalError(exception.Message());
+					return;
+				}
 				catch (...)
 				{
-					if (!HandleSendPreparationFailure(item, L"/Response could not create a replacement HTTP client.")) return;
-					continue;
+					ReportFatalError(L"IAsyncSocketClient::CreateSameEndpointClient failed.");
+					return;
 				}
 				if (!PublishApi(api, false))
 				{
@@ -1109,6 +1180,11 @@ SocketHttpClient::Impl
 		{
 			if (auto httpError = result.TryGet<windows_http::HttpError>())
 			{
+				if (IsResponseNotFoundError(*httpError))
+				{
+					ReportFatalError(DescribeHttpError(L"/Response", *httpError));
+					return;
+				}
 				HandleSendFailure(api, item, DescribeHttpError(L"/Response", *httpError), true);
 				return;
 			}
@@ -1148,19 +1224,27 @@ SocketHttpClient::Impl
 		}
 
 	public:
-		Impl(SocketHttpClient* _owner, const WString& _baseUrl, vint _port, NativeClientFactory _clientFactory)
+		Impl(
+			SocketHttpClient* _owner,
+			Ptr<IAsyncSocketClient> _initialClient,
+			const WString& _server,
+			const WString& _urlPrefix
+			)
 			: owner(_owner)
-			, clientFactory(_clientFactory)
-			, port(_port)
-			, baseUrl(_baseUrl)
-			, authority(WString::Unmanaged(L"localhost:") + itow(_port))
-			, urlConnect(_baseUrl + HttpServerUrl_Connect)
+			, server(_server)
+			, clientSource(_initialClient)
+			, initialClient(_initialClient)
+			, urlPrefix(NormalizeUrlPrefix(_urlPrefix))
+			, urlConnect(urlPrefix + HttpServerUrl_Connect)
 		{
 			CHECK_ERROR(owner, L"SocketHttpClient requires an owning adapter.");
-			CHECK_ERROR(clientFactory, L"SocketHttpClient requires a native-client factory.");
-			CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClient requires a port in 1..65535.");
-			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(baseUrl), L"SocketHttpClient requires an empty or legal origin-form base URL without a trailing slash.");
-			CHECK_ERROR(ValidateHttpRequestLine(L"GET", urlConnect) == HttpRequestLineValidationResult::Succeeded, L"SocketHttpClient base URL makes /Connect exceed the HTTP request-line limit.");
+			CHECK_ERROR(initialClient, L"SocketHttpClient requires an initial native client.");
+			CHECK_ERROR(ValidateLoopbackServer(server), L"SocketHttpClient requires an explicit loopback server.");
+			port = initialClient->GetPort();
+			CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClient requires the initial client port to be in 1..65535.");
+			CHECK_ERROR(initialClient->GetStatus() == ClientStatus::Ready, L"SocketHttpClient requires an initial client in the ready state.");
+			CHECK_ERROR(ValidateHttpNetworkProtocolBaseUrl(urlPrefix), L"SocketHttpClient requires an empty or legal origin-form URL prefix.");
+			CHECK_ERROR(ValidateHttpRequestLine(L"GET", urlConnect) == HttpRequestLineValidationResult::Succeeded, L"SocketHttpClient URL prefix makes /Connect exceed the HTTP request-line limit.");
 		}
 
 		void Initialize(Ptr<Impl> self)
@@ -1205,10 +1289,15 @@ SocketHttpClient::Impl
 					{
 						api = CreateApi();
 					}
+					catch (const SameEndpointClientContractException& exception)
+					{
+						ReportFatalError(exception.Message());
+						return;
+					}
 					catch (...)
 					{
-						if (!HandleConnectFailure(L"/Connect could not create its HTTP client.", attempt)) return;
-						continue;
+						ReportFatalError(L"IAsyncSocketClient::CreateSameEndpointClient failed.");
+						return;
 					}
 					if (!PublishApi(api, false))
 					{
@@ -1251,6 +1340,11 @@ SocketHttpClient::Impl
 				if (auto httpError = result->TryGet<windows_http::HttpError>())
 				{
 					auto error = DescribeHttpError(L"/Connect", *httpError);
+					if (IsResponseNotFoundError(*httpError))
+					{
+						ReportFatalError(error);
+						return;
+					}
 					StopApiNoThrow(api);
 					ClearApi(api, false);
 					api = nullptr;
@@ -1286,9 +1380,15 @@ SocketHttpClient::Impl
 				{
 					apiReceive = CreateApi();
 				}
+				catch (const SameEndpointClientContractException& exception)
+				{
+					ReportFatalError(exception.Message());
+					return;
+				}
 				catch (...)
 				{
-					continue;
+					ReportFatalError(L"IAsyncSocketClient::CreateSameEndpointClient failed.");
+					return;
 				}
 				if (!PublishApi(apiReceive, true))
 				{
@@ -1560,16 +1660,15 @@ SocketHttpClient::Impl
 SocketHttpClient
 ***********************************************************************/
 
-	SocketHttpClient::SocketHttpClient(const WString& baseUrl, vint port)
-		: SocketHttpClient(baseUrl, port, CreateDefaultClientFactory())
+	SocketHttpClient::SocketHttpClient(
+		Ptr<IAsyncSocketClient> client,
+		const WString& server,
+		const WString& urlPrefix
+		)
 	{
-	}
-
-	SocketHttpClient::SocketHttpClient(const WString& baseUrl, vint port, NativeClientFactory clientFactory)
-	{
-#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpClient::SocketHttpClient(const WString&, vint, NativeClientFactory)#"
-		CHECK_ERROR(clientFactory, ERROR_MESSAGE_PREFIX L"A native-client factory is required on this platform.");
-		auto created = Ptr(new Impl(this, baseUrl, port, clientFactory));
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpClient::SocketHttpClient(Ptr<IAsyncSocketClient>, const WString&, const WString&)#"
+		CHECK_ERROR(client, ERROR_MESSAGE_PREFIX L"An initial native client is required.");
+		auto created = Ptr(new Impl(this, client, server, urlPrefix));
 		created->Initialize(created);
 		impl = created;
 #undef ERROR_MESSAGE_PREFIX

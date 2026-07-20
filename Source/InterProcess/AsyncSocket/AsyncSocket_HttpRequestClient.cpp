@@ -77,7 +77,10 @@ HttpRequestClient::Impl
 			CHECK_ERROR(client, ERROR_MESSAGE_PREFIX L"Requires a client.");
 			connection = Ptr(new HttpRequestConnection(
 				client->GetConnection(),
-				HttpRequestConnectionDirection::Client
+				HttpRequestConnectionDirection::Client,
+				nullptr,
+				nullptr,
+				true
 				));
 #undef ERROR_MESSAGE_PREFIX
 		}

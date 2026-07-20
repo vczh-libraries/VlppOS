@@ -1624,6 +1624,11 @@ AsyncSocketServer::Impl
 			Stop();
 		}
 
+		vint GetPort()
+		{
+			return port;
+		}
+
 		void Start(IAsyncSocketServerCallback* _callback)
 		{
 			CHECK_ERROR(_callback != nullptr, L"AsyncSocketServer::Start requires a callback.");
@@ -1824,6 +1829,11 @@ AsyncSocketServer
 		delete impl;
 	}
 
+	vint AsyncSocketServer::GetPort()
+	{
+		return impl->GetPort();
+	}
+
 	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
 		impl->Start(callback);
@@ -1846,6 +1856,7 @@ AsyncSocketClient::Impl
 	class AsyncSocketClient::Impl : public Object
 	{
 	private:
+		vint								port = 0;
 		Ptr<IocpRuntime>						runtime;
 		Ptr<ConnectionState>				state;
 		Ptr<AsyncSocketConnection>			connection;
@@ -1853,9 +1864,10 @@ AsyncSocketClient::Impl
 		bool							stopped = false;
 
 	public:
-		Impl(vint port)
-			: runtime(Ptr(new IocpRuntime))
-			, state(Ptr(new ConnectionState(runtime.Obj(), true, port)))
+		Impl(vint _port)
+			: port(_port)
+			, runtime(Ptr(new IocpRuntime))
+			, state(Ptr(new ConnectionState(runtime.Obj(), true, _port)))
 			, connection(Ptr(new AsyncSocketConnection(state)))
 		{
 		}
@@ -1863,6 +1875,11 @@ AsyncSocketClient::Impl
 		~Impl()
 		{
 			Stop();
+		}
+
+		vint GetPort()
+		{
+			return port;
 		}
 
 		void Stop()
@@ -1915,6 +1932,16 @@ AsyncSocketClient
 		delete impl;
 	}
 
+	vint AsyncSocketClient::GetPort()
+	{
+		return impl->GetPort();
+	}
+
+	Ptr<IAsyncSocketClient> AsyncSocketClient::CreateSameEndpointClient()
+	{
+		return Ptr(new AsyncSocketClient(GetPort()));
+	}
+
 	IAsyncSocketConnection* AsyncSocketClient::GetConnection()
 	{
 		return impl->GetConnection();
@@ -1930,13 +1957,17 @@ AsyncSocketClient
 		return impl->GetStatus();
 	}
 
+}
+
+namespace vl::inter_process::async_tcp_socket
+{
 	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
 	{
-		return Ptr(new AsyncSocketServer(port));
+		return Ptr(new windows_socket::AsyncSocketServer(port));
 	}
 
 	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
 	{
-		return Ptr(new AsyncSocketClient(port));
+		return Ptr(new windows_socket::AsyncSocketClient(port));
 	}
 }

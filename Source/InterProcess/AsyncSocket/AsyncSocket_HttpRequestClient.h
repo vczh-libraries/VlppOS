@@ -22,6 +22,7 @@ namespace vl::inter_process::async_tcp_socket
 		Ptr<Impl>							impl;
 
 	public:
+		/// <remarks>Requiring an asynchronous socket client is intentional. The caller selects and owns the transport composition, and this request adapter never creates or replaces the supplied client. Keep this dependency explicit; do not add internal client creation.</remarks>
 		explicit HttpRequestClient(Ptr<IAsyncSocketClient> client);
 		virtual ~HttpRequestClient();
 

@@ -1694,17 +1694,24 @@ AsyncSocketServer::Impl
 	class AsyncSocketServer::Impl : public Object
 	{
 	private:
+		vint								port = 0;
 		Ptr<ServerState>					state;
 
 	public:
-		Impl(vint port)
-			: state(Ptr(new ServerState(port)))
+		Impl(vint _port)
+			: port(_port)
+			, state(Ptr(new ServerState(_port)))
 		{
 		}
 
 		~Impl()
 		{
 			state->Stop();
+		}
+
+		vint GetPort()
+		{
+			return port;
 		}
 
 		void Start(IAsyncSocketServerCallback* callback)
@@ -1738,6 +1745,11 @@ AsyncSocketServer
 		delete impl;
 	}
 
+	vint AsyncSocketServer::GetPort()
+	{
+		return impl->GetPort();
+	}
+
 	void AsyncSocketServer::Start(IAsyncSocketServerCallback* callback)
 	{
 		impl->Start(callback);
@@ -1760,12 +1772,14 @@ AsyncSocketClient::Impl
 	class AsyncSocketClient::Impl : public Object
 	{
 	private:
+		vint								port = 0;
 		Ptr<ConnectionState>					state;
 		Ptr<AsyncSocketConnection>			connection;
 
 	public:
-		Impl(vint port)
-			: state(Ptr(new ConnectionState(true, port)))
+		Impl(vint _port)
+			: port(_port)
+			, state(Ptr(new ConnectionState(true, _port)))
 			, connection(Ptr(new AsyncSocketConnection(state)))
 		{
 		}
@@ -1773,6 +1787,11 @@ AsyncSocketClient::Impl
 		~Impl()
 		{
 			connection->Stop();
+		}
+
+		vint GetPort()
+		{
+			return port;
 		}
 
 		IAsyncSocketConnection* GetConnection()
@@ -1806,6 +1825,16 @@ AsyncSocketClient
 		delete impl;
 	}
 
+	vint AsyncSocketClient::GetPort()
+	{
+		return impl->GetPort();
+	}
+
+	Ptr<IAsyncSocketClient> AsyncSocketClient::CreateSameEndpointClient()
+	{
+		return Ptr(new AsyncSocketClient(GetPort()));
+	}
+
 	IAsyncSocketConnection* AsyncSocketClient::GetConnection()
 	{
 		return impl->GetConnection();
@@ -1821,14 +1850,18 @@ AsyncSocketClient
 		return impl->GetStatus();
 	}
 
+}
+
+namespace vl::inter_process::async_tcp_socket
+{
 	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
 	{
-		return Ptr(new AsyncSocketServer(port));
+		return Ptr(new macos_socket::AsyncSocketServer(port));
 	}
 
 	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
 	{
-		return Ptr(new AsyncSocketClient(port));
+		return Ptr(new macos_socket::AsyncSocketClient(port));
 	}
 }
 #endif

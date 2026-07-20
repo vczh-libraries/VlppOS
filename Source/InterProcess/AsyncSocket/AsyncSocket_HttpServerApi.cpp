@@ -1,22 +1,5 @@
 #include "AsyncSocket_HttpServerApi.h"
 
-#if defined VCZH_MSVC
-namespace vl::inter_process::async_tcp_socket::windows_socket
-{
-	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
-}
-#elif defined VCZH_GCC && defined VCZH_APPLE
-namespace vl::inter_process::async_tcp_socket::macos_socket
-{
-	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
-}
-#elif defined VCZH_GCC
-namespace vl::inter_process::async_tcp_socket::linux_socket
-{
-	extern Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port);
-}
-#endif
-
 #include <limits>
 
 namespace vl::inter_process::async_tcp_socket
@@ -33,9 +16,7 @@ namespace vl::inter_process::async_tcp_socket
 		struct PrefixInfo
 		{
 			WString						normalizedUrl;
-			WString						authority;
 			WString						decodedPath;
-			vint						port = 0;
 		};
 
 		wchar_t Lower(wchar_t c)
@@ -106,7 +87,7 @@ namespace vl::inter_process::async_tcp_socket
 				);
 		}
 
-		bool ParseAuthority(const WString& text, WString& authority, vint& port)
+		bool ParseAuthority(const WString& text, vint& port)
 		{
 			vint colon = -1;
 			for (vint i = 0; i < text.Length(); i++)
@@ -130,24 +111,20 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			if (number == 0) return false;
 			port = (vint)number;
-			authority = host + L":" + itow(port);
 			return true;
 		}
 
-		PrefixInfo ParsePrefix(const WString& url)
+		PrefixInfo ParsePrefix(vint port, const WString& urlPrefix)
 		{
-#define ERROR_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServerApi::SocketHttpServerApi(const WString&, bool)#"
-			CHECK_ERROR(url.Length() >= 7 && url.Left(7) == L"http://", ERROR_PREFIX L"Requires a plain http:// prefix.");
-			auto rest = url.Right(url.Length() - 7);
-			vint slash = rest.IndexOf(L'/');
-			auto rawAuthority = slash == -1 ? rest : rest.Left(slash);
-			auto rawPath = slash == -1 ? WString::Empty : rest.Right(rest.Length() - slash);
-			CHECK_ERROR(rawAuthority.Length() > 0 && rawPath.IndexOf(L'?') == -1 && rawPath.IndexOf(L'#') == -1, ERROR_PREFIX L"Query and fragment components are not supported.");
+#define ERROR_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServerApi::SocketHttpServerApi(Ptr<IAsyncSocketServer>, const WString&, bool)#"
+			CHECK_ERROR(1 <= port && port <= 65535, ERROR_PREFIX L"The injected server port must be in 1..65535.");
+			CHECK_ERROR(urlPrefix.Length() == 0 || urlPrefix[0] == L'/', ERROR_PREFIX L"The URL prefix must be empty or begin with /.");
+			CHECK_ERROR(urlPrefix.IndexOf(L'?') == -1 && urlPrefix.IndexOf(L'#') == -1, ERROR_PREFIX L"Query and fragment components are not supported.");
+			auto rawPath = urlPrefix;
 			PrefixInfo info;
-			CHECK_ERROR(ParseAuthority(rawAuthority, info.authority, info.port), ERROR_PREFIX L"Requires localhost or 127.0.0.1 with an explicit port in 1..65535.");
 			while (rawPath.Length() > 0 && rawPath[rawPath.Length() - 1] == L'/') rawPath = rawPath.Left(rawPath.Length() - 1);
 			CHECK_ERROR(DecodePath(rawPath, info.decodedPath), ERROR_PREFIX L"The path contains invalid escaping, UTF-8, NUL, or an encoded separator.");
-			info.normalizedUrl = L"http://" + info.authority + rawPath;
+			info.normalizedUrl = L"http://localhost:" + itow(port) + rawPath;
 			return info;
 #undef ERROR_PREFIX
 		}
@@ -554,18 +531,16 @@ namespace vl::inter_process::async_tcp_socket
 		class RegistryEntry : public Object
 		{
 		public:
-			vint							port;
-			vint							bindAttempt;
+			Ptr<IAsyncSocketServer>			socketServer;
 			EventObject						readyEvent;
 			List<Ptr<ApiRegistration>>		registrations;
 			Ptr<HttpRequestServer>				server;
 			WString							failureMessage;
 			AsyncSocketServerStartFailure		failure = AsyncSocketServerStartFailure::Other;
-			bool ready = false, succeeded = false, terminal = false;
+			bool succeeded = false, terminal = false;
 
-			RegistryEntry(vint _port, vint _bindAttempt)
-				: port(_port)
-				, bindAttempt(_bindAttempt)
+			RegistryEntry(Ptr<IAsyncSocketServer> _socketServer)
+				: socketServer(_socketServer)
 			{
 				CHECK_ERROR(readyEvent.CreateManualUnsignal(false), L"Failed to create a socket HTTP registry event.");
 			}
@@ -686,8 +661,7 @@ namespace vl::inter_process::async_tcp_socket
 
 		BEGIN_GLOBAL_STORAGE_CLASS(SocketHttpRegistry)
 			SpinLock						lock;
-			Dictionary<vint, Ptr<RegistryEntry>> entries;
-			Func<Ptr<IAsyncSocketServer>(vint)>	listenerFactory;
+			Dictionary<IAsyncSocketServer*, Ptr<RegistryEntry>> entries;
 			Func<Ptr<IHttpRequestTimeoutController>()>
 										timeoutControllerFactory;
 		INITIALIZE_GLOBAL_STORAGE_CLASS
@@ -702,7 +676,6 @@ namespace vl::inter_process::async_tcp_socket
 					if (entry->server) servers.Add(entry->server);
 				}
 				entries.Clear();
-				listenerFactory = {};
 				timeoutControllerFactory = {};
 			}
 			for (auto server : servers)
@@ -720,23 +693,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		Ptr<IAsyncSocketServer> CreateListener(vint port)
-		{
-			Func<Ptr<IAsyncSocketServer>(vint)> factory;
-			auto& registry = GetSocketHttpRegistry();
-			SPIN_LOCK(registry.lock) { factory = registry.listenerFactory; }
-			if (factory) return factory(port);
-#if defined VCZH_MSVC
-			return windows_socket::CreateDefaultAsyncSocketServer(port);
-#elif defined VCZH_GCC && defined VCZH_APPLE
-			return macos_socket::CreateDefaultAsyncSocketServer(port);
-#elif defined VCZH_GCC
-			return linux_socket::CreateDefaultAsyncSocketServer(port);
-#else
-			CHECK_FAIL(L"No async socket server is available on this platform.");
-#endif
-		}
-
 		Func<Ptr<IHttpRequestTimeoutController>()> GetTimeoutControllerFactory()
 		{
 			Func<Ptr<IHttpRequestTimeoutController>()> factory;
@@ -747,7 +703,7 @@ namespace vl::inter_process::async_tcp_socket
 
 		bool CurrentEntry(SocketHttpRegistry& registry, Ptr<RegistryEntry> entry)
 		{
-			auto index = registry.entries.Keys().IndexOf(entry->port);
+			auto index = registry.entries.Keys().IndexOf(entry->socketServer.Obj());
 			return index != -1 && registry.entries.Values()[index] == entry;
 		}
 
@@ -755,166 +711,115 @@ namespace vl::inter_process::async_tcp_socket
 		{
 			for (auto existing : entry->registrations)
 			{
-				if (existing != registration && existing->prefix.authority == registration->prefix.authority && existing->prefix.decodedPath == registration->prefix.decodedPath) return true;
+				if (existing != registration && existing->prefix.decodedPath == registration->prefix.decodedPath) return true;
 			}
 			return false;
 		}
 
-		void RegisterApi(Ptr<ApiRegistration> registration)
+		void RegisterApi(Ptr<IAsyncSocketServer> socketServer, Ptr<ApiRegistration> registration)
 		{
 			auto& registry = GetSocketHttpRegistry();
-			vint observedAttempt = 0;
-			WString lastFailure = L"The listener address is already in use.";
-			while (true)
+			Ptr<RegistryEntry> entry;
+			bool creator = false;
+			SPIN_LOCK(registry.lock)
 			{
-				Ptr<RegistryEntry> entry;
-				bool creator = false;
+				auto index = registry.entries.Keys().IndexOf(socketServer.Obj());
+				if (index != -1) entry = registry.entries.Values()[index];
+			}
+			if (!entry)
+			{
+				auto candidate = Ptr(new RegistryEntry(socketServer));
 				SPIN_LOCK(registry.lock)
 				{
-					auto index = registry.entries.Keys().IndexOf(registration->prefix.port);
-					if (index != -1) entry = registry.entries.Values()[index];
+					auto index = registry.entries.Keys().IndexOf(socketServer.Obj());
+					if (index == -1)
+					{
+						entry = candidate;
+						entry->registrations.Add(registration);
+						registration->entry = entry;
+						registry.entries.Add(socketServer.Obj(), entry);
+						creator = true;
+					}
+					else entry = registry.entries.Values()[index];
 				}
-				if (!entry)
-				{
-					if (observedAttempt >= 5)
-					{
-						throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::AddressInUse, lastFailure);
-					}
-					auto candidate = Ptr(new RegistryEntry(registration->prefix.port, observedAttempt + 1));
-					SPIN_LOCK(registry.lock)
-					{
-						auto index = registry.entries.Keys().IndexOf(registration->prefix.port);
-						if (index == -1)
-						{
-							entry = candidate;
-							entry->registrations.Add(registration);
-							registration->entry = entry;
-							registry.entries.Add(entry->port, entry);
-							creator = true;
-						}
-						else entry = registry.entries.Values()[index];
-					}
-				}
-				if (entry && entry->bindAttempt > observedAttempt) observedAttempt = entry->bindAttempt;
-
-				if (!creator)
-				{
-					CHECK_ERROR(entry->readyEvent.Wait(), L"Failed to wait for a shared socket HTTP listener.");
-					bool joined = false, duplicate = false, retry = false, replace = false, exhausted = false;
-					vint nextAttempt = 0;
-					AsyncSocketServerStartFailure failure = AsyncSocketServerStartFailure::Other;
-					WString message;
-					SPIN_LOCK(registry.lock)
-					{
-						if (entry->succeeded && !entry->terminal && CurrentEntry(registry, entry))
-						{
-							duplicate = Duplicate(entry, registration);
-							if (!duplicate)
-							{
-								entry->registrations.Add(registration);
-								registration->entry = entry;
-								joined = true;
-							}
-						}
-						else if (entry->ready && !entry->succeeded)
-						{
-							failure = entry->failure;
-							message = entry->failureMessage;
-							if (failure == AsyncSocketServerStartFailure::AddressInUse)
-							{
-								if (entry->bindAttempt >= 5)
-								{
-									exhausted = true;
-									if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->port);
-								}
-								else if (CurrentEntry(registry, entry))
-								{
-									replace = true;
-									nextAttempt = entry->bindAttempt + 1;
-								}
-								else retry = true;
-							}
-						}
-						else retry = true;
-					}
-					CHECK_ERROR(!duplicate, L"A SocketHttpServerApi with the same normalized prefix has already started.");
-					if (joined) return;
-					if (message != WString::Empty) lastFailure = message;
-					if (failure != AsyncSocketServerStartFailure::AddressInUse && !retry)
-					{
-						throw AsyncSocketServerStartException(failure, message);
-					}
-					if (exhausted)
-					{
-						throw AsyncSocketServerStartException(AsyncSocketServerStartFailure::AddressInUse, lastFailure);
-					}
-					if (replace)
-					{
-						auto candidate = Ptr(new RegistryEntry(registration->prefix.port, nextAttempt));
-						SPIN_LOCK(registry.lock)
-						{
-							if (CurrentEntry(registry, entry)
-								&& entry->ready && !entry->succeeded
-								&& entry->failure == AsyncSocketServerStartFailure::AddressInUse
-								&& entry->bindAttempt + 1 == nextAttempt)
-							{
-								registry.entries.Remove(entry->port);
-								entry = candidate;
-								entry->registrations.Add(registration);
-								registration->entry = entry;
-								registry.entries.Add(entry->port, entry);
-								creator = true;
-							}
-						}
-					}
-					if (!creator) continue;
-				}
-
-				Ptr<SharedServer> server;
+			}
+			if (!creator)
+			{
+				CHECK_ERROR(entry->readyEvent.Wait(), L"Failed to wait for a shared socket HTTP listener.");
+				bool joined = false, duplicate = false;
 				AsyncSocketServerStartFailure failure = AsyncSocketServerStartFailure::Other;
 				WString message;
-				bool started = false;
-				try
-				{
-					auto listener = CreateListener(entry->port);
-					CHECK_ERROR(listener, L"The socket HTTP listener factory returned null.");
-					server = Ptr(new SharedServer(listener, entry, GetTimeoutControllerFactory()));
-					server->InitializeSelf(server);
-					server->Start();
-					started = true;
-				}
-				catch (const AsyncSocketServerStartException& exception) { failure = exception.GetFailure(); message = exception.Message(); }
-				catch (const Exception& exception) { message = exception.Message(); }
-				catch (...) { message = L"The socket HTTP listener failed to start."; }
-
-				bool published = false;
 				SPIN_LOCK(registry.lock)
 				{
-					if (started && !entry->terminal && CurrentEntry(registry, entry))
+					if (entry->succeeded && !entry->terminal && CurrentEntry(registry, entry))
 					{
-						entry->server = server;
-						entry->ready = true;
-						entry->succeeded = true;
-						published = true;
+						duplicate = Duplicate(entry, registration);
+						if (!duplicate)
+						{
+							entry->registrations.Add(registration);
+							registration->entry = entry;
+							joined = true;
+						}
 					}
 					else
 					{
-						if (CurrentEntry(registry, entry) && failure != AsyncSocketServerStartFailure::AddressInUse) registry.entries.Remove(entry->port);
-						entry->registrations.Remove(registration.Obj());
-						registration->entry = nullptr;
-						entry->failure = failure;
-						entry->failureMessage = message;
-						entry->ready = true;
-						entry->terminal = true;
+						failure = entry->failure;
+						message = entry->failureMessage;
 					}
 				}
-				entry->readyEvent.Signal();
-				if (published) return;
-				if (server) server->StopAndRelease();
-				if (started) { failure = AsyncSocketServerStartFailure::Other; message = L"The listener stopped while starting."; }
-				if (failure != AsyncSocketServerStartFailure::AddressInUse) throw AsyncSocketServerStartException(failure, message);
-				if (message != WString::Empty) lastFailure = message;
+				CHECK_ERROR(!duplicate, L"A SocketHttpServerApi with the same normalized prefix has already started.");
+				if (joined) return;
+				if (message == WString::Empty) message = L"The injected async socket server stopped before the API could join it.";
+				throw AsyncSocketServerStartException(failure, message);
 			}
+
+			Ptr<SharedServer> server;
+			AsyncSocketServerStartFailure failure = AsyncSocketServerStartFailure::Other;
+			WString message;
+			bool started = false;
+			try
+			{
+				server = Ptr(new SharedServer(socketServer, entry, GetTimeoutControllerFactory()));
+				server->InitializeSelf(server);
+				server->Start();
+				started = true;
+			}
+			catch (const AsyncSocketServerStartException& exception) { failure = exception.GetFailure(); message = exception.Message(); }
+			catch (const Exception& exception) { message = exception.Message(); }
+			catch (...) { message = L"The socket HTTP listener failed to start."; }
+
+			bool published = false;
+			SPIN_LOCK(registry.lock)
+			{
+				if (started && !entry->terminal && CurrentEntry(registry, entry))
+				{
+					entry->server = server;
+					entry->succeeded = true;
+					published = true;
+				}
+				else
+				{
+					if (started)
+					{
+						failure = AsyncSocketServerStartFailure::Other;
+						message = L"The listener stopped while starting.";
+					}
+					else if (message == WString::Empty)
+					{
+						message = L"The socket HTTP listener failed to start.";
+					}
+					if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->socketServer.Obj());
+					entry->registrations.Remove(registration.Obj());
+					registration->entry = nullptr;
+					entry->failure = failure;
+					entry->failureMessage = message;
+					entry->terminal = true;
+				}
+			}
+			entry->readyEvent.Signal();
+			if (published) return;
+			if (server) server->StopAndRelease();
+			throw AsyncSocketServerStartException(failure, message);
 		}
 
 		Ptr<HttpRequestServer> UnregisterApi(Ptr<ApiRegistration> registration)
@@ -931,7 +836,7 @@ namespace vl::inter_process::async_tcp_socket
 					registration->entry = nullptr;
 					if (entry->registrations.Count() == 0)
 					{
-						if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->port);
+						if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->socketServer.Obj());
 						entry->terminal = true;
 						server = entry->server;
 						entry->server = nullptr;
@@ -961,7 +866,7 @@ namespace vl::inter_process::async_tcp_socket
 				if (!entry->terminal)
 				{
 					entry->terminal = true;
-					if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->port);
+					if (CurrentEntry(registry, entry)) registry.entries.Remove(entry->socketServer.Obj());
 					for (auto registration : entry->registrations) { registration->entry = nullptr; stopping.Add(registration); }
 					entry->registrations.Clear();
 					entry->server = nullptr;
@@ -1023,18 +928,6 @@ namespace vl::inter_process::async_tcp_socket
 			return true;
 		}
 	}
-
-	void SetSocketHttpServerListenerFactoryForTesting(const Func<Ptr<IAsyncSocketServer>(vint)>& factory)
-	{
-		auto& registry = GetSocketHttpRegistry();
-		SPIN_LOCK(registry.lock)
-		{
-			CHECK_ERROR(registry.entries.Count() == 0, L"The test listener factory can only change while no API is started.");
-			registry.listenerFactory = factory;
-		}
-	}
-
-	void ResetSocketHttpServerListenerFactoryForTesting() { SetSocketHttpServerListenerFactoryForTesting({}); }
 
 	void SetSocketHttpServerTimeoutControllerFactoryForTesting(const Func<Ptr<IHttpRequestTimeoutController>()>& factory)
 	{
@@ -1135,9 +1028,8 @@ namespace vl::inter_process::async_tcp_socket
 			SendAutomatic(400, true);
 			return;
 		}
-		WString authority;
 		vint port = 0;
-		if (!ParseAuthority(host, authority, port))
+		if (!ParseAuthority(host, port))
 		{
 			SendAutomatic(400, true);
 			return;
@@ -1151,6 +1043,7 @@ namespace vl::inter_process::async_tcp_socket
 		}
 
 		auto registrations = Registrations(state->entry);
+		auto matchesPort = state->entry->socketServer->GetPort() == port;
 		if (request->requestTarget == L"*")
 		{
 			if (request->method != L"OPTIONS")
@@ -1161,7 +1054,7 @@ namespace vl::inter_process::async_tcp_socket
 			bool automaticOptions = false;
 			for (auto registration : registrations)
 			{
-				if (registration->prefix.authority == authority && registration->respondToOptions)
+				if (matchesPort && registration->respondToOptions)
 				{
 					automaticOptions = true;
 					break;
@@ -1201,7 +1094,7 @@ namespace vl::inter_process::async_tcp_socket
 		Ptr<ApiRegistration> selected;
 		for (auto registration : registrations)
 		{
-			if (registration->prefix.authority == authority && Match(registration->prefix.decodedPath, path))
+			if (matchesPort && Match(registration->prefix.decodedPath, path))
 			{
 				if (!selected || registration->prefix.decodedPath.Length() > selected->prefix.decodedPath.Length()) selected = registration;
 			}
@@ -1430,6 +1323,7 @@ namespace vl::inter_process::async_tcp_socket
 	{
 	private:
 		SocketHttpServerApi*				owner;
+		Ptr<IAsyncSocketServer>			socketServer;
 		Ptr<ApiRegistration>				registration;
 		CriticalSection					lock;
 		ConditionVariable				cv;
@@ -1504,12 +1398,16 @@ namespace vl::inter_process::async_tcp_socket
 		}
 
 	public:
-		Impl(SocketHttpServerApi* _owner, const WString& urlPrefix, bool respondToOptions)
+		Impl(SocketHttpServerApi* _owner, Ptr<IAsyncSocketServer> _socketServer, const WString& urlPrefix, bool respondToOptions)
 			: owner(_owner)
-			, registration(Ptr(new ApiRegistration(ParsePrefix(urlPrefix), respondToOptions)))
+			, socketServer(_socketServer)
 		{
+#define ERROR_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpServerApi::SocketHttpServerApi(Ptr<IAsyncSocketServer>, const WString&, bool)#"
+			CHECK_ERROR(socketServer, ERROR_PREFIX L"Requires a server.");
+			registration = Ptr(new ApiRegistration(ParsePrefix(socketServer->GetPort(), urlPrefix), respondToOptions));
 			registration->requestCallback = Func<void(Ptr<SocketHttpRequestContext>)>([this](Ptr<SocketHttpRequestContext> context) { Request(context); });
 			registration->stoppingCallback = Func<void()>([this]() { Stopping(); });
+#undef ERROR_PREFIX
 		}
 
 		void Start()
@@ -1523,7 +1421,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			try
 			{
-				RegisterApi(registration);
+				RegisterApi(socketServer, registration);
 			}
 			catch (...)
 			{
@@ -1578,8 +1476,8 @@ namespace vl::inter_process::async_tcp_socket
 		WString GetUrlPrefix() { return registration->prefix.normalizedUrl; }
 	};
 
-	SocketHttpServerApi::SocketHttpServerApi(const WString& urlPrefix, bool respondToOptions)
-		: impl(Ptr(new Impl(this, urlPrefix, respondToOptions)))
+	SocketHttpServerApi::SocketHttpServerApi(Ptr<IAsyncSocketServer> server, const WString& urlPrefix, bool respondToOptions)
+		: impl(Ptr(new Impl(this, server, urlPrefix, respondToOptions)))
 	{
 	}
 

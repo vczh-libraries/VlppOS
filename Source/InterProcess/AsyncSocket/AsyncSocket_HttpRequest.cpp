@@ -1519,6 +1519,11 @@ IHttpRequestCallback
 	{
 	}
 
+	void IHttpRequestCallback::OnReadResponseFailure(HttpResponseFailure)
+	{
+		OnError(L"The HTTP client received a 404 Not Found response.", true);
+	}
+
 	void IHttpRequestCallback::OnWriteCompleted()
 	{
 	}
@@ -1773,6 +1778,7 @@ HttpRequestConnectionLifecycle
 
 		IAsyncSocketConnection*				socketConnection = nullptr;
 		HttpRequestConnectionDirection		direction = HttpRequestConnectionDirection::Server;
+		bool							responseNotFoundIsFatal = false;
 		Ptr<HttpRequestCallbackDomain>		callbackDomain;
 		Ptr<IHttpRequestTimeoutController>	timeoutController;
 		Ptr<Object>						retainedAdapter;
@@ -2150,8 +2156,55 @@ HttpRequestConnection helpers
 		}
 	}
 
+	void HttpRequestConnection::ReportResponseFailure(Ptr<Lifecycle> state, HttpResponseFailure failure)
+	{
+		bool report = false;
+		CS_LOCK(state->lockState)
+		{
+			if (!state->terminal && !state->stopStarted)
+			{
+				state->terminal = true;
+				state->parserFailed = true;
+				state->timeoutArmed = false;
+				state->pendingWrite = nullptr;
+				state->writePending = false;
+				state->heldResponse = nullptr;
+				state->fatalAfterResponse = false;
+				state->responseDelivering = false;
+				state->deferredRequestWrite = nullptr;
+				state->deferredRequestClose = false;
+				state->deferredRequestMethod = L"";
+				report = true;
+				state->cvState.WakeAllPendings();
+			}
+		}
+		if (report)
+		{
+			state->timeoutController->CancelAndWait();
+			try
+			{
+				InvokeHttpCallback(state, true, [&](IHttpRequestCallback* installed)
+				{
+					installed->OnReadResponseFailure(failure);
+				});
+			}
+			catch (...)
+			{
+				StopConnection(state);
+				throw;
+			}
+			StopConnection(state);
+		}
+	}
+
 	void HttpRequestConnection::DeliverResponse(Ptr<Lifecycle> state, Ptr<HttpResponse> response, bool closeAfterDelivery)
 	{
+		if (state->responseNotFoundIsFatal && response->statusCode == (vint)HttpResponseFailure::NotFound)
+		{
+			ReportResponseFailure(state, HttpResponseFailure::NotFound);
+			return;
+		}
+
 		try
 		{
 			InvokeHttpCallback(state, false, [&](IHttpRequestCallback* installed)
@@ -2638,13 +2691,15 @@ HttpRequestConnection
 		IAsyncSocketConnection* connection,
 		HttpRequestConnectionDirection direction,
 		Ptr<HttpRequestCallbackDomain> callbackDomain,
-		Ptr<IHttpRequestTimeoutController> timeoutController
+		Ptr<IHttpRequestTimeoutController> timeoutController,
+		bool responseNotFoundIsFatal
 		)
 		: lifecycle(Ptr(new Lifecycle))
 	{
 		CHECK_ERROR(connection, L"HttpRequestConnection requires a valid async socket connection.");
 		lifecycle->socketConnection = connection;
 		lifecycle->direction = direction;
+		lifecycle->responseNotFoundIsFatal = responseNotFoundIsFatal;
 		lifecycle->callbackDomain = callbackDomain ? callbackDomain : Ptr(new HttpRequestCallbackDomain);
 		lifecycle->timeoutController = timeoutController ? timeoutController : CreateHttpRequestTimeoutController();
 		connection->InstallCallback(this);

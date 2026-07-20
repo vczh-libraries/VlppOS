@@ -15,14 +15,6 @@ namespace vl::inter_process::async_tcp_socket
 
 	namespace
 	{
-		enum class SocketHttpClientErrorCode : vuint32_t
-		{
-			InvalidRequest = 1,
-			Stopped = 2,
-			Transport = 3,
-			UnsupportedCoding = 4,
-		};
-
 		wchar_t FoldAscii(wchar_t c)
 		{
 			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
@@ -74,47 +66,11 @@ namespace vl::inter_process::async_tcp_socket
 			return found;
 		}
 
-		bool ValidateAuthority(const WString& authority)
+		bool ValidateServer(const WString& server)
 		{
-			if (authority.Length() == 0) return false;
-			for (vint i = 0; i < authority.Length(); i++)
-			{
-				auto c = authority[i];
-				if (c <= 0x20 || c > 0x7E || c == L'/' || c == L'?' || c == L'#' || c == L'@') return false;
-			}
-
-			WString host;
-			vint portStart = -1;
-			if (authority[0] == L'[') return false;
-			vint colon = -1;
-			for (vint i = 0; i < authority.Length(); i++)
-			{
-				if (authority[i] == L':')
-				{
-					if (colon != -1) return false;
-					colon = i;
-				}
-			}
-			if (colon <= 0 || colon + 1 >= authority.Length()) return false;
-			host = authority.Sub(0, colon);
-			portStart = colon + 1;
-
-			if (
-				!AsciiEqualsIgnoreCase(host, L"localhost") &&
-				host != L"127.0.0.1"
-				)
-			{
-				return false;
-			}
-
-			vint port = 0;
-			for (vint i = portStart; i < authority.Length(); i++)
-			{
-				if (authority[i] < L'0' || authority[i] > L'9') return false;
-				port = port * 10 + authority[i] - L'0';
-				if (port > 65535) return false;
-			}
-			return 1 <= port && port <= 65535;
+			return
+				AsciiEqualsIgnoreCase(server, L"localhost") ||
+				server == L"127.0.0.1";
 		}
 
 		HttpField CreateField(const WString& name, const WString& value)
@@ -426,7 +382,7 @@ SocketHttpClientApi::Impl
 				{
 					if (!AsciiEqualsIgnoreCase(TrimHttpWhitespace(value), authority))
 					{
-						error = MakeError(L"SocketHttpClientApi::HttpQuery", L"A caller-supplied Host field conflicts with the constructor authority.", SocketHttpClientErrorCode::InvalidRequest);
+						error = MakeError(L"SocketHttpClientApi::HttpQuery", L"A caller-supplied Host field conflicts with the configured server and injected client port.", SocketHttpClientErrorCode::InvalidRequest);
 						return nullptr;
 					}
 					continue;
@@ -899,6 +855,19 @@ SocketHttpClientApi::Impl
 			}
 		}
 
+		void OnReadResponseFailure(HttpResponseFailure failure) override
+		{
+			auto self = RetainSelf();
+			if (!self) return;
+#define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::SocketHttpClientApi::Impl::OnReadResponseFailure(HttpResponseFailure)#"
+			CHECK_ERROR(failure == HttpResponseFailure::NotFound, ERROR_MESSAGE_PREFIX L"Received an unsupported response failure.");
+			HandleTerminalError(
+				MakeError(L"SocketHttpClientApi::OnReadResponseFailure", L"The server returned 404 Not Found.", SocketHttpClientErrorCode::ResponseNotFound),
+				false
+				);
+#undef ERROR_MESSAGE_PREFIX
+		}
+
 		void OnWriteCompleted() override
 		{
 		}
@@ -943,10 +912,13 @@ SocketHttpClientApi::Impl
 SocketHttpClientApi
 ***********************************************************************/
 
-	SocketHttpClientApi::SocketHttpClientApi(Ptr<IAsyncSocketClient> client, const WString& authority)
+	SocketHttpClientApi::SocketHttpClientApi(Ptr<IAsyncSocketClient> client, const WString& server)
 	{
 		CHECK_ERROR(client, L"SocketHttpClientApi requires an asynchronous socket client.");
-		CHECK_ERROR(ValidateAuthority(authority), L"SocketHttpClientApi requires an explicit loopback authority and port.");
+		CHECK_ERROR(ValidateServer(server), L"SocketHttpClientApi requires an explicit loopback server.");
+		auto port = client->GetPort();
+		CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClientApi requires the injected client port to be in 1..65535.");
+		auto authority = server + WString::Unmanaged(L":") + itow(port);
 		auto created = Ptr(new Impl(client, authority));
 		created->Initialize(created);
 		impl = created;

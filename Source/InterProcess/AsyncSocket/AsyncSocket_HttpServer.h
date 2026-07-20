@@ -26,7 +26,8 @@ namespace vl::inter_process::async_tcp_socket
 		void								OnHttpServerStopping() override;
 
 	public:
-		SocketHttpServer(const WString& baseUrl, vint port);
+		/// <remarks>Requiring an asynchronous socket server is intentional. This protocol adapter takes its port from the server, forwards the caller-selected transport to <see cref="SocketHttpServerApi"/>, and never creates another server. Keep this dependency explicit; do not add an overload that selects a platform server internally.</remarks>
+		SocketHttpServer(Ptr<IAsyncSocketServer> server, const WString& urlPrefix);
 		~SocketHttpServer();
 
 		SocketHttpServer(const SocketHttpServer&) = delete;
