@@ -1,0 +1,19 @@
+- Move extern of `CreateDefaultAsyncSocket(Server|Client)` to `AsyncSocket.h` right after the declaration of `AsyncSocketClientRetryDelay`.
+  - Delete all other externs.
+  - Notice that all 3 platforms have the same socket factory function declaration so no need to guard with macros.
+  - Use them directly in all test cases, so to remove unnecessary guarding macros.
+- Change`SocketHttpServerApi`'s constructor to `(Ptr<IAsyncSocketServer>, port, urlPrefix)`.
+  - Remove all socket server creating code because it is not necessary anymore.
+  - `urlPrefix` would be like `/ABC/def`, which means this server api is listening to `localhost:port/ABC/def` and `localhost:port/ABC/def/...`, it does not listen to `localhost:port/ABC/defghi`.
+  - If `urlPrefix` ends with `/` ignore the `/`
+- Change`SocketHttpClientApi`'s constructor to `(Ptr<IAsyncSocketClient>, server, port)`.
+  - This keeps the same behavior with `windows_http::HttpClientApi`.
+- `SocketHttp(Server|Client)`'s constructor should pass `Ptr<IAsyncSocket(Server|Client)>` as the first constructor argument, they are no going to access or create `IAsyncSocket(Server|Client)` in any other way:
+  - `SocketHttpServer(socketServer, port, urlPrefix)` to match `SocketHttpServerApi`.
+  - `SocketHttpClient(socketClient, server, port)` to match `SocketHttpClientApi`.
+- In `SocketHttp(Server|Client)`, `SocketHttp(Server|Client)Api`, `HttpRequest(Server|Client)`'s constructor comment:
+  - Say in your own world that, requiring to pass `IAsyncSocket(Server|Client)` is by design, do not change this design.
+- Add new test case(s) to `TestInterProcess_AsyncSocket_MiniHttpApi.cpp` to test against:
+  - Multiple `SocketHttpServerApi` is starting with the same `Ptr<IAsyncSocketServer>` but using different `urlPrefix`, and they could just work together. You can use one single `SocketHttpClientApi` to call all of them and make sure they all respond as expected.
+- Update the knowledge base with this change.
+- Commit and push all local changes to master.
