@@ -41,6 +41,7 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		AsyncSocketServer(vint port);
 		~AsyncSocketServer();
 
+		vint								GetPort() override;
 		void								Start(IAsyncSocketServerCallback* callback) override;
 		void								Stop() override;
 		bool								IsStopped() override;
@@ -56,6 +57,8 @@ namespace vl::inter_process::async_tcp_socket::windows_socket
 		AsyncSocketClient(vint port);
 		~AsyncSocketClient();
 
+		vint								GetPort() override;
+		Ptr<IAsyncSocketClient>				CreateSameEndpointClient() override;
 		IAsyncSocketConnection*				GetConnection() override;
 		void								WaitForServer() override;
 		ClientStatus						GetStatus() override;

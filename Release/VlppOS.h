@@ -1816,6 +1816,11 @@ namespace vl::inter_process::async_tcp_socket
 	class IAsyncSocketClient : public virtual Interface
 	{
 	public:
+		/// <summary>Returns the immutable loopback port selected during construction.</summary>
+		virtual vint							GetPort() = 0;
+		/// <summary>Creates a fresh independent client with the same transport configuration and endpoint.</summary>
+		/// <remarks>The returned client must be distinct, report the same port, and have <see cref="ClientStatus::Ready"/> status. This operation remains available while the source client is active or stopped.</remarks>
+		virtual Ptr<IAsyncSocketClient>			CreateSameEndpointClient() = 0;
 		virtual IAsyncSocketConnection*			GetConnection() = 0;
 		virtual void							WaitForServer() = 0;
 		virtual ClientStatus					GetStatus() = 0;
@@ -1851,6 +1856,8 @@ namespace vl::inter_process::async_tcp_socket
 	class IAsyncSocketServer : public virtual Interface
 	{
 	public:
+		/// <summary>Returns the immutable loopback port selected during construction.</summary>
+		virtual vint							GetPort() = 0;
 		virtual void							Start(IAsyncSocketServerCallback* callback) = 0;
 		virtual void							Stop() = 0;
 		virtual bool							IsStopped() = 0;
@@ -1860,6 +1867,9 @@ namespace vl::inter_process::async_tcp_socket
 	// a fresh native socket and is followed by an asynchronous millisecond delay.
 	constexpr vint AsyncSocketClientRetryCount = 50;
 	constexpr vint AsyncSocketClientRetryDelay = 100;
+
+	extern Ptr<IAsyncSocketServer>			CreateDefaultAsyncSocketServer(vint port);
+	extern Ptr<IAsyncSocketClient>			CreateDefaultAsyncSocketClient(vint port);
 
 /***********************************************************************
 NetworkProtocolConnection
@@ -6480,6 +6490,11 @@ namespace vl::inter_process::async_tcp_socket
 		HttpBody						body;
 	};
 
+	enum class HttpResponseFailure
+	{
+		NotFound = 404,
+	};
+
 	enum class HttpRequestBodyParsingResult
 	{
 		Succeeded,
@@ -6514,6 +6529,7 @@ namespace vl::inter_process::async_tcp_socket
 		virtual void						OnReadRequest(Ptr<HttpRequest> request);
 		virtual void						OnReadRequestFailure(HttpRequestFailure failure);
 		virtual void						OnReadResponse(Ptr<HttpResponse> response);
+		virtual void						OnReadResponseFailure(HttpResponseFailure failure);
 		virtual void						OnWriteCompleted();
 		virtual void						OnError(const WString& error, bool fatal);
 		virtual void						OnConnected();
@@ -6625,6 +6641,7 @@ namespace vl::inter_process::async_tcp_socket
 		static void						InstallTimeout(Ptr<Lifecycle> state, vint milliseconds, const WString& error);
 		static void						RefreshTimeout(Ptr<Lifecycle> state);
 		static void						ReportRequestFailure(Ptr<Lifecycle> state, HttpRequestFailure failure, bool timeoutOnly = false, bool reserved = false);
+		static void						ReportResponseFailure(Ptr<Lifecycle> state, HttpResponseFailure failure);
 		static void						DeliverResponse(Ptr<Lifecycle> state, Ptr<HttpResponse> response, bool closeAfterDelivery);
 		static void						ProcessBufferedInput(Ptr<Lifecycle> state);
 		static void						NotifyDisconnected(Ptr<Lifecycle> state);
@@ -6636,7 +6653,8 @@ namespace vl::inter_process::async_tcp_socket
 			IAsyncSocketConnection* connection,
 			HttpRequestConnectionDirection direction,
 			Ptr<HttpRequestCallbackDomain> callbackDomain = nullptr,
-			Ptr<IHttpRequestTimeoutController> timeoutController = nullptr
+			Ptr<IHttpRequestTimeoutController> timeoutController = nullptr,
+			bool responseNotFoundIsFatal = false
 			);
 		~HttpRequestConnection();
 
@@ -6688,6 +6706,7 @@ namespace vl::inter_process::async_tcp_socket
 		Ptr<Impl>							impl;
 
 	public:
+		/// <remarks>Requiring an asynchronous socket client is intentional. The caller selects and owns the transport composition, and this request adapter never creates or replaces the supplied client. Keep this dependency explicit; do not add internal client creation.</remarks>
 		explicit HttpRequestClient(Ptr<IAsyncSocketClient> client);
 		virtual ~HttpRequestClient();
 
@@ -6733,6 +6752,7 @@ namespace vl::inter_process::async_tcp_socket
 			);
 
 	public:
+		/// <remarks>Requiring an asynchronous socket server is intentional. The caller selects and owns the transport composition, and this request adapter never creates or replaces the supplied server. Keep this dependency explicit; do not add internal server creation.</remarks>
 		explicit HttpRequestServer(Ptr<IAsyncSocketServer> server);
 		/// <remarks>A derived destructor must call <see cref="Stop"/> before destroying any state accessed by <see cref="OnClientConnected"/>.</remarks>
 		virtual ~HttpRequestServer();
@@ -6830,9 +6850,11 @@ namespace vl::inter_process::async_tcp_socket
 		virtual void						OnHttpServerStopping();
 
 	public:
+		/// <remarks>Requiring an asynchronous socket server is intentional. The caller selects and owns the transport composition, the port comes from the supplied server, and multiple APIs share one listener only by receiving the same server. Keep this dependency explicit; do not add internal server creation.</remarks>
 		SocketHttpServerApi(
+			Ptr<IAsyncSocketServer> server,
 			const WString& urlPrefix,
-			bool respondToOptions
+			bool respondToOptions = true
 			);
 		virtual ~SocketHttpServerApi();
 
@@ -6881,7 +6903,8 @@ namespace vl::inter_process::async_tcp_socket
 		void								OnHttpServerStopping() override;
 
 	public:
-		SocketHttpServer(const WString& baseUrl, vint port);
+		/// <remarks>Requiring an asynchronous socket server is intentional. This protocol adapter takes its port from the server, forwards the caller-selected transport to <see cref="SocketHttpServerApi"/>, and never creates another server. Keep this dependency explicit; do not add an overload that selects a platform server internally.</remarks>
+		SocketHttpServer(Ptr<IAsyncSocketServer> server, const WString& urlPrefix);
 		~SocketHttpServer();
 
 		SocketHttpServer(const SocketHttpServer&) = delete;
@@ -7055,15 +7078,25 @@ Interfaces:
 
 namespace vl::inter_process::async_tcp_socket
 {
+	enum class SocketHttpClientErrorCode : vuint32_t
+	{
+		InvalidRequest = 1,
+		Stopped = 2,
+		Transport = 3,
+		UnsupportedCoding = 4,
+		ResponseNotFound = 5,
+	};
+
 	class SocketHttpClientApi : public Object
 	{
 		class Impl;
 		Ptr<Impl>							impl;
 
 	public:
+		/// <remarks>Requiring an asynchronous socket client is intentional. The caller selects and owns the transport composition, the client supplies its locked-in port, and this API never creates or replaces it. Keep this dependency explicit; do not add internal client creation.</remarks>
 		SocketHttpClientApi(
 			Ptr<IAsyncSocketClient> client,
-			const WString& authority
+			const WString& server
 			);
 		~SocketHttpClientApi();
 
@@ -7120,10 +7153,12 @@ namespace vl::inter_process::async_tcp_socket
 		Ptr<Impl>						impl;
 
 	public:
-		using NativeClientFactory = Func<Ptr<IAsyncSocketClient>(vint)>;
-
-		SocketHttpClient(const WString& baseUrl, vint port);
-		SocketHttpClient(const WString& baseUrl, vint port, NativeClientFactory clientFactory);
+		/// <remarks>Requiring an asynchronous socket client is intentional. The supplied client is used directly for the first physical lane and creates fresh same-endpoint clients for the second lane and transport recovery. Keep this dependency explicit; do not add a factory parameter or select a platform socket internally.</remarks>
+		SocketHttpClient(
+			Ptr<IAsyncSocketClient> client,
+			const WString& server,
+			const WString& urlPrefix
+			);
 		~SocketHttpClient();
 
 		SocketHttpClient(const SocketHttpClient&) = delete;
