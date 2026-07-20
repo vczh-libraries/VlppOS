@@ -18,8 +18,8 @@ The clean Linux build succeeded. Running `./Bin/UnitTest /C` reproduced the prob
 
 # PROPOSALS
 
-- No.1 USE REENTRANT UNIX DATE-TIME CONVERSIONS
-- No.2 MAKE FAILED POLL DELIVERY TEST DETERMINISTIC
+- No.1 USE REENTRANT UNIX DATE-TIME CONVERSIONS [CONFIRMED]
+- No.2 MAKE FAILED POLL DELIVERY TEST DETERMINISTIC [CONFIRMED]
 
 ## No.1 USE REENTRANT UNIX DATE-TIME CONVERSIONS
 
@@ -31,6 +31,10 @@ Fix the source of truth in the upstream `Vlpp` repository by replacing all Unix 
 
 In `Vlpp/Source/Primitives/DateTime.Linux.cpp`, create caller-owned `tm` values for `FromOSInternal`, `LocalTime`, `UtcTime`, `LocalToUtcTime`, and both sides of `UtcToLocalTime`, fill them with `localtime_r()` or `gmtime_r()`, and pass their addresses to the existing conversion helpers. Regenerate `Vlpp/Release/Vlpp.Linux.cpp`, copy that generated file to `VlppOS/Import/Vlpp.Linux.cpp`, and keep all other platform implementations unchanged.
 
+### CONFIRMED
+
+The upstream Linux implementation now uses caller-owned `tm` values for every conversion named above, with separate local and UTC values in `UtcToLocalTime()`. CodePack regenerated `Vlpp/Release/Vlpp.Linux.cpp`, and that generated file is byte-for-byte identical to `VlppOS/Import/Vlpp.Linux.cpp`. The Windows implementation was not changed. A clean upstream Linux build succeeded and its complete unit-test run passed 31/31 files and 462/462 cases. In `VlppOS`, the focused inter-process file passed the two portable SocketHttp pairs that originally tripped the five-second watchdog, and the final clean full run passed 13/13 files and 202/202 cases. This confirms that removing glibc's shared `tm` buffer race fixes the original Linux-only timeout without changing Windows behavior.
+
 ## No.2 MAKE FAILED POLL DELIVERY TEST DETERMINISTIC
 
 After the date-time race is removed, the complete Linux run reaches `SocketHttp failed poll delivery is requeued before a replacement poll` and times out while waiting for the replacement poll. The test stops the first HTTP client after the server claims its long poll, then assumes the server response completion must fail. `SocketHttpClientApi::Stop()` completes that client's query locally with `Stopped`; it does not prove that the server observed a failed response. TCP write completion only reports that bytes were accepted locally, not acknowledged by the peer, so the server send may legally succeed after the peer has begun closing. On Linux, the claimed hook also blocks the single `RingRuntime` completion worker, preventing it from processing the peer disconnect until the hook releases. The server therefore reports the first response as successful, correctly consumes the queued message, and leaves the infinite replacement poll waiting because there is nothing to requeue. Windows passing this test reflects a different scheduling outcome, not a stronger transport guarantee.
@@ -39,4 +43,8 @@ Keep the production requeue rule unchanged: requeueing a locally successful send
 
 ### CODE CHANGE
 
-In `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.cpp`, add a test-hook callback that returns whether the claimed poll context should be cancelled before `RespondBytes()`, invoke it after the existing claimed hook, and reset it with the other poll hooks. In `Test/Source/TestInterProcess.cpp`, expose the callback through `SocketHttpPollHookScope`, request cancellation only while handling the first claim, and retain the existing completion-token and response-body assertions. Do not change the cross-platform socket write-completion contract or the production success/requeue decision.
+In `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.cpp`, add a test-hook callback that returns whether the claimed poll context should be cancelled before `RespondBytes()`, invoke it after the existing claimed hook, and reset it with the other poll hooks. In `Test/Source/TestInterProcess.cpp`, expose the callback through `SocketHttpPollHookScope`, request cancellation only while handling the first claim, and retain the existing completion-token and response-body assertions. Regenerate `Release/VlppOS.cpp`. Do not change the cross-platform socket write-completion contract or the production success/requeue decision.
+
+### CONFIRMED
+
+The new hook defaults to an empty callback and therefore has no effect outside tests. In the failed-delivery test it cancels only the first claimed server request context. The subsequent `RespondBytes()` submission deterministically fails, the existing completion hook records `succeeded == false`, and the unchanged production logic restores the retained outbound message at the FIFO head. The replacement poll then completes successfully with the same token, Unicode text, and exact UTF-8 bytes. The focused `TestInterProcess.cpp` run passed 18/18 cases once and then passed five additional consecutive stress runs. The complete Linux suite passed 13/13 files and 202/202 cases both before and after a clean rebuild. CodePack regenerated `Release/VlppOS.cpp`, and review found no production contract or platform-specific behavior change. This confirms the replacement-poll timeout was caused by the test's TCP timing assumption and that deterministic context cancellation verifies the intended requeue behavior on Linux and Windows.
