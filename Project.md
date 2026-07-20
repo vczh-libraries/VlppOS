@@ -27,7 +27,7 @@ When shared product source changes, all relevant unit tests are required to run.
 
 When any test case fails, you must fix the issue immediately, even those errors are unrelated to the issue you are working on.
 
-## Linux and macOS Specific
+## Linux/macOS Specific
 
 - `REPO-ROOT/Test/Linux/UnitTest` stores the Unix configuration for `UnitTest.vcxproj`.
 - `REPO-ROOT/Test/Linux/MiniHttpServer` stores the Unix configuration for `MiniHttpServer.vcxproj`.
