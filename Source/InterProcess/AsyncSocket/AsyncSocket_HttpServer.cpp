@@ -98,6 +98,7 @@ namespace vl::inter_process::async_tcp_socket
 			Func<void(const WString&)>			claimed;
 			Func<void(const WString&, bool)>		completed;
 			Func<void(const WString&)>			registered;
+			Func<bool(const WString&)>			cancelBeforeResponse;
 		INITIALIZE_GLOBAL_STORAGE_CLASS
 		FINALIZE_GLOBAL_STORAGE_CLASS
 			SPIN_LOCK(lock)
@@ -105,6 +106,7 @@ namespace vl::inter_process::async_tcp_socket
 				claimed = {};
 				completed = {};
 				registered = {};
+				cancelBeforeResponse = {};
 			}
 		END_GLOBAL_STORAGE_CLASS(SocketHttpServerTestHooks)
 
@@ -130,6 +132,15 @@ namespace vl::inter_process::async_tcp_socket
 			auto& hooks = GetSocketHttpServerTestHooks();
 			SPIN_LOCK(hooks.lock) { callback = hooks.registered; }
 			if (callback) try { callback(token); } catch (...) {}
+		}
+
+		bool ShouldCancelPollBeforeResponse(const WString& token)
+		{
+			Func<bool(const WString&)> callback;
+			auto& hooks = GetSocketHttpServerTestHooks();
+			SPIN_LOCK(hooks.lock) { callback = hooks.cancelBeforeResponse; }
+			if (callback) try { return callback(token); } catch (...) {}
+			return false;
 		}
 
 		class SocketHttpServerConnection;
@@ -539,6 +550,7 @@ namespace vl::inter_process::async_tcp_socket
 		{
 			if (!work) return;
 			InvokePollClaimed(state->token);
+			if (ShouldCancelPollBeforeResponse(state->token)) work.context->Cancel();
 			bool submitted = false;
 			try
 			{
@@ -1201,7 +1213,8 @@ namespace vl::inter_process::async_tcp_socket
 	void SetSocketHttpServerPollCallbacksForTesting(
 		const Func<void(const WString&)>& claimed,
 		const Func<void(const WString&, bool)>& completed,
-		const Func<void(const WString&)>& registered
+		const Func<void(const WString&)>& registered,
+		const Func<bool(const WString&)>& cancelBeforeResponse
 		)
 	{
 		auto& hooks = GetSocketHttpServerTestHooks();
@@ -1210,12 +1223,13 @@ namespace vl::inter_process::async_tcp_socket
 			hooks.claimed = claimed;
 			hooks.completed = completed;
 			hooks.registered = registered;
+			hooks.cancelBeforeResponse = cancelBeforeResponse;
 		}
 	}
 
 	void ResetSocketHttpServerPollCallbacksForTesting()
 	{
-		SetSocketHttpServerPollCallbacksForTesting({}, {}, {});
+		SetSocketHttpServerPollCallbacksForTesting({}, {}, {}, {});
 	}
 
 	SocketHttpServer::SocketHttpServer(Ptr<IAsyncSocketServer> server, const WString& urlPrefix)

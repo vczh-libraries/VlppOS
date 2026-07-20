@@ -28,7 +28,8 @@ namespace vl::inter_process::async_tcp_socket
 	extern void SetSocketHttpServerPollCallbacksForTesting(
 		const Func<void(const WString&)>& claimed,
 		const Func<void(const WString&, bool)>& completed,
-		const Func<void(const WString&)>& registered
+		const Func<void(const WString&)>& registered,
+		const Func<bool(const WString&)>& cancelBeforeResponse
 		);
 	extern void ResetSocketHttpServerPollCallbacksForTesting();
 	extern void SetSocketHttpClientReceiveSubmittedCallbackForTesting(const Func<void()>& callback);
@@ -888,10 +889,11 @@ namespace mynamespace
 		SocketHttpPollHookScope(
 			const Func<void(const WString&)>& claimed,
 			const Func<void(const WString&, bool)>& completed,
-			const Func<void(const WString&)>& registered = {}
+			const Func<void(const WString&)>& registered = {},
+			const Func<bool(const WString&)>& cancelBeforeResponse = {}
 			)
 		{
-			async_tcp_socket::SetSocketHttpServerPollCallbacksForTesting(claimed, completed, registered);
+			async_tcp_socket::SetSocketHttpServerPollCallbacksForTesting(claimed, completed, registered, cancelBeforeResponse);
 		}
 
 		~SocketHttpPollHookScope()
@@ -2222,6 +2224,15 @@ namespace mynamespace
 			if (count == 2) eventSecondCompletion.Signal();
 		}
 
+		bool CancelFirstResponse()
+		{
+			SPIN_LOCK(lock)
+			{
+				return claimedTokens.Count() == 1;
+			}
+			return false;
+		}
+
 		bool Validate()
 		{
 			SPIN_LOCK(lock)
@@ -3260,7 +3271,9 @@ void RunSocketHttpFocusedTestCases()
 		auto hookState = Ptr(new FailedPollHookState);
 		SocketHttpPollHookScope pollHooks(
 			Func<void(const WString&)>([hookState](const WString& token) { hookState->Claimed(token); }),
-			Func<void(const WString&, bool)>([hookState](const WString& token, bool succeeded) { hookState->Completed(token, succeeded); })
+			Func<void(const WString&, bool)>([hookState](const WString& token, bool succeeded) { hookState->Completed(token, succeeded); }),
+			{},
+			Func<bool(const WString&)>([hookState](const WString&) { return hookState->CancelFirstResponse(); })
 			);
 		ExactMessageCallback serverCallback(L"unused");
 		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
