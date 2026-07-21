@@ -2,10 +2,7 @@
 
 ## 2.0
 
-- Pass Linux test.
-- Pass Linux MiniHttpServer.
-- Pass macOS test.
-- Pass macOS MiniHttpServer.
+- Review how mini heep servers share the same socket server.
 - Recognize time consume test cases and put them in Release only
   - Reorganize test cases in proper test categories.
   - Some is resolvable when `WINHTTP_OPTION_IPV6_FAST_FALLBACK` is supported.
