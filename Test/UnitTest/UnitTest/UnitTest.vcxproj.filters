@@ -46,6 +46,9 @@
     <Filter Include="Source Files\TestInterProcess">
       <UniqueIdentifier>{0d0da3a9-18ea-4cb3-9ea8-294b0fed5d56}</UniqueIdentifier>
     </Filter>
+    <Filter Include="TUI">
+      <UniqueIdentifier>{6ee6efbb-f781-443e-af3c-cc01a5397b45}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
@@ -62,6 +65,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Source\TestThread.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\TestTui.cpp">
+      <Filter>TUI</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.cpp">
       <Filter>Common</Filter>
