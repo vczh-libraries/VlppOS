@@ -332,3 +332,13 @@ Build and run the upstream Vlpp Console tests, regenerate and import the Vlpp re
 The upstream Vlpp build fails in `TestConsole.cpp` because `vl::console::Console` does not define `Enable`, `Disable`, or `IsEnabled`. The VlppOS build fails in `TestTui.cpp` because `Source/TUI/TUI.h` does not exist. These failures directly confirm that neither side of the requested ownership boundary has been implemented. The new tests also define the success conditions for scalar widths, pixels, drawing, lifecycle ordering, reentrant dispatch, timers, listener generations, exception cleanup, and the injectable backend.
 
 # PROPOSALS
+
+- No.1 IMPLEMENT THE OWNER-THREADED TUI CONTRACT WITH PLATFORM BACKENDS
+
+## No.1 IMPLEMENT THE OWNER-THREADED TUI CONTRACT WITH PLATFORM BACKENDS
+
+Add the non-nested Console enable state at its owning layer in upstream Vlpp, guard the four platform sink operations, verify the change there, and regenerate/import the release. Implement `vl::console::TUI` in VlppOS as a shared owner-thread dispatcher and buffer/drawing engine behind one injected backend interface. The shared layer owns listener generations, queued decoded events, stop and exception latches, reentrant cycles, timer deadlines, resize preservation, Unicode 17 scalar widths, exact box-drawing lookup, merge fallback, validation, and drawing helpers. Windows and POSIX backends own only terminal acquisition, saved-state transitions, blocking input/resize waits, decoding, color-mode selection/quantization, output, and cleanup.
+
+Use scope-based cleanup around every successful acquisition and around Console disablement so normal stop, partial startup failure, ordinary callback exceptions, and `Stopping` exceptions all restore the terminal and Console. The production backend factory selects the platform backend, while `vl::console::unittest::ScopedTuiBackend` temporarily installs a deterministic fake backend only while TUI is inactive. Add the portable TuiPlayground project and enumerate every source/test/project entry explicitly. Generate releases only from their source repositories and copy generated dependency artifacts downstream.
+
+### CODE CHANGE
