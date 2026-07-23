@@ -294,6 +294,14 @@ Cover:
 - Repeated `Start`/`Stop`, stop requests from every callback, partial initialization failure, callback exceptions, and Console cleanup.
 - Listener duplicate/removal behavior and mutation during ordinary and nested dispatch.
 
+`TestTui.cpp` should be saved in UTF-8 with BOM, therefore MSBuild and some editors could handle it properly. And during testing drawing helper functions, you can do extra run to convert all pixels to chars, and compare with a two dimensional string in C++ representation, to make the test easy to read:
+```C++
+const auto stringLiteralCodedInTwoDimention = 
+  "firstRow"
+  "secondRow"
+  ...;
+```
+
 ## TuiPlayground project
 
 Create `Test/UnitTest/TuiPlayground/TuiPlayground.vcxproj` and its `.filters` by following an existing portable CLI project. Add every Debug/Release and Win32/x64 configuration to `UnitTest.sln`, add the matching `Test/Linux/TuiPlayground/vmake` configuration, and update `Project.md` with its Windows and Linux/macOS verification commands.
