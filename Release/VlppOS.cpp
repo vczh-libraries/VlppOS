@@ -15324,3 +15324,1572 @@ namespace vl::inter_process
 	}
 }
 
+
+/***********************************************************************
+.\TUI\UNICODEWIDTHTABLE.CPP
+***********************************************************************/
+/***********************************************************************
+Generated from the Unicode Character Database 17.0.0.
+Run GenerateUnicodeWidthTable.py with the five official data files.
+***********************************************************************/
+
+
+namespace vl
+{
+	namespace console
+	{
+		namespace tui_internal
+		{
+			struct TuiWidthRange
+			{
+				char32_t					begin;
+				char32_t					end;
+			};
+
+const TuiWidthRange tuiWidthZeroRanges[] =
+{
+	{ 0x000000, 0x00001F },
+	{ 0x00007F, 0x00009F },
+	{ 0x0000AD, 0x0000AD },
+	{ 0x000300, 0x00036F },
+	{ 0x000483, 0x000489 },
+	{ 0x000591, 0x0005BD },
+	{ 0x0005BF, 0x0005BF },
+	{ 0x0005C1, 0x0005C2 },
+	{ 0x0005C4, 0x0005C5 },
+	{ 0x0005C7, 0x0005C7 },
+	{ 0x000610, 0x00061A },
+	{ 0x00061C, 0x00061C },
+	{ 0x00064B, 0x00065F },
+	{ 0x000670, 0x000670 },
+	{ 0x0006D6, 0x0006DC },
+	{ 0x0006DF, 0x0006E4 },
+	{ 0x0006E7, 0x0006E8 },
+	{ 0x0006EA, 0x0006ED },
+	{ 0x000711, 0x000711 },
+	{ 0x000730, 0x00074A },
+	{ 0x0007A6, 0x0007B0 },
+	{ 0x0007EB, 0x0007F3 },
+	{ 0x0007FD, 0x0007FD },
+	{ 0x000816, 0x000819 },
+	{ 0x00081B, 0x000823 },
+	{ 0x000825, 0x000827 },
+	{ 0x000829, 0x00082D },
+	{ 0x000859, 0x00085B },
+	{ 0x000897, 0x00089F },
+	{ 0x0008CA, 0x0008E1 },
+	{ 0x0008E3, 0x000902 },
+	{ 0x00093A, 0x00093A },
+	{ 0x00093C, 0x00093C },
+	{ 0x000941, 0x000948 },
+	{ 0x00094D, 0x00094D },
+	{ 0x000951, 0x000957 },
+	{ 0x000962, 0x000963 },
+	{ 0x000981, 0x000981 },
+	{ 0x0009BC, 0x0009BC },
+	{ 0x0009C1, 0x0009C4 },
+	{ 0x0009CD, 0x0009CD },
+	{ 0x0009E2, 0x0009E3 },
+	{ 0x0009FE, 0x0009FE },
+	{ 0x000A01, 0x000A02 },
+	{ 0x000A3C, 0x000A3C },
+	{ 0x000A41, 0x000A42 },
+	{ 0x000A47, 0x000A48 },
+	{ 0x000A4B, 0x000A4D },
+	{ 0x000A51, 0x000A51 },
+	{ 0x000A70, 0x000A71 },
+	{ 0x000A75, 0x000A75 },
+	{ 0x000A81, 0x000A82 },
+	{ 0x000ABC, 0x000ABC },
+	{ 0x000AC1, 0x000AC5 },
+	{ 0x000AC7, 0x000AC8 },
+	{ 0x000ACD, 0x000ACD },
+	{ 0x000AE2, 0x000AE3 },
+	{ 0x000AFA, 0x000AFF },
+	{ 0x000B01, 0x000B01 },
+	{ 0x000B3C, 0x000B3C },
+	{ 0x000B3F, 0x000B3F },
+	{ 0x000B41, 0x000B44 },
+	{ 0x000B4D, 0x000B4D },
+	{ 0x000B55, 0x000B56 },
+	{ 0x000B62, 0x000B63 },
+	{ 0x000B82, 0x000B82 },
+	{ 0x000BC0, 0x000BC0 },
+	{ 0x000BCD, 0x000BCD },
+	{ 0x000C00, 0x000C00 },
+	{ 0x000C04, 0x000C04 },
+	{ 0x000C3C, 0x000C3C },
+	{ 0x000C3E, 0x000C40 },
+	{ 0x000C46, 0x000C48 },
+	{ 0x000C4A, 0x000C4D },
+	{ 0x000C55, 0x000C56 },
+	{ 0x000C62, 0x000C63 },
+	{ 0x000C81, 0x000C81 },
+	{ 0x000CBC, 0x000CBC },
+	{ 0x000CBF, 0x000CBF },
+	{ 0x000CC6, 0x000CC6 },
+	{ 0x000CCC, 0x000CCD },
+	{ 0x000CE2, 0x000CE3 },
+	{ 0x000D00, 0x000D01 },
+	{ 0x000D3B, 0x000D3C },
+	{ 0x000D41, 0x000D44 },
+	{ 0x000D4D, 0x000D4D },
+	{ 0x000D62, 0x000D63 },
+	{ 0x000D81, 0x000D81 },
+	{ 0x000DCA, 0x000DCA },
+	{ 0x000DD2, 0x000DD4 },
+	{ 0x000DD6, 0x000DD6 },
+	{ 0x000E31, 0x000E31 },
+	{ 0x000E34, 0x000E3A },
+	{ 0x000E47, 0x000E4E },
+	{ 0x000EB1, 0x000EB1 },
+	{ 0x000EB4, 0x000EBC },
+	{ 0x000EC8, 0x000ECE },
+	{ 0x000F18, 0x000F19 },
+	{ 0x000F35, 0x000F35 },
+	{ 0x000F37, 0x000F37 },
+	{ 0x000F39, 0x000F39 },
+	{ 0x000F71, 0x000F7E },
+	{ 0x000F80, 0x000F84 },
+	{ 0x000F86, 0x000F87 },
+	{ 0x000F8D, 0x000F97 },
+	{ 0x000F99, 0x000FBC },
+	{ 0x000FC6, 0x000FC6 },
+	{ 0x00102D, 0x001030 },
+	{ 0x001032, 0x001037 },
+	{ 0x001039, 0x00103A },
+	{ 0x00103D, 0x00103E },
+	{ 0x001058, 0x001059 },
+	{ 0x00105E, 0x001060 },
+	{ 0x001071, 0x001074 },
+	{ 0x001082, 0x001082 },
+	{ 0x001085, 0x001086 },
+	{ 0x00108D, 0x00108D },
+	{ 0x00109D, 0x00109D },
+	{ 0x00115F, 0x001160 },
+	{ 0x00135D, 0x00135F },
+	{ 0x001712, 0x001714 },
+	{ 0x001732, 0x001733 },
+	{ 0x001752, 0x001753 },
+	{ 0x001772, 0x001773 },
+	{ 0x0017B4, 0x0017B5 },
+	{ 0x0017B7, 0x0017BD },
+	{ 0x0017C6, 0x0017C6 },
+	{ 0x0017C9, 0x0017D3 },
+	{ 0x0017DD, 0x0017DD },
+	{ 0x00180B, 0x00180F },
+	{ 0x001885, 0x001886 },
+	{ 0x0018A9, 0x0018A9 },
+	{ 0x001920, 0x001922 },
+	{ 0x001927, 0x001928 },
+	{ 0x001932, 0x001932 },
+	{ 0x001939, 0x00193B },
+	{ 0x001A17, 0x001A18 },
+	{ 0x001A1B, 0x001A1B },
+	{ 0x001A56, 0x001A56 },
+	{ 0x001A58, 0x001A5E },
+	{ 0x001A60, 0x001A60 },
+	{ 0x001A62, 0x001A62 },
+	{ 0x001A65, 0x001A6C },
+	{ 0x001A73, 0x001A7C },
+	{ 0x001A7F, 0x001A7F },
+	{ 0x001AB0, 0x001ADD },
+	{ 0x001AE0, 0x001AEB },
+	{ 0x001B00, 0x001B03 },
+	{ 0x001B34, 0x001B34 },
+	{ 0x001B36, 0x001B3A },
+	{ 0x001B3C, 0x001B3C },
+	{ 0x001B42, 0x001B42 },
+	{ 0x001B6B, 0x001B73 },
+	{ 0x001B80, 0x001B81 },
+	{ 0x001BA2, 0x001BA5 },
+	{ 0x001BA8, 0x001BA9 },
+	{ 0x001BAB, 0x001BAD },
+	{ 0x001BE6, 0x001BE6 },
+	{ 0x001BE8, 0x001BE9 },
+	{ 0x001BED, 0x001BED },
+	{ 0x001BEF, 0x001BF1 },
+	{ 0x001C2C, 0x001C33 },
+	{ 0x001C36, 0x001C37 },
+	{ 0x001CD0, 0x001CD2 },
+	{ 0x001CD4, 0x001CE0 },
+	{ 0x001CE2, 0x001CE8 },
+	{ 0x001CED, 0x001CED },
+	{ 0x001CF4, 0x001CF4 },
+	{ 0x001CF8, 0x001CF9 },
+	{ 0x001DC0, 0x001DFF },
+	{ 0x00200B, 0x00200F },
+	{ 0x00202A, 0x00202E },
+	{ 0x002060, 0x00206F },
+	{ 0x0020D0, 0x0020F0 },
+	{ 0x002CEF, 0x002CF1 },
+	{ 0x002D7F, 0x002D7F },
+	{ 0x002DE0, 0x002DFF },
+	{ 0x00302A, 0x00302D },
+	{ 0x003099, 0x00309A },
+	{ 0x003164, 0x003164 },
+	{ 0x00A66F, 0x00A672 },
+	{ 0x00A674, 0x00A67D },
+	{ 0x00A69E, 0x00A69F },
+	{ 0x00A6F0, 0x00A6F1 },
+	{ 0x00A802, 0x00A802 },
+	{ 0x00A806, 0x00A806 },
+	{ 0x00A80B, 0x00A80B },
+	{ 0x00A825, 0x00A826 },
+	{ 0x00A82C, 0x00A82C },
+	{ 0x00A8C4, 0x00A8C5 },
+	{ 0x00A8E0, 0x00A8F1 },
+	{ 0x00A8FF, 0x00A8FF },
+	{ 0x00A926, 0x00A92D },
+	{ 0x00A947, 0x00A951 },
+	{ 0x00A980, 0x00A982 },
+	{ 0x00A9B3, 0x00A9B3 },
+	{ 0x00A9B6, 0x00A9B9 },
+	{ 0x00A9BC, 0x00A9BD },
+	{ 0x00A9E5, 0x00A9E5 },
+	{ 0x00AA29, 0x00AA2E },
+	{ 0x00AA31, 0x00AA32 },
+	{ 0x00AA35, 0x00AA36 },
+	{ 0x00AA43, 0x00AA43 },
+	{ 0x00AA4C, 0x00AA4C },
+	{ 0x00AA7C, 0x00AA7C },
+	{ 0x00AAB0, 0x00AAB0 },
+	{ 0x00AAB2, 0x00AAB4 },
+	{ 0x00AAB7, 0x00AAB8 },
+	{ 0x00AABE, 0x00AABF },
+	{ 0x00AAC1, 0x00AAC1 },
+	{ 0x00AAEC, 0x00AAED },
+	{ 0x00AAF6, 0x00AAF6 },
+	{ 0x00ABE5, 0x00ABE5 },
+	{ 0x00ABE8, 0x00ABE8 },
+	{ 0x00ABED, 0x00ABED },
+	{ 0x00D800, 0x00DFFF },
+	{ 0x00FB1E, 0x00FB1E },
+	{ 0x00FDD0, 0x00FDEF },
+	{ 0x00FE00, 0x00FE0F },
+	{ 0x00FE20, 0x00FE2F },
+	{ 0x00FEFF, 0x00FEFF },
+	{ 0x00FFA0, 0x00FFA0 },
+	{ 0x00FFF0, 0x00FFF8 },
+	{ 0x00FFFE, 0x00FFFF },
+	{ 0x0101FD, 0x0101FD },
+	{ 0x0102E0, 0x0102E0 },
+	{ 0x010376, 0x01037A },
+	{ 0x010A01, 0x010A03 },
+	{ 0x010A05, 0x010A06 },
+	{ 0x010A0C, 0x010A0F },
+	{ 0x010A38, 0x010A3A },
+	{ 0x010A3F, 0x010A3F },
+	{ 0x010AE5, 0x010AE6 },
+	{ 0x010D24, 0x010D27 },
+	{ 0x010D69, 0x010D6D },
+	{ 0x010EAB, 0x010EAC },
+	{ 0x010EFA, 0x010EFF },
+	{ 0x010F46, 0x010F50 },
+	{ 0x010F82, 0x010F85 },
+	{ 0x011001, 0x011001 },
+	{ 0x011038, 0x011046 },
+	{ 0x011070, 0x011070 },
+	{ 0x011073, 0x011074 },
+	{ 0x01107F, 0x011081 },
+	{ 0x0110B3, 0x0110B6 },
+	{ 0x0110B9, 0x0110BA },
+	{ 0x0110C2, 0x0110C2 },
+	{ 0x011100, 0x011102 },
+	{ 0x011127, 0x01112B },
+	{ 0x01112D, 0x011134 },
+	{ 0x011173, 0x011173 },
+	{ 0x011180, 0x011181 },
+	{ 0x0111B6, 0x0111BE },
+	{ 0x0111C9, 0x0111CC },
+	{ 0x0111CF, 0x0111CF },
+	{ 0x01122F, 0x011231 },
+	{ 0x011234, 0x011234 },
+	{ 0x011236, 0x011237 },
+	{ 0x01123E, 0x01123E },
+	{ 0x011241, 0x011241 },
+	{ 0x0112DF, 0x0112DF },
+	{ 0x0112E3, 0x0112EA },
+	{ 0x011300, 0x011301 },
+	{ 0x01133B, 0x01133C },
+	{ 0x011340, 0x011340 },
+	{ 0x011366, 0x01136C },
+	{ 0x011370, 0x011374 },
+	{ 0x0113BB, 0x0113C0 },
+	{ 0x0113CE, 0x0113CE },
+	{ 0x0113D0, 0x0113D0 },
+	{ 0x0113D2, 0x0113D2 },
+	{ 0x0113E1, 0x0113E2 },
+	{ 0x011438, 0x01143F },
+	{ 0x011442, 0x011444 },
+	{ 0x011446, 0x011446 },
+	{ 0x01145E, 0x01145E },
+	{ 0x0114B3, 0x0114B8 },
+	{ 0x0114BA, 0x0114BA },
+	{ 0x0114BF, 0x0114C0 },
+	{ 0x0114C2, 0x0114C3 },
+	{ 0x0115B2, 0x0115B5 },
+	{ 0x0115BC, 0x0115BD },
+	{ 0x0115BF, 0x0115C0 },
+	{ 0x0115DC, 0x0115DD },
+	{ 0x011633, 0x01163A },
+	{ 0x01163D, 0x01163D },
+	{ 0x01163F, 0x011640 },
+	{ 0x0116AB, 0x0116AB },
+	{ 0x0116AD, 0x0116AD },
+	{ 0x0116B0, 0x0116B5 },
+	{ 0x0116B7, 0x0116B7 },
+	{ 0x01171D, 0x01171D },
+	{ 0x01171F, 0x01171F },
+	{ 0x011722, 0x011725 },
+	{ 0x011727, 0x01172B },
+	{ 0x01182F, 0x011837 },
+	{ 0x011839, 0x01183A },
+	{ 0x01193B, 0x01193C },
+	{ 0x01193E, 0x01193E },
+	{ 0x011943, 0x011943 },
+	{ 0x0119D4, 0x0119D7 },
+	{ 0x0119DA, 0x0119DB },
+	{ 0x0119E0, 0x0119E0 },
+	{ 0x011A01, 0x011A0A },
+	{ 0x011A33, 0x011A38 },
+	{ 0x011A3B, 0x011A3E },
+	{ 0x011A47, 0x011A47 },
+	{ 0x011A51, 0x011A56 },
+	{ 0x011A59, 0x011A5B },
+	{ 0x011A8A, 0x011A96 },
+	{ 0x011A98, 0x011A99 },
+	{ 0x011B60, 0x011B60 },
+	{ 0x011B62, 0x011B64 },
+	{ 0x011B66, 0x011B66 },
+	{ 0x011C30, 0x011C36 },
+	{ 0x011C38, 0x011C3D },
+	{ 0x011C3F, 0x011C3F },
+	{ 0x011C92, 0x011CA7 },
+	{ 0x011CAA, 0x011CB0 },
+	{ 0x011CB2, 0x011CB3 },
+	{ 0x011CB5, 0x011CB6 },
+	{ 0x011D31, 0x011D36 },
+	{ 0x011D3A, 0x011D3A },
+	{ 0x011D3C, 0x011D3D },
+	{ 0x011D3F, 0x011D45 },
+	{ 0x011D47, 0x011D47 },
+	{ 0x011D90, 0x011D91 },
+	{ 0x011D95, 0x011D95 },
+	{ 0x011D97, 0x011D97 },
+	{ 0x011EF3, 0x011EF4 },
+	{ 0x011F00, 0x011F01 },
+	{ 0x011F36, 0x011F3A },
+	{ 0x011F40, 0x011F40 },
+	{ 0x011F42, 0x011F42 },
+	{ 0x011F5A, 0x011F5A },
+	{ 0x013440, 0x013440 },
+	{ 0x013447, 0x013455 },
+	{ 0x01611E, 0x016129 },
+	{ 0x01612D, 0x01612F },
+	{ 0x016AF0, 0x016AF4 },
+	{ 0x016B30, 0x016B36 },
+	{ 0x016F4F, 0x016F4F },
+	{ 0x016F8F, 0x016F92 },
+	{ 0x016FE4, 0x016FE4 },
+	{ 0x01BC9D, 0x01BC9E },
+	{ 0x01BCA0, 0x01BCA3 },
+	{ 0x01CF00, 0x01CF2D },
+	{ 0x01CF30, 0x01CF46 },
+	{ 0x01D167, 0x01D169 },
+	{ 0x01D173, 0x01D182 },
+	{ 0x01D185, 0x01D18B },
+	{ 0x01D1AA, 0x01D1AD },
+	{ 0x01D242, 0x01D244 },
+	{ 0x01DA00, 0x01DA36 },
+	{ 0x01DA3B, 0x01DA6C },
+	{ 0x01DA75, 0x01DA75 },
+	{ 0x01DA84, 0x01DA84 },
+	{ 0x01DA9B, 0x01DA9F },
+	{ 0x01DAA1, 0x01DAAF },
+	{ 0x01E000, 0x01E006 },
+	{ 0x01E008, 0x01E018 },
+	{ 0x01E01B, 0x01E021 },
+	{ 0x01E023, 0x01E024 },
+	{ 0x01E026, 0x01E02A },
+	{ 0x01E08F, 0x01E08F },
+	{ 0x01E130, 0x01E136 },
+	{ 0x01E2AE, 0x01E2AE },
+	{ 0x01E2EC, 0x01E2EF },
+	{ 0x01E4EC, 0x01E4EF },
+	{ 0x01E5EE, 0x01E5EF },
+	{ 0x01E6E3, 0x01E6E3 },
+	{ 0x01E6E6, 0x01E6E6 },
+	{ 0x01E6EE, 0x01E6EF },
+	{ 0x01E6F5, 0x01E6F5 },
+	{ 0x01E8D0, 0x01E8D6 },
+	{ 0x01E944, 0x01E94A },
+	{ 0x01FFFE, 0x01FFFF },
+	{ 0x02FFFE, 0x02FFFF },
+	{ 0x03FFFE, 0x03FFFF },
+	{ 0x04FFFE, 0x04FFFF },
+	{ 0x05FFFE, 0x05FFFF },
+	{ 0x06FFFE, 0x06FFFF },
+	{ 0x07FFFE, 0x07FFFF },
+	{ 0x08FFFE, 0x08FFFF },
+	{ 0x09FFFE, 0x09FFFF },
+	{ 0x0AFFFE, 0x0AFFFF },
+	{ 0x0BFFFE, 0x0BFFFF },
+	{ 0x0CFFFE, 0x0CFFFF },
+	{ 0x0DFFFE, 0x0E0FFF },
+	{ 0x0EFFFE, 0x0EFFFF },
+	{ 0x0FFFFE, 0x0FFFFF },
+	{ 0x10FFFE, 0x10FFFF },
+};
+
+const TuiWidthRange tuiWidthTwoRanges[] =
+{
+	{ 0x001100, 0x00115E },
+	{ 0x00231A, 0x00231B },
+	{ 0x002329, 0x00232A },
+	{ 0x0023E9, 0x0023EC },
+	{ 0x0023F0, 0x0023F0 },
+	{ 0x0023F3, 0x0023F3 },
+	{ 0x0025FD, 0x0025FE },
+	{ 0x002614, 0x002615 },
+	{ 0x002630, 0x002637 },
+	{ 0x002648, 0x002653 },
+	{ 0x00267F, 0x00267F },
+	{ 0x00268A, 0x00268F },
+	{ 0x002693, 0x002693 },
+	{ 0x0026A1, 0x0026A1 },
+	{ 0x0026AA, 0x0026AB },
+	{ 0x0026BD, 0x0026BE },
+	{ 0x0026C4, 0x0026C5 },
+	{ 0x0026CE, 0x0026CE },
+	{ 0x0026D4, 0x0026D4 },
+	{ 0x0026EA, 0x0026EA },
+	{ 0x0026F2, 0x0026F3 },
+	{ 0x0026F5, 0x0026F5 },
+	{ 0x0026FA, 0x0026FA },
+	{ 0x0026FD, 0x0026FD },
+	{ 0x002705, 0x002705 },
+	{ 0x00270A, 0x00270B },
+	{ 0x002728, 0x002728 },
+	{ 0x00274C, 0x00274C },
+	{ 0x00274E, 0x00274E },
+	{ 0x002753, 0x002755 },
+	{ 0x002757, 0x002757 },
+	{ 0x002795, 0x002797 },
+	{ 0x0027B0, 0x0027B0 },
+	{ 0x0027BF, 0x0027BF },
+	{ 0x002B1B, 0x002B1C },
+	{ 0x002B50, 0x002B50 },
+	{ 0x002B55, 0x002B55 },
+	{ 0x002E80, 0x002E99 },
+	{ 0x002E9B, 0x002EF3 },
+	{ 0x002F00, 0x002FD5 },
+	{ 0x002FF0, 0x003029 },
+	{ 0x00302E, 0x00303E },
+	{ 0x003041, 0x003096 },
+	{ 0x00309B, 0x0030FF },
+	{ 0x003105, 0x00312F },
+	{ 0x003131, 0x003163 },
+	{ 0x003165, 0x00318E },
+	{ 0x003190, 0x0031E5 },
+	{ 0x0031EF, 0x00321E },
+	{ 0x003220, 0x003247 },
+	{ 0x003250, 0x00A48C },
+	{ 0x00A490, 0x00A4C6 },
+	{ 0x00A960, 0x00A97C },
+	{ 0x00AC00, 0x00D7A3 },
+	{ 0x00F900, 0x00FAFF },
+	{ 0x00FE10, 0x00FE19 },
+	{ 0x00FE30, 0x00FE52 },
+	{ 0x00FE54, 0x00FE66 },
+	{ 0x00FE68, 0x00FE6B },
+	{ 0x00FF01, 0x00FF60 },
+	{ 0x00FFE0, 0x00FFE6 },
+	{ 0x016FE0, 0x016FE3 },
+	{ 0x016FF0, 0x016FF6 },
+	{ 0x017000, 0x018CD5 },
+	{ 0x018CFF, 0x018D1E },
+	{ 0x018D80, 0x018DF2 },
+	{ 0x01AFF0, 0x01AFF3 },
+	{ 0x01AFF5, 0x01AFFB },
+	{ 0x01AFFD, 0x01AFFE },
+	{ 0x01B000, 0x01B122 },
+	{ 0x01B132, 0x01B132 },
+	{ 0x01B150, 0x01B152 },
+	{ 0x01B155, 0x01B155 },
+	{ 0x01B164, 0x01B167 },
+	{ 0x01B170, 0x01B2FB },
+	{ 0x01D300, 0x01D356 },
+	{ 0x01D360, 0x01D376 },
+	{ 0x01F004, 0x01F004 },
+	{ 0x01F0CF, 0x01F0CF },
+	{ 0x01F18E, 0x01F18E },
+	{ 0x01F191, 0x01F19A },
+	{ 0x01F1E6, 0x01F202 },
+	{ 0x01F210, 0x01F23B },
+	{ 0x01F240, 0x01F248 },
+	{ 0x01F250, 0x01F251 },
+	{ 0x01F260, 0x01F265 },
+	{ 0x01F300, 0x01F320 },
+	{ 0x01F32D, 0x01F335 },
+	{ 0x01F337, 0x01F37C },
+	{ 0x01F37E, 0x01F393 },
+	{ 0x01F3A0, 0x01F3CA },
+	{ 0x01F3CF, 0x01F3D3 },
+	{ 0x01F3E0, 0x01F3F0 },
+	{ 0x01F3F4, 0x01F3F4 },
+	{ 0x01F3F8, 0x01F43E },
+	{ 0x01F440, 0x01F440 },
+	{ 0x01F442, 0x01F4FC },
+	{ 0x01F4FF, 0x01F53D },
+	{ 0x01F54B, 0x01F54E },
+	{ 0x01F550, 0x01F567 },
+	{ 0x01F57A, 0x01F57A },
+	{ 0x01F595, 0x01F596 },
+	{ 0x01F5A4, 0x01F5A4 },
+	{ 0x01F5FB, 0x01F64F },
+	{ 0x01F680, 0x01F6C5 },
+	{ 0x01F6CC, 0x01F6CC },
+	{ 0x01F6D0, 0x01F6D2 },
+	{ 0x01F6D5, 0x01F6D8 },
+	{ 0x01F6DC, 0x01F6DF },
+	{ 0x01F6EB, 0x01F6EC },
+	{ 0x01F6F4, 0x01F6FC },
+	{ 0x01F7E0, 0x01F7EB },
+	{ 0x01F7F0, 0x01F7F0 },
+	{ 0x01F90C, 0x01F93A },
+	{ 0x01F93C, 0x01F945 },
+	{ 0x01F947, 0x01F9FF },
+	{ 0x01FA70, 0x01FA7C },
+	{ 0x01FA80, 0x01FA8A },
+	{ 0x01FA8E, 0x01FAC6 },
+	{ 0x01FAC8, 0x01FAC8 },
+	{ 0x01FACD, 0x01FADC },
+	{ 0x01FADF, 0x01FAEA },
+	{ 0x01FAEF, 0x01FAF8 },
+	{ 0x020000, 0x02FFFD },
+	{ 0x030000, 0x03FFFD },
+};
+
+			bool InRanges(char32_t code, const TuiWidthRange* ranges, vint count)
+			{
+				vint begin = 0;
+				vint end = count - 1;
+				while (begin <= end)
+				{
+					auto middle = (begin + end) / 2;
+					if (code < ranges[middle].begin)
+					{
+						end = middle - 1;
+					}
+					else if (code > ranges[middle].end)
+					{
+						begin = middle + 1;
+					}
+					else
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			bool IsZeroWidthCodePoint(char32_t code)
+			{
+				return InRanges(code, tuiWidthZeroRanges, sizeof(tuiWidthZeroRanges) / sizeof(*tuiWidthZeroRanges));
+			}
+
+			bool IsTwoWidthCodePoint(char32_t code)
+			{
+				return InRanges(code, tuiWidthTwoRanges, sizeof(tuiWidthTwoRanges) / sizeof(*tuiWidthTwoRanges));
+			}
+
+		}
+	}
+}
+
+
+/***********************************************************************
+.\TUI\TUI.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+#include <exception>
+
+using namespace vl;
+using namespace vl::collections;
+
+namespace vl
+{
+	namespace console
+	{
+		namespace tui_internal
+		{
+			struct ListenerEntry
+			{
+				ITuiCallback*				listener = nullptr;
+				vuint64_t					generation = 0;
+			};
+
+			BEGIN_GLOBAL_STORAGE_CLASS(TuiStorage)
+				bool						active = false;
+				bool						stopRequested = false;
+				bool						shuttingDown = false;
+				bool						backendStarted = false;
+				bool						consoleDisabled = false;
+				vint						ownerThreadId = -1;
+				vint						width = 0;
+				vint						height = 0;
+				vint						timerPeriod = 0;
+				vuint64_t					nextTimer = 0;
+				vuint64_t					nextGeneration = 0;
+				TuiColorMode				colorMode = TuiColorMode::Auto;
+				Array<TuiPixel>				buffer;
+				List<ListenerEntry>			listeners;
+				List<unittest::TuiBackendEvent> eventQueue;
+				Ptr<unittest::ITuiBackend>	backend;
+				Ptr<unittest::ITuiBackend>	injectedBackend;
+				std::exception_ptr			callbackException;
+			INITIALIZE_GLOBAL_STORAGE_CLASS
+			FINALIZE_GLOBAL_STORAGE_CLASS
+				CHECK_ERROR(!active, L"vl::console::TUI cannot remain active while global storage is finalized.");
+				listeners.Clear();
+				eventQueue.Clear();
+				backend = nullptr;
+				injectedBackend = nullptr;
+				buffer.Resize(0);
+			END_GLOBAL_STORAGE_CLASS(TuiStorage)
+
+			constexpr vuint8_t PackState(vuint8_t up, vuint8_t down, vuint8_t left, vuint8_t right)
+			{
+				return (vuint8_t)((up << 6) | (down << 4) | (left << 2) | right);
+			}
+
+			char32_t GetMergeableChar(const TuiMergeablePixel& pixel)
+			{
+				auto up = (vuint8_t)pixel.up;
+				auto down = (vuint8_t)pixel.down;
+				auto left = (vuint8_t)pixel.left;
+				auto right = (vuint8_t)pixel.right;
+				if (up > 3 || down > 3 || left > 3 || right > 3) return 0;
+
+				switch (PackState(up, down, left, right))
+				{
+				case PackState(0, 0, 0, 0): return 0;
+				case PackState(0, 0, 1, 1): return U'\u2500';
+				case PackState(0, 0, 2, 2): return U'\u2501';
+				case PackState(1, 1, 0, 0): return U'\u2502';
+				case PackState(2, 2, 0, 0): return U'\u2503';
+				case PackState(0, 1, 0, 1): return U'\u250C';
+				case PackState(0, 1, 0, 2): return U'\u250D';
+				case PackState(0, 2, 0, 1): return U'\u250E';
+				case PackState(0, 2, 0, 2): return U'\u250F';
+				case PackState(0, 1, 1, 0): return U'\u2510';
+				case PackState(0, 1, 2, 0): return U'\u2511';
+				case PackState(0, 2, 1, 0): return U'\u2512';
+				case PackState(0, 2, 2, 0): return U'\u2513';
+				case PackState(1, 0, 0, 1): return U'\u2514';
+				case PackState(1, 0, 0, 2): return U'\u2515';
+				case PackState(2, 0, 0, 1): return U'\u2516';
+				case PackState(2, 0, 0, 2): return U'\u2517';
+				case PackState(1, 0, 1, 0): return U'\u2518';
+				case PackState(1, 0, 2, 0): return U'\u2519';
+				case PackState(2, 0, 1, 0): return U'\u251A';
+				case PackState(2, 0, 2, 0): return U'\u251B';
+				case PackState(1, 1, 0, 1): return U'\u251C';
+				case PackState(1, 1, 0, 2): return U'\u251D';
+				case PackState(2, 1, 0, 1): return U'\u251E';
+				case PackState(1, 2, 0, 1): return U'\u251F';
+				case PackState(2, 2, 0, 1): return U'\u2520';
+				case PackState(2, 1, 0, 2): return U'\u2521';
+				case PackState(1, 2, 0, 2): return U'\u2522';
+				case PackState(2, 2, 0, 2): return U'\u2523';
+				case PackState(1, 1, 1, 0): return U'\u2524';
+				case PackState(1, 1, 2, 0): return U'\u2525';
+				case PackState(2, 1, 1, 0): return U'\u2526';
+				case PackState(1, 2, 1, 0): return U'\u2527';
+				case PackState(2, 2, 1, 0): return U'\u2528';
+				case PackState(2, 1, 2, 0): return U'\u2529';
+				case PackState(1, 2, 2, 0): return U'\u252A';
+				case PackState(2, 2, 2, 0): return U'\u252B';
+				case PackState(0, 1, 1, 1): return U'\u252C';
+				case PackState(0, 1, 2, 1): return U'\u252D';
+				case PackState(0, 1, 1, 2): return U'\u252E';
+				case PackState(0, 1, 2, 2): return U'\u252F';
+				case PackState(0, 2, 1, 1): return U'\u2530';
+				case PackState(0, 2, 2, 1): return U'\u2531';
+				case PackState(0, 2, 1, 2): return U'\u2532';
+				case PackState(0, 2, 2, 2): return U'\u2533';
+				case PackState(1, 0, 1, 1): return U'\u2534';
+				case PackState(1, 0, 2, 1): return U'\u2535';
+				case PackState(1, 0, 1, 2): return U'\u2536';
+				case PackState(1, 0, 2, 2): return U'\u2537';
+				case PackState(2, 0, 1, 1): return U'\u2538';
+				case PackState(2, 0, 2, 1): return U'\u2539';
+				case PackState(2, 0, 1, 2): return U'\u253A';
+				case PackState(2, 0, 2, 2): return U'\u253B';
+				case PackState(1, 1, 1, 1): return U'\u253C';
+				case PackState(1, 1, 2, 1): return U'\u253D';
+				case PackState(1, 1, 1, 2): return U'\u253E';
+				case PackState(1, 1, 2, 2): return U'\u253F';
+				case PackState(2, 1, 1, 1): return U'\u2540';
+				case PackState(1, 2, 1, 1): return U'\u2541';
+				case PackState(2, 2, 1, 1): return U'\u2542';
+				case PackState(2, 1, 2, 1): return U'\u2543';
+				case PackState(2, 1, 1, 2): return U'\u2544';
+				case PackState(1, 2, 2, 1): return U'\u2545';
+				case PackState(1, 2, 1, 2): return U'\u2546';
+				case PackState(2, 1, 2, 2): return U'\u2547';
+				case PackState(1, 2, 2, 2): return U'\u2548';
+				case PackState(2, 2, 2, 1): return U'\u2549';
+				case PackState(2, 2, 1, 2): return U'\u254A';
+				case PackState(2, 2, 2, 2): return U'\u254B';
+				case PackState(0, 0, 3, 3): return U'\u2550';
+				case PackState(3, 3, 0, 0): return U'\u2551';
+				case PackState(0, 1, 0, 3): return U'\u2552';
+				case PackState(0, 3, 0, 1): return U'\u2553';
+				case PackState(0, 3, 0, 3): return U'\u2554';
+				case PackState(0, 1, 3, 0): return U'\u2555';
+				case PackState(0, 3, 1, 0): return U'\u2556';
+				case PackState(0, 3, 3, 0): return U'\u2557';
+				case PackState(1, 0, 0, 3): return U'\u2558';
+				case PackState(3, 0, 0, 1): return U'\u2559';
+				case PackState(3, 0, 0, 3): return U'\u255A';
+				case PackState(1, 0, 3, 0): return U'\u255B';
+				case PackState(3, 0, 1, 0): return U'\u255C';
+				case PackState(3, 0, 3, 0): return U'\u255D';
+				case PackState(1, 1, 0, 3): return U'\u255E';
+				case PackState(3, 3, 0, 1): return U'\u255F';
+				case PackState(3, 3, 0, 3): return U'\u2560';
+				case PackState(1, 1, 3, 0): return U'\u2561';
+				case PackState(3, 3, 1, 0): return U'\u2562';
+				case PackState(3, 3, 3, 0): return U'\u2563';
+				case PackState(0, 1, 3, 3): return U'\u2564';
+				case PackState(0, 3, 1, 1): return U'\u2565';
+				case PackState(0, 3, 3, 3): return U'\u2566';
+				case PackState(1, 0, 3, 3): return U'\u2567';
+				case PackState(3, 0, 1, 1): return U'\u2568';
+				case PackState(3, 0, 3, 3): return U'\u2569';
+				case PackState(1, 1, 3, 3): return U'\u256A';
+				case PackState(3, 3, 1, 1): return U'\u256B';
+				case PackState(3, 3, 3, 3): return U'\u256C';
+				case PackState(0, 0, 1, 0): return U'\u2574';
+				case PackState(1, 0, 0, 0): return U'\u2575';
+				case PackState(0, 0, 0, 1): return U'\u2576';
+				case PackState(0, 1, 0, 0): return U'\u2577';
+				case PackState(0, 0, 2, 0): return U'\u2578';
+				case PackState(2, 0, 0, 0): return U'\u2579';
+				case PackState(0, 0, 0, 2): return U'\u257A';
+				case PackState(0, 2, 0, 0): return U'\u257B';
+				case PackState(0, 0, 1, 2): return U'\u257C';
+				case PackState(1, 2, 0, 0): return U'\u257D';
+				case PackState(0, 0, 2, 1): return U'\u257E';
+				case PackState(2, 1, 0, 0): return U'\u257F';
+				default: return 0;
+				}
+			}
+
+			bool IsEmptyMergeable(const TuiMergeablePixel& pixel)
+			{
+				return
+					pixel.up == TuiMergeableGlyph::None &&
+					pixel.down == TuiMergeableGlyph::None &&
+					pixel.left == TuiMergeableGlyph::None &&
+					pixel.right == TuiMergeableGlyph::None;
+			}
+
+			bool IsLineGlyph(TuiMergeableGlyph glyph)
+			{
+				return
+					glyph == TuiMergeableGlyph::ThinLine ||
+					glyph == TuiMergeableGlyph::ThickLine ||
+					glyph == TuiMergeableGlyph::DoubleLine;
+			}
+
+			bool IsColorMode(TuiColorMode colorMode, bool allowAuto)
+			{
+				return
+					(allowAuto && colorMode == TuiColorMode::Auto) ||
+					colorMode == TuiColorMode::TrueColor ||
+					colorMode == TuiColorMode::Color256 ||
+					colorMode == TuiColorMode::Color16;
+			}
+
+			char32_t GetUnmergeableChar(const TuiUnmergeablePixel& pixel)
+			{
+				if (pixel.glyph != TuiUnmergeableGlyph::RoundCorner) return 0;
+				switch (pixel.direction)
+				{
+				case TuiUnmergeableDirection::LeftTop: return U'\u256D';
+				case TuiUnmergeableDirection::RightTop: return U'\u256E';
+				case TuiUnmergeableDirection::LeftBottom: return U'\u2570';
+				case TuiUnmergeableDirection::RightBottom: return U'\u256F';
+				default: return 0;
+				}
+			}
+
+			bool IsScalar(char32_t code)
+			{
+				return code <= 0x10FFFF && !(code >= 0xD800 && code <= 0xDFFF);
+			}
+
+			TuiPixel EmptyPixel(TuiColor background = { 0, 0, 0 })
+			{
+				TuiPixel pixel;
+				pixel.backgroundColor = background;
+				return pixel;
+			}
+
+			void CheckBuffer(TuiPixel* buffer, vint width, vint height)
+			{
+				CHECK_ERROR(buffer != nullptr, L"vl::console::TUI drawing helper requires a non-null buffer.");
+				CHECK_ERROR(width >= 0 && height >= 0, L"vl::console::TUI drawing helper requires non-negative dimensions.");
+			}
+
+			void RepairWide(TuiPixel* buffer, vint width, vint height, vint x, vint y)
+			{
+				if (x < 0 || x >= width || y < 0 || y >= height) return;
+				auto index = y * width + x;
+				auto& pixel = buffer[index];
+				if (pixel.glyph == TuiPixelGlyph::WideCharContinuation)
+				{
+					pixel = EmptyPixel(pixel.backgroundColor);
+					if (x > 0)
+					{
+						auto& leading = buffer[index - 1];
+						if (leading.glyph == TuiPixelGlyph::Char && TUI::MeasureChar(leading.c) == 2)
+						{
+							leading = EmptyPixel(leading.backgroundColor);
+						}
+					}
+				}
+				else if (pixel.glyph == TuiPixelGlyph::Char && TUI::MeasureChar(pixel.c) == 2)
+				{
+					pixel = EmptyPixel(pixel.backgroundColor);
+					if (x + 1 < width && buffer[index + 1].glyph == TuiPixelGlyph::WideCharContinuation)
+					{
+						auto background = buffer[index + 1].backgroundColor;
+						buffer[index + 1] = EmptyPixel(background);
+					}
+				}
+			}
+
+			void PlaceMergeable(TuiPixel* buffer, vint width, vint height, vint x, vint y, const TuiMergeablePixel& drawing, TuiColor foreground, Nullable<TuiColor> background)
+			{
+				if (x < 0 || x >= width || y < 0 || y >= height) return;
+				RepairWide(buffer, width, height, x, y);
+				auto& pixel = buffer[y * width + x];
+				auto candidate = drawing;
+				if (pixel.glyph == TuiPixelGlyph::Mergeable)
+				{
+					candidate = pixel.mergeable;
+					if (drawing.up != TuiMergeableGlyph::None) candidate.up = drawing.up;
+					if (drawing.down != TuiMergeableGlyph::None) candidate.down = drawing.down;
+					if (drawing.left != TuiMergeableGlyph::None) candidate.left = drawing.left;
+					if (drawing.right != TuiMergeableGlyph::None) candidate.right = drawing.right;
+					if (GetMergeableChar(candidate) == 0)
+					{
+						candidate = drawing;
+					}
+				}
+				pixel.glyph = TuiPixelGlyph::Mergeable;
+				pixel.mergeable = candidate;
+				pixel.foregroundColor = foreground;
+				if (background) pixel.backgroundColor = background.Value();
+			}
+
+			void PlaceUnmergeable(TuiPixel* buffer, vint width, vint height, vint x, vint y, TuiUnmergeableDirection direction, TuiColor foreground, Nullable<TuiColor> background)
+			{
+				if (x < 0 || x >= width || y < 0 || y >= height) return;
+				RepairWide(buffer, width, height, x, y);
+				auto& pixel = buffer[y * width + x];
+				pixel.glyph = TuiPixelGlyph::Unmergeable;
+				pixel.unmergeable = { TuiUnmergeableGlyph::RoundCorner, direction };
+				pixel.foregroundColor = foreground;
+				if (background) pixel.backgroundColor = background.Value();
+			}
+
+			void CheckOwner(TuiStorage& storage)
+			{
+				CHECK_ERROR(storage.active, L"vl::console::TUI operation requires an active TUI.");
+				CHECK_ERROR(storage.ownerThreadId == Thread::GetCurrentThreadId(), L"vl::console::TUI operation must run on the owner thread.");
+			}
+
+			vint FindListener(TuiStorage& storage, ITuiCallback* listener, vuint64_t generation = 0)
+			{
+				for (vint i = 0; i < storage.listeners.Count(); i++)
+				{
+					auto entry = storage.listeners[i];
+					if (entry.listener == listener && (generation == 0 || entry.generation == generation)) return i;
+				}
+				return -1;
+			}
+
+			template<typename TCallback>
+			void InvokeListeners(TuiStorage& storage, TCallback&& callback, bool stopping = false)
+			{
+				List<ListenerEntry> snapshot;
+				for (auto entry : storage.listeners) snapshot.Add(entry);
+				for (auto entry : snapshot)
+				{
+					if (!stopping && storage.stopRequested) break;
+					if (FindListener(storage, entry.listener, entry.generation) == -1) continue;
+					try
+					{
+						callback(entry.listener);
+					}
+					catch (...)
+					{
+						if (!storage.callbackException) storage.callbackException = std::current_exception();
+						storage.stopRequested = true;
+						throw;
+					}
+					if (storage.callbackException) std::rethrow_exception(storage.callbackException);
+				}
+			}
+
+			void ResizeBuffer(TuiStorage& storage, vint width, vint height)
+			{
+				CHECK_ERROR(width > 0 && height > 0, L"vl::console::TUI backend returned an invalid terminal size.");
+				Array<TuiPixel> newBuffer(width * height);
+				auto copyWidth = width < storage.width ? width : storage.width;
+				auto copyHeight = height < storage.height ? height : storage.height;
+				for (vint y = 0; y < copyHeight; y++)
+				{
+					for (vint x = 0; x < copyWidth; x++)
+					{
+						newBuffer[y * width + x] = storage.buffer[y * storage.width + x];
+					}
+				}
+				for (vint y = 0; y < height; y++)
+				{
+					for (vint x = 0; x < width; x++)
+					{
+						auto index = y * width + x;
+						auto& pixel = newBuffer[index];
+						if (pixel.glyph == TuiPixelGlyph::WideCharContinuation)
+						{
+							if (x == 0 || newBuffer[index - 1].glyph != TuiPixelGlyph::Char || TUI::MeasureChar(newBuffer[index - 1].c) != 2)
+							{
+								pixel = EmptyPixel(pixel.backgroundColor);
+							}
+						}
+						else if (pixel.glyph == TuiPixelGlyph::Char && TUI::MeasureChar(pixel.c) == 2)
+						{
+							if (x + 1 >= width || newBuffer[index + 1].glyph != TuiPixelGlyph::WideCharContinuation)
+							{
+								pixel = EmptyPixel(pixel.backgroundColor);
+								if (x + 1 < width && newBuffer[index + 1].glyph == TuiPixelGlyph::WideCharContinuation)
+								{
+									auto background = newBuffer[index + 1].backgroundColor;
+									newBuffer[index + 1] = EmptyPixel(background);
+								}
+							}
+						}
+					}
+				}
+				storage.buffer = std::move(newBuffer);
+				storage.width = width;
+				storage.height = height;
+			}
+
+			void DispatchEvent(TuiStorage& storage, const unittest::TuiBackendEvent& event)
+			{
+				if (storage.stopRequested) return;
+				switch (event.type)
+				{
+				case unittest::TuiBackendEventType::Resize:
+					if (event.width != storage.width || event.height != storage.height)
+					{
+						ResizeBuffer(storage, event.width, event.height);
+						InvokeListeners(storage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
+					}
+					break;
+				case unittest::TuiBackendEventType::MouseMove:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseMove(event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::MouseDown:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseDown(event.mouseButton, event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::MouseUp:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseUp(event.mouseButton, event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::MouseDoubleClick:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseDoubleClick(event.mouseButton, event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::MouseVerticalWheel:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseVerticalWheel(event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::MouseHorizontalWheel:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseHorizontalWheel(event.mouseInfo); });
+					break;
+				case unittest::TuiBackendEventType::KeyDown:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->KeyDown(event.keyInfo); });
+					break;
+				case unittest::TuiBackendEventType::KeyUp:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->KeyUp(event.keyInfo); });
+					break;
+				case unittest::TuiBackendEventType::Char:
+					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->Char(event.charInfo); });
+					break;
+				default:
+					break;
+				}
+			}
+
+			struct StartCleanup
+			{
+				TuiStorage&					storage;
+				std::exception_ptr*			cleanupException = nullptr;
+
+				StartCleanup(TuiStorage& _storage, std::exception_ptr* _cleanupException)
+					: storage(_storage)
+					, cleanupException(_cleanupException)
+				{
+				}
+
+				~StartCleanup()
+				{
+					if (storage.backendStarted)
+					{
+						try
+						{
+							storage.backend->Stop();
+						}
+						catch (...)
+						{
+							if (!*cleanupException) *cleanupException = std::current_exception();
+						}
+					}
+					if (storage.consoleDisabled)
+					{
+						Console::Enable();
+					}
+					storage.active = false;
+					storage.stopRequested = false;
+					storage.shuttingDown = false;
+					storage.backendStarted = false;
+					storage.consoleDisabled = false;
+					storage.ownerThreadId = -1;
+					storage.width = 0;
+					storage.height = 0;
+					storage.timerPeriod = 0;
+					storage.nextTimer = 0;
+					storage.colorMode = TuiColorMode::Auto;
+					storage.eventQueue.Clear();
+					storage.buffer.Resize(0);
+					storage.backend = nullptr;
+					storage.callbackException = {};
+				}
+			};
+
+			const TuiColor canonicalColor16[] =
+			{
+				{ 0x00, 0x00, 0x00 }, { 0x80, 0x00, 0x00 }, { 0x00, 0x80, 0x00 }, { 0x80, 0x80, 0x00 },
+				{ 0x00, 0x00, 0x80 }, { 0x80, 0x00, 0x80 }, { 0x00, 0x80, 0x80 }, { 0xC0, 0xC0, 0xC0 },
+				{ 0x80, 0x80, 0x80 }, { 0xFF, 0x00, 0x00 }, { 0x00, 0xFF, 0x00 }, { 0xFF, 0xFF, 0x00 },
+				{ 0x00, 0x00, 0xFF }, { 0xFF, 0x00, 0xFF }, { 0x00, 0xFF, 0xFF }, { 0xFF, 0xFF, 0xFF },
+			};
+
+			TuiColor GetCanonicalColor(vint index)
+			{
+				CHECK_ERROR(index >= 0 && index < 256, L"vl::console::tui_internal::GetCanonicalColor(vint)#Index out of range.");
+				if (index < 16) return canonicalColor16[index];
+				if (index < 232)
+				{
+					auto value = index - 16;
+					vuint8_t levels[] = { 0, 95, 135, 175, 215, 255 };
+					return { levels[value / 36], levels[(value / 6) % 6], levels[value % 6] };
+				}
+				auto level = (vuint8_t)(8 + 10 * (index - 232));
+				return { level, level, level };
+			}
+
+			vint QuantizeColor(TuiColor color, TuiColorMode colorMode, const TuiColor* customColor16)
+			{
+				auto count = colorMode == TuiColorMode::Color16 ? 16 : 256;
+				vint best = 0;
+				vint bestDistance = -1;
+				for (vint i = 0; i < count; i++)
+				{
+					auto candidate = customColor16 && i < 16 ? customColor16[i] : GetCanonicalColor(i);
+					auto dr = (vint)color.r - candidate.r;
+					auto dg = (vint)color.g - candidate.g;
+					auto db = (vint)color.b - candidate.b;
+					auto distance = dr * dr + dg * dg + db * db;
+					if (bestDistance == -1 || distance < bestDistance)
+					{
+						best = i;
+						bestDistance = distance;
+					}
+				}
+				return best;
+			}
+		}
+
+		using namespace tui_internal;
+
+/***********************************************************************
+TuiPixel
+***********************************************************************/
+
+		char32_t TuiPixel::GetChar32() const
+		{
+			switch (glyph)
+			{
+			case TuiPixelGlyph::Char:
+				return c;
+			case TuiPixelGlyph::Mergeable:
+				return GetMergeableChar(mergeable);
+			case TuiPixelGlyph::Unmergeable:
+				return GetUnmergeableChar(unmergeable);
+			default:
+				return 0;
+			}
+		}
+
+		wchar_t TuiPixel::GetWChar() const
+		{
+			auto code = GetChar32();
+			if (!IsScalar(code) || code == 0) return 0;
+			if constexpr (sizeof(wchar_t) == 2)
+			{
+				return code <= 0xFFFF ? (wchar_t)code : 0;
+			}
+			else
+			{
+				return (wchar_t)code;
+			}
+		}
+
+/***********************************************************************
+ITuiCallback
+***********************************************************************/
+
+		void ITuiCallback::Starting() {}
+		void ITuiCallback::Stopping() {}
+		void ITuiCallback::BufferSizeChanged() {}
+		void ITuiCallback::MouseMove(const TuiMouseInfo&) {}
+		void ITuiCallback::MouseDown(TuiMouseButton, const TuiMouseInfo&) {}
+		void ITuiCallback::MouseUp(TuiMouseButton, const TuiMouseInfo&) {}
+		void ITuiCallback::MouseDoubleClick(TuiMouseButton, const TuiMouseInfo&) {}
+		void ITuiCallback::MouseVerticalWheel(const TuiMouseInfo&) {}
+		void ITuiCallback::MouseHorizontalWheel(const TuiMouseInfo&) {}
+		void ITuiCallback::KeyDown(const TuiKeyInfo&) {}
+		void ITuiCallback::KeyUp(const TuiKeyInfo&) {}
+		void ITuiCallback::Char(const TuiCharInfo&) {}
+		void ITuiCallback::Timer() {}
+
+/***********************************************************************
+TUI
+***********************************************************************/
+
+		bool TUI::TryGetConsoleSize(vint& width, vint& height)
+		{
+			auto& storage = GetTuiStorage();
+			if (storage.active) CheckOwner(storage);
+			auto backend = storage.active ? storage.backend : storage.injectedBackend;
+			if (!backend) backend = CreateTuiBackend();
+			return backend->TryGetConsoleSize(width, height);
+		}
+
+		void TUI::Start(const TuiStartOptions& options)
+		{
+			auto& storage = GetTuiStorage();
+			if (storage.active)
+			{
+				CheckOwner(storage);
+				return;
+			}
+			CHECK_ERROR(IsColorMode(options.colorMode, true), L"vl::console::TUI::Start(const TuiStartOptions&)#The requested color mode is invalid.");
+			CHECK_ERROR(Console::IsEnabled(), L"vl::console::TUI::Start(const TuiStartOptions&)#Console must be enabled before TUI starts.");
+
+			std::exception_ptr thrown;
+			{
+				StartCleanup cleanup(storage, &thrown);
+				try
+				{
+					storage.backend = storage.injectedBackend ? storage.injectedBackend : CreateTuiBackend();
+					storage.colorMode = storage.backend->Start(options);
+					storage.backendStarted = true;
+					CHECK_ERROR(IsColorMode(storage.colorMode, false), L"vl::console::TUI::Start(const TuiStartOptions&)#The backend selected an invalid color mode.");
+
+					vint width = 0;
+					vint height = 0;
+					CHECK_ERROR(storage.backend->TryGetConsoleSize(width, height), L"vl::console::TUI::Start(const TuiStartOptions&)#Failed to query the terminal size.");
+					Console::Disable();
+					storage.consoleDisabled = true;
+					ResizeBuffer(storage, width, height);
+					storage.ownerThreadId = Thread::GetCurrentThreadId();
+					storage.active = true;
+
+					InvokeListeners(storage, [](ITuiCallback* listener) { listener->Starting(); });
+					if (!storage.stopRequested)
+					{
+						InvokeListeners(storage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
+					}
+					while (!storage.stopRequested)
+					{
+						if (!RunOneCycle()) break;
+					}
+					if (!storage.callbackException)
+					{
+						storage.shuttingDown = true;
+						InvokeListeners(storage, [](ITuiCallback* listener) { listener->Stopping(); }, true);
+					}
+				}
+				catch (...)
+				{
+					thrown = std::current_exception();
+				}
+			}
+			if (thrown) std::rethrow_exception(thrown);
+		}
+
+		bool TUI::RunOneCycle()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			if (storage.callbackException) std::rethrow_exception(storage.callbackException);
+			if (storage.stopRequested) return false;
+
+			if (storage.eventQueue.Count() == 0)
+			{
+				auto now = storage.backend->GetMonotonicTime();
+				vint timeout = -1;
+				if (storage.timerPeriod > 0)
+				{
+					if (now >= storage.nextTimer)
+					{
+						storage.nextTimer += storage.timerPeriod;
+						InvokeListeners(storage, [](ITuiCallback* listener) { listener->Timer(); });
+						return !storage.stopRequested;
+					}
+					auto remaining = storage.nextTimer - now;
+					timeout = remaining > (vuint64_t)0x7FFFFFFF ? 0x7FFFFFFF : (vint)remaining;
+				}
+				unittest::TuiBackendEvent event;
+				if (storage.backend->ReadEvent(timeout, event))
+				{
+					storage.eventQueue.Add(event);
+				}
+				else if (storage.timerPeriod > 0 && storage.backend->GetMonotonicTime() >= storage.nextTimer)
+				{
+					storage.nextTimer += storage.timerPeriod;
+					InvokeListeners(storage, [](ITuiCallback* listener) { listener->Timer(); });
+					return !storage.stopRequested;
+				}
+			}
+
+			if (storage.eventQueue.Count() > 0)
+			{
+				auto event = storage.eventQueue[0];
+				storage.eventQueue.RemoveAt(0);
+				DispatchEvent(storage, event);
+			}
+			if (storage.callbackException) std::rethrow_exception(storage.callbackException);
+			return !storage.stopRequested;
+		}
+
+		void TUI::Stop()
+		{
+			auto& storage = GetTuiStorage();
+			if (!storage.active) return;
+			CheckOwner(storage);
+			if (storage.shuttingDown) return;
+			storage.stopRequested = true;
+		}
+
+		bool TUI::IsInUse()
+		{
+			auto& storage = GetTuiStorage();
+			if (storage.active) CheckOwner(storage);
+			return storage.active;
+		}
+
+		bool TUI::IsStopRequested()
+		{
+			auto& storage = GetTuiStorage();
+			if (!storage.active) return false;
+			CheckOwner(storage);
+			return storage.stopRequested;
+		}
+
+		TuiColorMode TUI::GetColorMode()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			return storage.colorMode;
+		}
+
+		bool TUI::InstallListener(ITuiCallback* listener)
+		{
+			auto& storage = GetTuiStorage();
+			if (storage.active) CheckOwner(storage);
+			if (!listener || FindListener(storage, listener) != -1) return false;
+			storage.listeners.Add({ listener, ++storage.nextGeneration });
+			return true;
+		}
+
+		bool TUI::UninstallListener(ITuiCallback* listener)
+		{
+			auto& storage = GetTuiStorage();
+			if (storage.active) CheckOwner(storage);
+			if (!listener) return false;
+			auto index = FindListener(storage, listener);
+			if (index == -1) return false;
+			storage.listeners.RemoveAt(index);
+			return true;
+		}
+
+		void TUI::StartTimer(vint milliseconds)
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			CHECK_ERROR(milliseconds > 0, L"vl::console::TUI::StartTimer(vint)#The timer period must be positive.");
+			storage.timerPeriod = milliseconds;
+			storage.nextTimer = storage.backend->GetMonotonicTime() + milliseconds;
+		}
+
+		void TUI::StopTimer()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			storage.timerPeriod = 0;
+			storage.nextTimer = 0;
+		}
+
+		TuiPixel* TUI::GetBuffer()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			return storage.buffer.Count() == 0 ? nullptr : &storage.buffer[0];
+		}
+
+		vint TUI::GetBufferWidth()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			return storage.width;
+		}
+
+		vint TUI::GetBufferHeight()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			return storage.height;
+		}
+
+		vint TUI::MeasureChar(char32_t code)
+		{
+			if (!IsScalar(code)) return 0;
+			if (code >= 0x2500 && code <= 0x257F) return 1;
+			if (IsZeroWidthCodePoint(code)) return 0;
+			if (IsTwoWidthCodePoint(code)) return 2;
+			return 1;
+		}
+
+		void TUI::RenderBuffer()
+		{
+			auto& storage = GetTuiStorage();
+			CheckOwner(storage);
+			for (vint y = 0; y < storage.height; y++)
+			{
+				for (vint x = 0; x < storage.width; x++)
+				{
+					auto index = y * storage.width + x;
+					auto& pixel = storage.buffer[index];
+					switch (pixel.glyph)
+					{
+					case TuiPixelGlyph::Char:
+						if (pixel.c != 0)
+						{
+							CHECK_ERROR(IsScalar(pixel.c), L"vl::console::TUI::RenderBuffer()#A Char cell contains an invalid Unicode scalar.");
+							auto width = MeasureChar(pixel.c);
+							CHECK_ERROR(width == 1 || width == 2, L"vl::console::TUI::RenderBuffer()#A Char cell contains a zero-width or non-printable scalar.");
+							if (width == 2)
+							{
+								CHECK_ERROR(x + 1 < storage.width && storage.buffer[index + 1].glyph == TuiPixelGlyph::WideCharContinuation, L"vl::console::TUI::RenderBuffer()#A width-two Char cell has no continuation.");
+								CHECK_ERROR(storage.buffer[index + 1].foregroundColor == pixel.foregroundColor && storage.buffer[index + 1].backgroundColor == pixel.backgroundColor, L"vl::console::TUI::RenderBuffer()#A width-two continuation has different colors.");
+							}
+						}
+						break;
+					case TuiPixelGlyph::Mergeable:
+						CHECK_ERROR(GetMergeableChar(pixel.mergeable) != 0 || IsEmptyMergeable(pixel.mergeable), L"vl::console::TUI::RenderBuffer()#A Mergeable cell contains an unsupported arm state.");
+						break;
+					case TuiPixelGlyph::Unmergeable:
+						CHECK_ERROR(GetUnmergeableChar(pixel.unmergeable) != 0, L"vl::console::TUI::RenderBuffer()#An Unmergeable cell contains an invalid glyph.");
+						break;
+					case TuiPixelGlyph::WideCharContinuation:
+						CHECK_ERROR(x > 0 && storage.buffer[index - 1].glyph == TuiPixelGlyph::Char && MeasureChar(storage.buffer[index - 1].c) == 2, L"vl::console::TUI::RenderBuffer()#A continuation cell has no width-two leading cell.");
+						break;
+					default:
+						CHECK_FAIL(L"vl::console::TUI::RenderBuffer()#A cell contains an invalid glyph type.");
+					}
+				}
+			}
+			storage.backend->Render(&storage.buffer[0], storage.width, storage.height, storage.colorMode);
+		}
+
+		void TUI::PrintChar(const TuiPrintOptions& options, char32_t code, vint x, vint y)
+		{
+			PrintChar(GetBuffer(), GetBufferWidth(), GetBufferHeight(), options, code, x, y);
+		}
+
+		void TUI::DrawLineV(const TuiLineOptions& options, vint x, vint y1, vint y2)
+		{
+			DrawLineV(GetBuffer(), GetBufferWidth(), GetBufferHeight(), options, x, y1, y2);
+		}
+
+		void TUI::DrawLineH(const TuiLineOptions& options, vint x1, vint x2, vint y)
+		{
+			DrawLineH(GetBuffer(), GetBufferWidth(), GetBufferHeight(), options, x1, x2, y);
+		}
+
+		void TUI::DrawRect(const TuiRectOptions& options, vint x1, vint y1, vint x2, vint y2)
+		{
+			DrawRect(GetBuffer(), GetBufferWidth(), GetBufferHeight(), options, x1, y1, x2, y2);
+		}
+
+		void TUI::Clear(TuiColor backgroundColor, vint x1, vint y1, vint x2, vint y2)
+		{
+			Clear(GetBuffer(), GetBufferWidth(), GetBufferHeight(), backgroundColor, x1, y1, x2, y2);
+		}
+
+		void TUI::PrintChar(TuiPixel* buffer, vint width, vint height, const TuiPrintOptions& options, char32_t code, vint x, vint y)
+		{
+			CheckBuffer(buffer, width, height);
+			CHECK_ERROR(IsScalar(code), L"vl::console::TUI::PrintChar(...)#The character must be a Unicode scalar.");
+			auto charWidth = MeasureChar(code);
+			if (charWidth == 0 || x < 0 || x >= width || y < 0 || y >= height) return;
+			if (charWidth == 2 && x + 1 >= width) return;
+			RepairWide(buffer, width, height, x, y);
+			if (charWidth == 2) RepairWide(buffer, width, height, x + 1, y);
+			auto& leading = buffer[y * width + x];
+			leading.glyph = TuiPixelGlyph::Char;
+			leading.c = code;
+			leading.foregroundColor = options.foregroundColor;
+			leading.backgroundColor = options.backgroundColor;
+			if (charWidth == 2)
+			{
+				auto& continuation = buffer[y * width + x + 1];
+				continuation.glyph = TuiPixelGlyph::WideCharContinuation;
+				continuation.c = 0;
+				continuation.foregroundColor = options.foregroundColor;
+				continuation.backgroundColor = options.backgroundColor;
+			}
+		}
+
+		void TUI::DrawLineV(TuiPixel* buffer, vint width, vint height, const TuiLineOptions& options, vint x, vint y1, vint y2)
+		{
+			CheckBuffer(buffer, width, height);
+			CHECK_ERROR(y1 <= y2, L"vl::console::TUI::DrawLineV(...)#The ordered range is invalid.");
+			CHECK_ERROR(IsLineGlyph(options.glyph), L"vl::console::TUI::DrawLineV(...)#The line style is invalid.");
+			if (x < 0 || x >= width || y2 < 0 || y1 >= height) return;
+			auto begin = y1 < 0 ? 0 : y1;
+			auto end = y2 >= height ? height - 1 : y2;
+			TuiMergeablePixel drawing = { options.glyph, options.glyph, TuiMergeableGlyph::None, TuiMergeableGlyph::None };
+			for (vint y = begin; y <= end; y++) PlaceMergeable(buffer, width, height, x, y, drawing, options.foregroundColor, options.backgroundColor);
+		}
+
+		void TUI::DrawLineH(TuiPixel* buffer, vint width, vint height, const TuiLineOptions& options, vint x1, vint x2, vint y)
+		{
+			CheckBuffer(buffer, width, height);
+			CHECK_ERROR(x1 <= x2, L"vl::console::TUI::DrawLineH(...)#The ordered range is invalid.");
+			CHECK_ERROR(IsLineGlyph(options.glyph), L"vl::console::TUI::DrawLineH(...)#The line style is invalid.");
+			if (y < 0 || y >= height || x2 < 0 || x1 >= width) return;
+			auto begin = x1 < 0 ? 0 : x1;
+			auto end = x2 >= width ? width - 1 : x2;
+			TuiMergeablePixel drawing = { TuiMergeableGlyph::None, TuiMergeableGlyph::None, options.glyph, options.glyph };
+			for (vint x = begin; x <= end; x++) PlaceMergeable(buffer, width, height, x, y, drawing, options.foregroundColor, options.backgroundColor);
+		}
+
+		void TUI::DrawRect(TuiPixel* buffer, vint width, vint height, const TuiRectOptions& options, vint x1, vint y1, vint x2, vint y2)
+		{
+			CheckBuffer(buffer, width, height);
+			CHECK_ERROR(x1 < x2 && y1 < y2, L"vl::console::TUI::DrawRect(...)#A rectangle must have distinct corners.");
+			CHECK_ERROR(IsLineGlyph(options.glyph), L"vl::console::TUI::DrawRect(...)#The line style is invalid.");
+			CHECK_ERROR(options.corner == TuiRectCorner::Sharp || options.corner == TuiRectCorner::Round, L"vl::console::TUI::DrawRect(...)#The corner style is invalid.");
+			CHECK_ERROR(options.corner == TuiRectCorner::Sharp || options.glyph == TuiMergeableGlyph::ThinLine, L"vl::console::TUI::DrawRect(...)#Rounded corners require a thin line.");
+			if (x2 < 0 || y2 < 0 || x1 >= width || y1 >= height) return;
+
+			TuiMergeablePixel horizontal = { TuiMergeableGlyph::None, TuiMergeableGlyph::None, options.glyph, options.glyph };
+			TuiMergeablePixel vertical = { options.glyph, options.glyph, TuiMergeableGlyph::None, TuiMergeableGlyph::None };
+			auto left = x1 + 1 < 0 ? 0 : x1 + 1;
+			auto right = x2 - 1 >= width ? width - 1 : x2 - 1;
+			for (vint x = left; x <= right; x++)
+			{
+				PlaceMergeable(buffer, width, height, x, y1, horizontal, options.foregroundColor, options.backgroundColor);
+				PlaceMergeable(buffer, width, height, x, y2, horizontal, options.foregroundColor, options.backgroundColor);
+			}
+			auto top = y1 + 1 < 0 ? 0 : y1 + 1;
+			auto bottom = y2 - 1 >= height ? height - 1 : y2 - 1;
+			for (vint y = top; y <= bottom; y++)
+			{
+				PlaceMergeable(buffer, width, height, x1, y, vertical, options.foregroundColor, options.backgroundColor);
+				PlaceMergeable(buffer, width, height, x2, y, vertical, options.foregroundColor, options.backgroundColor);
+			}
+
+			if (options.corner == TuiRectCorner::Round)
+			{
+				PlaceUnmergeable(buffer, width, height, x1, y1, TuiUnmergeableDirection::LeftTop, options.foregroundColor, options.backgroundColor);
+				PlaceUnmergeable(buffer, width, height, x2, y1, TuiUnmergeableDirection::RightTop, options.foregroundColor, options.backgroundColor);
+				PlaceUnmergeable(buffer, width, height, x1, y2, TuiUnmergeableDirection::LeftBottom, options.foregroundColor, options.backgroundColor);
+				PlaceUnmergeable(buffer, width, height, x2, y2, TuiUnmergeableDirection::RightBottom, options.foregroundColor, options.backgroundColor);
+			}
+			else
+			{
+				PlaceMergeable(buffer, width, height, x1, y1, { TuiMergeableGlyph::None, options.glyph, TuiMergeableGlyph::None, options.glyph }, options.foregroundColor, options.backgroundColor);
+				PlaceMergeable(buffer, width, height, x2, y1, { TuiMergeableGlyph::None, options.glyph, options.glyph, TuiMergeableGlyph::None }, options.foregroundColor, options.backgroundColor);
+				PlaceMergeable(buffer, width, height, x1, y2, { options.glyph, TuiMergeableGlyph::None, TuiMergeableGlyph::None, options.glyph }, options.foregroundColor, options.backgroundColor);
+				PlaceMergeable(buffer, width, height, x2, y2, { options.glyph, TuiMergeableGlyph::None, options.glyph, TuiMergeableGlyph::None }, options.foregroundColor, options.backgroundColor);
+			}
+		}
+
+		void TUI::Clear(TuiPixel* buffer, vint width, vint height, TuiColor backgroundColor, vint x1, vint y1, vint x2, vint y2)
+		{
+			CheckBuffer(buffer, width, height);
+			CHECK_ERROR(x1 <= x2 && y1 <= y2, L"vl::console::TUI::Clear(...)#The ordered rectangle is invalid.");
+			if (x2 < 0 || y2 < 0 || x1 >= width || y1 >= height) return;
+			auto left = x1 < 0 ? 0 : x1;
+			auto top = y1 < 0 ? 0 : y1;
+			auto right = x2 >= width ? width - 1 : x2;
+			auto bottom = y2 >= height ? height - 1 : y2;
+			for (vint y = top; y <= bottom; y++)
+			{
+				for (vint x = left; x <= right; x++)
+				{
+					RepairWide(buffer, width, height, x, y);
+					buffer[y * width + x] = EmptyPixel(backgroundColor);
+				}
+			}
+		}
+
+/***********************************************************************
+ScopedTuiBackend
+***********************************************************************/
+
+		namespace unittest
+		{
+			ScopedTuiBackend::ScopedTuiBackend(Ptr<ITuiBackend> backend)
+			{
+				auto& storage = GetTuiStorage();
+				CHECK_ERROR(!storage.active, L"vl::console::unittest::ScopedTuiBackend::ScopedTuiBackend(...)#Cannot replace the backend while TUI is active.");
+				CHECK_ERROR(backend, L"vl::console::unittest::ScopedTuiBackend::ScopedTuiBackend(...)#The backend cannot be null.");
+				previous = storage.injectedBackend;
+				storage.injectedBackend = backend;
+			}
+
+			ScopedTuiBackend::~ScopedTuiBackend() noexcept(false)
+			{
+				auto& storage = GetTuiStorage();
+				CHECK_ERROR(!storage.active, L"vl::console::unittest::ScopedTuiBackend::~ScopedTuiBackend()#Cannot restore the backend while TUI is active.");
+				storage.injectedBackend = previous;
+			}
+		}
+	}
+}
+

@@ -10,3 +10,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\Encoding\CharFormat\CharFormat.Linux.cpp"
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp"
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.cpp"
+#include "..\..\Source\TUI\TUI.Linux.cpp"

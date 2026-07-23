@@ -22,6 +22,11 @@ namespace
 		vint								startCount = 0;
 		vint								stopCount = 0;
 		vint								renderCount = 0;
+		vint								renderWidth = 0;
+		vint								renderHeight = 0;
+		TuiColorMode						renderColorMode = TuiColorMode::Auto;
+		TuiColorMode						startColorMode = TuiColorMode::TrueColor;
+		bool								honorRequestedColorMode = true;
 		bool								failStart = false;
 
 		TuiColorMode Start(const TuiStartOptions& options) override
@@ -31,7 +36,9 @@ namespace
 			{
 				throw Exception(L"Fake backend startup failure.");
 			}
-			return options.colorMode == TuiColorMode::Auto ? TuiColorMode::TrueColor : options.colorMode;
+			return honorRequestedColorMode && options.colorMode != TuiColorMode::Auto
+				? options.colorMode
+				: startColorMode;
 		}
 
 		void Stop() override
@@ -66,9 +73,12 @@ namespace
 			return false;
 		}
 
-		void Render(const TuiPixel*, vint, vint, TuiColorMode) override
+		void Render(const TuiPixel*, vint width, vint height, TuiColorMode colorMode) override
 		{
 			renderCount++;
+			renderWidth = width;
+			renderHeight = height;
+			renderColorMode = colorMode;
 		}
 
 		void PushChar(char32_t code)
@@ -135,80 +145,102 @@ namespace
 		bool							stopOnStarting = false;
 		bool							stopOnResize = false;
 		bool							stopOnTimer = false;
+		vint							expectedThreadId = -1;
 		vint							stoppingCount = 0;
 		vint							eventCount = 0;
 
+		void CheckThread()
+		{
+			if (expectedThreadId != -1)
+			{
+				TEST_ASSERT(Thread::GetCurrentThreadId() == expectedThreadId);
+			}
+		}
+
 		void Starting() override
 		{
+			CheckThread();
 			if (stopOnStarting) TUI::Stop();
 		}
 
 		void Stopping() override
 		{
+			CheckThread();
 			stoppingCount++;
 		}
 
 		void BufferSizeChanged() override
 		{
+			CheckThread();
 			if (stopOnResize) TUI::Stop();
 		}
 
 		void MouseMove(const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseMove) TUI::Stop();
 		}
 
 		void MouseDown(TuiMouseButton, const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseDown) TUI::Stop();
 		}
 
 		void MouseUp(TuiMouseButton, const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseUp) TUI::Stop();
 		}
 
 		void MouseDoubleClick(TuiMouseButton, const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseDoubleClick) TUI::Stop();
 		}
 
 		void MouseVerticalWheel(const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseVerticalWheel) TUI::Stop();
 		}
 
 		void MouseHorizontalWheel(const TuiMouseInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::MouseHorizontalWheel) TUI::Stop();
 		}
 
 		void KeyDown(const TuiKeyInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::KeyDown) TUI::Stop();
 		}
 
 		void KeyUp(const TuiKeyInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::KeyUp) TUI::Stop();
 		}
 
 		void Char(const TuiCharInfo&) override
 		{
+			CheckThread();
 			eventCount++;
 			if (type == tui_test::TuiBackendEventType::Char) TUI::Stop();
 		}
 
 		void Timer() override
 		{
+			CheckThread();
 			eventCount++;
 			if (stopOnTimer) TUI::Stop();
 		}
@@ -237,6 +269,19 @@ TEST_FILE
 	{
 		TEST_CASE(L"Every none, thin and thick arm state has an exact mapping")
 		{
+			const char32_t expected[] =
+			{
+				0, U'\u2576', U'\u257A', U'\u2574', U'\u2500', U'\u257C', U'\u2578', U'\u257E', U'\u2501',
+				U'\u2577', U'\u250C', U'\u250D', U'\u2510', U'\u252C', U'\u252E', U'\u2511', U'\u252D', U'\u252F',
+				U'\u257B', U'\u250E', U'\u250F', U'\u2512', U'\u2530', U'\u2532', U'\u2513', U'\u2531', U'\u2533',
+				U'\u2575', U'\u2514', U'\u2515', U'\u2518', U'\u2534', U'\u2536', U'\u2519', U'\u2535', U'\u2537',
+				U'\u2502', U'\u251C', U'\u251D', U'\u2524', U'\u253C', U'\u253E', U'\u2525', U'\u253D', U'\u253F',
+				U'\u257D', U'\u251F', U'\u2522', U'\u2527', U'\u2541', U'\u2546', U'\u252A', U'\u2545', U'\u2548',
+				U'\u2579', U'\u2516', U'\u2517', U'\u251A', U'\u2538', U'\u253A', U'\u251B', U'\u2539', U'\u253B',
+				U'\u257F', U'\u251E', U'\u2521', U'\u2526', U'\u2540', U'\u2544', U'\u2529', U'\u2543', U'\u2547',
+				U'\u2503', U'\u2520', U'\u2523', U'\u2528', U'\u2542', U'\u254A', U'\u252B', U'\u2549', U'\u254B',
+			};
+			vint index = 0;
 			for (vint up = 0; up < 3; up++)
 			for (vint down = 0; down < 3; down++)
 			for (vint left = 0; left < 3; left++)
@@ -251,27 +296,76 @@ TEST_FILE
 					(TuiMergeableGlyph)left,
 					(TuiMergeableGlyph)right,
 				};
-				auto code = pixel.GetChar32();
-				auto empty = up == 0 && down == 0 && left == 0 && right == 0;
-				TEST_ASSERT(empty ? code == 0 : code >= U'\u2500' && code <= U'\u257F');
+				TEST_ASSERT(pixel.GetChar32() == expected[index++]);
 			}
+			TEST_ASSERT(index == sizeof(expected) / sizeof(*expected));
 		});
 
 		TEST_CASE(L"Supported and unsupported double states are distinguished")
 		{
-			TuiPixel pixel;
-			pixel.glyph = TuiPixelGlyph::Mergeable;
+			using G = TuiMergeableGlyph;
+			const TuiMergeablePixel supported[] =
+			{
+				{ G::None, G::None, G::DoubleLine, G::DoubleLine },
+				{ G::DoubleLine, G::DoubleLine, G::None, G::None },
+				{ G::None, G::ThinLine, G::None, G::DoubleLine },
+				{ G::None, G::DoubleLine, G::None, G::ThinLine },
+				{ G::None, G::DoubleLine, G::None, G::DoubleLine },
+				{ G::None, G::ThinLine, G::DoubleLine, G::None },
+				{ G::None, G::DoubleLine, G::ThinLine, G::None },
+				{ G::None, G::DoubleLine, G::DoubleLine, G::None },
+				{ G::ThinLine, G::None, G::None, G::DoubleLine },
+				{ G::DoubleLine, G::None, G::None, G::ThinLine },
+				{ G::DoubleLine, G::None, G::None, G::DoubleLine },
+				{ G::ThinLine, G::None, G::DoubleLine, G::None },
+				{ G::DoubleLine, G::None, G::ThinLine, G::None },
+				{ G::DoubleLine, G::None, G::DoubleLine, G::None },
+				{ G::ThinLine, G::ThinLine, G::None, G::DoubleLine },
+				{ G::DoubleLine, G::DoubleLine, G::None, G::ThinLine },
+				{ G::DoubleLine, G::DoubleLine, G::None, G::DoubleLine },
+				{ G::ThinLine, G::ThinLine, G::DoubleLine, G::None },
+				{ G::DoubleLine, G::DoubleLine, G::ThinLine, G::None },
+				{ G::DoubleLine, G::DoubleLine, G::DoubleLine, G::None },
+				{ G::None, G::ThinLine, G::DoubleLine, G::DoubleLine },
+				{ G::None, G::DoubleLine, G::ThinLine, G::ThinLine },
+				{ G::None, G::DoubleLine, G::DoubleLine, G::DoubleLine },
+				{ G::ThinLine, G::None, G::DoubleLine, G::DoubleLine },
+				{ G::DoubleLine, G::None, G::ThinLine, G::ThinLine },
+				{ G::DoubleLine, G::None, G::DoubleLine, G::DoubleLine },
+				{ G::ThinLine, G::ThinLine, G::DoubleLine, G::DoubleLine },
+				{ G::DoubleLine, G::DoubleLine, G::ThinLine, G::ThinLine },
+				{ G::DoubleLine, G::DoubleLine, G::DoubleLine, G::DoubleLine },
+			};
+			for (vint up = 0; up < 4; up++)
+			for (vint down = 0; down < 4; down++)
+			for (vint left = 0; left < 4; left++)
+			for (vint right = 0; right < 4; right++)
+			{
+				if (up != 3 && down != 3 && left != 3 && right != 3) continue;
+				TuiPixel pixel;
+				pixel.glyph = TuiPixelGlyph::Mergeable;
+				pixel.mergeable = { (G)up, (G)down, (G)left, (G)right };
+				char32_t expected = 0;
+				for (vint i = 0; i < sizeof(supported) / sizeof(*supported); i++)
+				{
+					auto& state = supported[i];
+					if (
+						state.up == pixel.mergeable.up &&
+						state.down == pixel.mergeable.down &&
+						state.left == pixel.mergeable.left &&
+						state.right == pixel.mergeable.right)
+					{
+						expected = (char32_t)(U'\u2550' + i);
+						break;
+					}
+				}
+				TEST_ASSERT(pixel.GetChar32() == expected);
+			}
 
-			pixel.mergeable = { TuiMergeableGlyph::None, TuiMergeableGlyph::None, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::DoubleLine };
-			TEST_ASSERT(pixel.GetChar32() == U'\u2550');
-			pixel.mergeable = { TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::None, TuiMergeableGlyph::None };
-			TEST_ASSERT(pixel.GetChar32() == U'\u2551');
-			pixel.mergeable = { TuiMergeableGlyph::None, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::None, TuiMergeableGlyph::DoubleLine };
-			TEST_ASSERT(pixel.GetChar32() == U'\u2554');
-			pixel.mergeable = { TuiMergeableGlyph::None, TuiMergeableGlyph::None, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::None };
-			TEST_ASSERT(pixel.GetChar32() == 0);
-			pixel.mergeable = { TuiMergeableGlyph::ThickLine, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::None, TuiMergeableGlyph::None };
-			TEST_ASSERT(pixel.GetChar32() == 0);
+			TuiPixel invalid;
+			invalid.glyph = TuiPixelGlyph::Mergeable;
+			invalid.mergeable = { (G)4, G::None, G::None, G::None };
+			TEST_ASSERT(invalid.GetChar32() == 0);
 		});
 
 		TEST_CASE(L"GetChar32 and GetWChar follow scalar and platform rules")
@@ -406,6 +500,18 @@ TEST_FILE
 			TEST_ASSERT(buffer[4].glyph == TuiPixelGlyph::Char && buffer[4].c == 0);
 			TEST_ASSERT(buffer[4].foregroundColor == TuiColor({ 255, 255, 255 }));
 			TEST_ASSERT(buffer[4].backgroundColor == TuiColor({ 9, 8, 7 }));
+
+			horizontal.glyph = TuiMergeableGlyph::None;
+			TEST_ERROR(TUI::DrawLineH(buffer, 3, 3, horizontal, 0, 1, 0));
+			horizontal.glyph = (TuiMergeableGlyph)4;
+			TEST_ERROR(TUI::DrawLineH(buffer, 3, 3, horizontal, 0, 1, 0));
+
+			TuiRectOptions invalidRect;
+			invalidRect.corner = (TuiRectCorner)2;
+			TEST_ERROR(TUI::DrawRect(buffer, 3, 3, invalidRect, 0, 0, 2, 2));
+			invalidRect.corner = TuiRectCorner::Round;
+			invalidRect.glyph = TuiMergeableGlyph::DoubleLine;
+			TEST_ERROR(TUI::DrawRect(buffer, 3, 3, invalidRect, 0, 0, 2, 2));
 		});
 	});
 
@@ -461,6 +567,7 @@ TEST_FILE
 			callback.onStarting = [&]()
 			{
 				TEST_ASSERT(Thread::GetCurrentThreadId() == ownerThread);
+				TEST_ERROR(TUI::StartTimer(0));
 				TUI::StartTimer(10);
 			};
 			callback.onTimer = [&]()
@@ -483,7 +590,7 @@ TEST_FILE
 			backend->PushChar(U'B');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback callback;
-			callback.onStarting = []() { TEST_ASSERT(TUI::RunOneCycle()); };
+			callback.onStarting = []() { TEST_ASSERT(!TUI::RunOneCycle()); };
 			callback.onChar = [](char32_t code)
 			{
 				if (code == U'A')
@@ -546,13 +653,49 @@ TEST_FILE
 				TEST_ASSERT(TUI::UninstallListener(&second));
 				TEST_ASSERT(TUI::InstallListener(&second));
 			};
-			first.onChar = [](char32_t) { TUI::Stop(); };
+			second.onChar = [](char32_t) { TUI::Stop(); };
 			TUI::InstallListener(&first);
 			TUI::InstallListener(&second);
 			TUI::Start({});
-			TEST_ASSERT(second.events.Count() == 2);
+			TEST_ASSERT(second.events.Count() == 3);
 			TEST_ASSERT(second.events[0] == L"BufferSizeChanged");
 			TEST_ASSERT(second.events[1] == L"Char:X");
+			TEST_ASSERT(second.events[2] == L"Stopping");
+			TUI::UninstallListener(&first);
+			TUI::UninstallListener(&second);
+		});
+
+		TEST_CASE(L"Nested dispatch snapshots the newly installed listener generation")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushChar(U'A');
+			backend->PushChar(U'B');
+			backend->PushChar(U'C');
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback first;
+			Callback second;
+			first.onChar = [&](char32_t code)
+			{
+				if (code == U'A')
+				{
+					TEST_ASSERT(TUI::UninstallListener(&second));
+					TEST_ASSERT(TUI::InstallListener(&second));
+					TEST_ASSERT(TUI::RunOneCycle());
+				}
+			};
+			second.onChar = [](char32_t code)
+			{
+				if (code == U'C') TUI::Stop();
+			};
+			TUI::InstallListener(&first);
+			TUI::InstallListener(&second);
+			TUI::Start({});
+			TEST_ASSERT(second.events.Count() == 5);
+			TEST_ASSERT(second.events[0] == L"Starting");
+			TEST_ASSERT(second.events[1] == L"BufferSizeChanged");
+			TEST_ASSERT(second.events[2] == L"Char:B");
+			TEST_ASSERT(second.events[3] == L"Char:C");
+			TEST_ASSERT(second.events[4] == L"Stopping");
 			TUI::UninstallListener(&first);
 			TUI::UninstallListener(&second);
 		});
@@ -615,14 +758,32 @@ TEST_FILE
 			TUI::InstallListener(&callback);
 			TUI::Start({});
 			TUI::Start({});
-			TEST_ASSERT(backend->startCount == 2);
-			TEST_ASSERT(backend->stopCount == 1);
+			TEST_ASSERT(backend->startCount == 3);
+			TEST_ASSERT(backend->stopCount == 2);
 			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Invalid requested and selected color modes fail cleanly")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			TuiStartOptions options;
+			options.colorMode = (TuiColorMode)4;
+			TEST_ERROR(TUI::Start(options));
+			TEST_ASSERT(backend->startCount == 0);
+
+			backend->honorRequestedColorMode = false;
+			backend->startColorMode = (TuiColorMode)4;
+			TEST_ERROR(TUI::Start({}));
+			TEST_ASSERT(backend->startCount == 1);
+			TEST_ASSERT(backend->stopCount == 1);
+			TEST_ASSERT(Console::IsEnabled());
+			TEST_ASSERT(!TUI::IsInUse());
 		});
 
 		TEST_CASE(L"Every input callback can stop later dispatch")
 		{
-			auto types = Array<tui_test::TuiBackendEventType>({
+			tui_test::TuiBackendEventType types[] = {
 				tui_test::TuiBackendEventType::MouseMove,
 				tui_test::TuiBackendEventType::MouseDown,
 				tui_test::TuiBackendEventType::MouseUp,
@@ -632,7 +793,7 @@ TEST_FILE
 				tui_test::TuiBackendEventType::KeyDown,
 				tui_test::TuiBackendEventType::KeyUp,
 				tui_test::TuiBackendEventType::Char,
-			});
+			};
 			for (auto type : types)
 			{
 				auto backend = Ptr(new FakeTuiBackend);
@@ -643,12 +804,237 @@ TEST_FILE
 				tui_test::ScopedTuiBackend backendScope(backend);
 				StopOnEventCallback callback;
 				callback.type = type;
+				callback.expectedThreadId = Thread::GetCurrentThreadId();
 				TUI::InstallListener(&callback);
 				TUI::Start({});
 				TEST_ASSERT(callback.eventCount == 1);
 				TEST_ASSERT(callback.stoppingCount == 1);
 				TUI::UninstallListener(&callback);
 			}
+		});
+
+		TEST_CASE(L"IsStopRequested supports bridge-style suppression")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushChar(U'X');
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback bridge;
+			Callback later;
+			vint higherLevelCallbacks = 0;
+			bridge.onChar = [&](char32_t)
+			{
+				TUI::Stop();
+				if (!TUI::IsStopRequested())
+				{
+					higherLevelCallbacks++;
+				}
+			};
+			TUI::InstallListener(&bridge);
+			TUI::InstallListener(&later);
+			TUI::Start({});
+			TEST_ASSERT(higherLevelCallbacks == 0);
+			TEST_ASSERT(later.events.Count() == 3);
+			TEST_ASSERT(later.events[0] == L"Starting");
+			TEST_ASSERT(later.events[1] == L"BufferSizeChanged");
+			TEST_ASSERT(later.events[2] == L"Stopping");
+			TEST_ASSERT(!TUI::IsStopRequested());
+			TUI::UninstallListener(&bridge);
+			TUI::UninstallListener(&later);
+		});
+
+		TEST_CASE(L"Active operations reject a non-owner thread")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			callback.onStarting = []()
+			{
+				vint rejected = 0;
+				auto thread = Thread::CreateAndStart([&]()
+				{
+					try
+					{
+						TUI::IsInUse();
+					}
+					catch (const Error&)
+					{
+						rejected++;
+					}
+					try
+					{
+						TUI::Start({});
+					}
+					catch (const Error&)
+					{
+						rejected++;
+					}
+					try
+					{
+						TUI::GetBuffer();
+					}
+					catch (const Error&)
+					{
+						rejected++;
+					}
+				}, false);
+				TEST_ASSERT(thread->Wait());
+				delete thread;
+				TEST_ASSERT(rejected == 3);
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Console size, selected color mode and rendering use the active backend")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 5;
+			backend->height = 3;
+			backend->honorRequestedColorMode = false;
+			backend->startColorMode = TuiColorMode::Color256;
+			tui_test::ScopedTuiBackend backendScope(backend);
+			vint width = 0;
+			vint height = 0;
+			TEST_ASSERT(TUI::TryGetConsoleSize(width, height));
+			TEST_ASSERT(width == 5 && height == 3);
+			Callback callback;
+			callback.onStarting = []()
+			{
+				TEST_ASSERT(TUI::GetColorMode() == TuiColorMode::Color256);
+				TEST_ASSERT(TUI::GetBufferWidth() == 5);
+				TEST_ASSERT(TUI::GetBufferHeight() == 3);
+				TUI::Clear({ 0, 0, 0 }, 0, 0, 4, 2);
+				TuiRectOptions options;
+				options.glyph = TuiMergeableGlyph::DoubleLine;
+				TUI::DrawRect(options, 0, 0, 4, 2);
+				TUI::RenderBuffer();
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TuiStartOptions options;
+			options.colorMode = TuiColorMode::TrueColor;
+			TUI::Start(options);
+			TEST_ASSERT(backend->renderCount == 1);
+			TEST_ASSERT(backend->renderWidth == 5 && backend->renderHeight == 3);
+			TEST_ASSERT(backend->renderColorMode == TuiColorMode::Color256);
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"RenderBuffer rejects malformed raw cells")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 2;
+			backend->height = 1;
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			callback.onStarting = []()
+			{
+				auto buffer = TUI::GetBuffer();
+				auto reset = [&]()
+				{
+					buffer[0] = TuiPixel();
+					buffer[1] = TuiPixel();
+				};
+
+				reset();
+				buffer[0].glyph = TuiPixelGlyph::Mergeable;
+				buffer[0].mergeable = { (TuiMergeableGlyph)4, TuiMergeableGlyph::None, TuiMergeableGlyph::None, TuiMergeableGlyph::None };
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].glyph = TuiPixelGlyph::Mergeable;
+				buffer[0].mergeable = { TuiMergeableGlyph::None, TuiMergeableGlyph::None, TuiMergeableGlyph::DoubleLine, TuiMergeableGlyph::None };
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].glyph = TuiPixelGlyph::Unmergeable;
+				buffer[0].unmergeable = { TuiUnmergeableGlyph::RoundCorner, (TuiUnmergeableDirection)4 };
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].glyph = (TuiPixelGlyph)4;
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].c = (char32_t)0xD800;
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].c = U'\u0301';
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].c = U'\u4E00';
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].glyph = TuiPixelGlyph::WideCharContinuation;
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				TUI::PrintChar({}, U'\u4E00', 0, 0);
+				buffer[1].foregroundColor = { 1, 2, 3 };
+				TEST_ERROR(TUI::RenderBuffer());
+
+				reset();
+				buffer[0].glyph = TuiPixelGlyph::Mergeable;
+				buffer[0].mergeable = {};
+				TUI::RenderBuffer();
+
+				reset();
+				TUI::PrintChar({}, U'\u4E00', 0, 0);
+				TUI::RenderBuffer();
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TEST_ASSERT(backend->renderCount == 2);
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Nested callback exceptions stay latched until Start cleanup")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushChar(U'A');
+			backend->PushChar(U'B');
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			bool caughtNested = false;
+			callback.onStarting = []() { TUI::RunOneCycle(); };
+			callback.onChar = [&](char32_t code)
+			{
+				if (code == U'A')
+				{
+					try
+					{
+						TUI::RunOneCycle();
+					}
+					catch (const Exception&)
+					{
+						caughtNested = true;
+					}
+				}
+				else
+				{
+					throw Exception(L"Nested callback failed.");
+				}
+			};
+			TUI::InstallListener(&callback);
+			TEST_EXCEPTION(
+				TUI::Start({}),
+				Exception,
+				([](const Exception& e) { TEST_ASSERT(e.Message() == L"Nested callback failed."); }));
+			TEST_ASSERT(caughtNested);
+			TEST_ASSERT(callback.events.Count() == 3);
+			TEST_ASSERT(callback.events[0] == L"Starting");
+			TEST_ASSERT(callback.events[1] == L"Char:A");
+			TEST_ASSERT(callback.events[2] == L"Char:B");
+			TEST_ASSERT(backend->stopCount == 1);
+			TEST_ASSERT(Console::IsEnabled());
+			TEST_ASSERT(!TUI::IsInUse());
+			TUI::UninstallListener(&callback);
 		});
 	});
 }

@@ -44,3 +44,5 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\NetworkProtocolHttp.h"
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.h"
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.h"
+#include "..\..\Source\TUI\TUI.h"
+#include "..\..\Source\TUI\TUI.Internal.h"

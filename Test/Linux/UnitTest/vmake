@@ -13,6 +13,7 @@ CPP_REMOVES=(
     "../../../Source/InterProcess/Windows/NetworkProtocol.Windows.cpp"
     "../../../Source/Locale.Windows.cpp"
     "../../../Source/Threading.Windows.cpp"
+    "../../../Source/TUI/TUI.Windows.cpp"
     "../../../Source/Encoding/CharFormat/CharFormat.Windows.cpp"
     "../../Source/TestLocale.cpp"
     "../../UnitTest/UnitTest/Main.cpp"

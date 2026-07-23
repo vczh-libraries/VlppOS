@@ -49,6 +49,9 @@
     <Filter Include="TUI">
       <UniqueIdentifier>{6ee6efbb-f781-443e-af3c-cc01a5397b45}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\TUI">
+      <UniqueIdentifier>{dc6c29f0-7717-41b5-9da9-127942637f52}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\TestFileSystem.cpp">
@@ -134,6 +137,18 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Threading.cpp">
       <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Linux.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Windows.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\UnicodeWidthTable.cpp">
+      <Filter>Common\TUI</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp">
       <Filter>Common</Filter>
@@ -256,6 +271,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Threading.h">
       <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\TUI\TUI.h">
+      <Filter>Common\TUI</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Internal.h">
+      <Filter>Common\TUI</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\Stream\Accessor.h">
       <Filter>Common\Stream</Filter>
@@ -398,5 +419,10 @@
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h">
       <Filter>Common\InterProcess\WindowsAPI</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\Source\TUI\GenerateUnicodeWidthTable.py">
+      <Filter>Common\TUI</Filter>
+    </None>
   </ItemGroup>
 </Project>

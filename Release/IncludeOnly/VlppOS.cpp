@@ -33,3 +33,5 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServer.cpp"
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp"
 #include "..\..\Source\InterProcess\NetworkProtocolHttp.cpp"
+#include "..\..\Source\TUI\UnicodeWidthTable.cpp"
+#include "..\..\Source\TUI\TUI.cpp"

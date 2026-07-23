@@ -10,6 +10,7 @@ therefore `SOLUTION-ROOT` is `REPO-ROOT/Test/UnitTest`.
 The solution contains:
 - `REPO-ROOT/Test/UnitTest/UnitTest/UnitTest.vcxproj`, the unit test project.
 - `REPO-ROOT/Test/UnitTest/MiniHttpServer/MiniHttpServer.vcxproj`, the portable CLI/browser verification project for `SocketHttpServerApi`.
+- `REPO-ROOT/Test/UnitTest/TuiPlayground/TuiPlayground.vcxproj`, the portable interactive TUI verification project.
 
 Run the browser verification project as `MiniHttpServer <WebsiteFolder> <AssetsFolder>`.
 
@@ -22,6 +23,12 @@ Run the browser verification project as `MiniHttpServer <WebsiteFolder> <AssetsF
 - Open `http://localhost:8889/Assets` and expect the Assets index; expect `http://localhost:8889/app.js` and `http://localhost:8889/AssetsExtra/app.js` not to be served.
 - Press Enter and expect a clean exit with ports 8888 and 8889 released.
 
+### TuiPlayground Verification
+
+- Windows: from `REPO-ROOT/Test/UnitTest`, build through `copilotBuild.ps1`, then run `TuiPlayground` through `copilotExecute.ps1` in an interactive console.
+- Linux and macOS: from `REPO-ROOT/Test/Linux/TuiPlayground`, run the absolute `REPO-ROOT/.github/Ubuntu/build.sh`, then run `./Bin/TuiPlayground` in an interactive terminal.
+- Expect a white double-line rectangle on a black background around the visible terminal. Resize the terminal and expect the rectangle to follow the new border. Press `q`, `Q`, or Escape and expect the original terminal state to be restored before the process exits.
+
 When any *.h or *.cpp file is changed, unit test is required to run.
 When shared product source changes, all relevant unit tests are required to run.
 
@@ -31,6 +38,7 @@ When any test case fails, you must fix the issue immediately, even those errors 
 
 - `REPO-ROOT/Test/Linux/UnitTest` stores the Unix configuration for `UnitTest.vcxproj`.
 - `REPO-ROOT/Test/Linux/MiniHttpServer` stores the Unix configuration for `MiniHttpServer.vcxproj`.
+- `REPO-ROOT/Test/Linux/TuiPlayground` stores the Unix configuration for `TuiPlayground.vcxproj`.
 
 You need to build, run, test, and debug each project in its matching folder, otherwise it will not function properly.
 On Linux and macOS, only configuration "debug x64" is available, no need to build or run projects with other configurations.

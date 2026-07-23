@@ -1,0 +1,12 @@
+<#
+CPP_TARGET=./Bin/TuiPlayground
+CPP_VCXPROJ=../../UnitTest/TuiPlayground/TuiPlayground.vcxproj
+CPP_REMOVES=(
+    "../../../Import/Vlpp.Windows.cpp"
+    "../../../Source/Threading.Windows.cpp"
+    "../../../Source/TUI/TUI.Windows.cpp"
+    )
+TARGETS=("${CPP_TARGET}")
+CPP_COMPILE_OPTIONS="-I ../../../Import"
+#>
+<#@ include "${VCPROOT}/vl/vmake-cpp" #>

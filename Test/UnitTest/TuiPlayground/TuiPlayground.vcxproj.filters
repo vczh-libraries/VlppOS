@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{A7BFAF20-43A4-4F86-A3F7-053506CE786C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Import">
+      <UniqueIdentifier>{F7041019-F64D-44B7-A087-DFF1269979B1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common">
+      <UniqueIdentifier>{5DDE52B2-C69E-4DB8-86C5-AB67D7CCB102}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Common\TUI">
+      <UniqueIdentifier>{50561942-74B2-43A1-B42C-09180094FE47}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.Linux.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Import\Vlpp.Windows.cpp">
+      <Filter>Import</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.Linux.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\Threading.Windows.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Linux.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Windows.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\TUI\UnicodeWidthTable.cpp">
+      <Filter>Common\TUI</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\Import\Vlpp.h">
+      <Filter>Import</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\Threading.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\TUI\TUI.h">
+      <Filter>Common\TUI</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Internal.h">
+      <Filter>Common\TUI</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\Source\TUI\GenerateUnicodeWidthTable.py">
+      <Filter>Common\TUI</Filter>
+    </None>
+  </ItemGroup>
+</Project>

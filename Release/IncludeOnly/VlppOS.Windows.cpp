@@ -15,3 +15,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\Windows\HttpServerApi.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\NamedPipe.Windows.cpp"
 #include "..\..\Source\InterProcess\Windows\NetworkProtocol.Windows.cpp"
+#include "..\..\Source\TUI\TUI.Windows.cpp"

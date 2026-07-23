@@ -333,7 +333,7 @@ The upstream Vlpp build fails in `TestConsole.cpp` because `vl::console::Console
 
 # PROPOSALS
 
-- No.1 IMPLEMENT THE OWNER-THREADED TUI CONTRACT WITH PLATFORM BACKENDS
+- No.1 IMPLEMENT THE OWNER-THREADED TUI CONTRACT WITH PLATFORM BACKENDS [CONFIRMED]
 
 ## No.1 IMPLEMENT THE OWNER-THREADED TUI CONTRACT WITH PLATFORM BACKENDS
 
@@ -342,3 +342,21 @@ Add the non-nested Console enable state at its owning layer in upstream Vlpp, gu
 Use scope-based cleanup around every successful acquisition and around Console disablement so normal stop, partial startup failure, ordinary callback exceptions, and `Stopping` exceptions all restore the terminal and Console. The production backend factory selects the platform backend, while `vl::console::unittest::ScopedTuiBackend` temporarily installs a deterministic fake backend only while TUI is inactive. Add the portable TuiPlayground project and enumerate every source/test/project entry explicitly. Generate releases only from their source repositories and copy generated dependency artifacts downstream.
 
 ### CODE CHANGE
+
+In upstream Vlpp, add the idempotent, process-wide `Console::Enable`, `Console::Disable`, and `Console::IsEnabled` state and guard the Windows and POSIX implementations of the four Console sinks. Regenerate the Vlpp release and copy the generated non-`IncludeOnly` files into `VlppOS/Import`.
+
+In VlppOS, add the complete public TUI pixel, event, listener, timer, drawing, lifecycle, and test-backend API under `Source/TUI`. The shared implementation owns exact box-drawing lookup, merge fallback, width-two repair, Unicode scalar validation, Unicode 17 width lookup, color quantization, listener generations, queued events, reentrant owner-thread dispatch, timer deadlines, stop/exception latches, and scope-based cleanup. The Windows backend saves and restores console modes, cursor and palette state, uses virtual-terminal rendering when available with a classic-console fallback, translates console input records, and reports resizes. The shared POSIX backend saves and restores `termios`, installs a self-pipe-backed `SIGWINCH` notification, polls input/timer/resize deadlines, decodes UTF-8 and terminal escape sequences, and emits SGR rendering for Linux and macOS.
+
+Generate the checked-in Unicode width implementation from the official Unicode 17 `EastAsianWidth`, `UnicodeData`, `PropList`, `DerivedCoreProperties`, and emoji data files. Add a deterministic injected backend and 23 focused TUI cases covering every requested pixel/drawing/lifecycle contract. Add `TuiPlayground` to all Visual Studio configurations and the Linux vmake metadata, update the existing Linux unit-test metadata, document its verification commands, and regenerate all VlppOS release/`IncludeOnly` files.
+
+The repository's required 32-bit `Codepack.backup.exe` terminates with status `0xC0000409` while scanning this repository, including from the clean pre-implementation commit with TUI excluded. Build the current CodePack source as x64 and use that same CodePack implementation with `Release/CodegenConfig.xml`; it completes without categorization errors and emits all six expected release files. Keep the generated Unicode table as a separately compiled `.cpp` so CodePack places private data in `VlppOS.cpp` rather than leaking it into the public header.
+
+### CONFIRMED
+
+The upstream Vlpp Debug x64 solution builds with zero warnings and zero errors. Its complete unit suite passes 32/32 files and 464/464 cases with an empty memory-leak report, including the initial/repeated Console state transitions and every guarded sink. The regenerated Vlpp release and the four imported VlppOS files contain the same Console contract.
+
+The checked-in Unicode width implementation reproduces exactly, ignoring repository line-ending normalization, when the generator is rerun against the five Unicode 17 inputs. The regenerated VlppOS header exposes the production TUI API and downstream fake-backend interface, while the width arrays and helpers occur only in `VlppOS.cpp`.
+
+The complete VlppOS solution builds in Debug x64, Release x64, Debug Win32, and Release Win32 with zero warnings and zero errors. The full Debug x64 suite passes 16/16 files and 244/244 cases with an empty memory-leak report; all 23 TUI cases pass. These cases exhaust all 81 none/thin/thick arm states and every double-containing state, validate supported and unsupported mappings, scalar widths and wide pairs, drawing and merge semantics, resize preservation, malformed-buffer rejection, listener generations, all callback stop paths, reentrant cycles, timer deadlines, owner-thread affinity, exception cleanup, Console restoration, and backend interaction.
+
+In a newly allocated real Windows console, `TuiPlayground` rendered the expected `╔╗╚╝` corners at 120x30, accepted `q`, exited with code zero, and restored the terminal. The active terminal host did not allow its physical window to be resized programmatically during that probe, so resize redraw is additionally confirmed by the deterministic backend test that changes the reported size, verifies buffer replacement/preservation and cut-wide-character repair, and observes `BufferSizeChanged`. Linux and macOS use the shared POSIX source and have complete project metadata, but their runtime verification remains deferred as explicitly required by this phase.
