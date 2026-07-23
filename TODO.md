@@ -16,4 +16,9 @@
 - Pay attention when `BroadcastFromClient` is happening when the server is accepting new clients.
 - stdio?
 
+### TUI
+
+- First version implementation
+- Move key definitions and convertions from GacUI/iGac/wGac to VlppOS
+
 ## Optional
