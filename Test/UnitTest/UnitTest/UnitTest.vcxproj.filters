@@ -46,9 +46,6 @@
     <Filter Include="Source Files\TestInterProcess">
       <UniqueIdentifier>{0d0da3a9-18ea-4cb3-9ea8-294b0fed5d56}</UniqueIdentifier>
     </Filter>
-    <Filter Include="TUI">
-      <UniqueIdentifier>{6ee6efbb-f781-443e-af3c-cc01a5397b45}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Common\TUI">
       <UniqueIdentifier>{dc6c29f0-7717-41b5-9da9-127942637f52}</UniqueIdentifier>
     </Filter>
@@ -68,9 +65,6 @@
     </ClCompile>
     <ClCompile Include="..\..\Source\TestThread.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Source\TestTui.cpp">
-      <Filter>TUI</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.cpp">
       <Filter>Common</Filter>
@@ -260,6 +254,9 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp">
       <Filter>Common\InterProcess</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\TestTui.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
