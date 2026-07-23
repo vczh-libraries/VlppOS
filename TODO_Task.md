@@ -1,4 +1,4 @@
-The analysis is in `../GacUI/ToDo/Task_TUI.md`.
+The analysis is in `../GacUI/ToDo/Task_TUI.md` and `./Task_TUI.md`.
 You are going to implement a cross-platform TUI utilities, by share as many common code as possible meanwhile implement non-sharable part for Windows, Linux and macOS.
 
 ## Definition of class vl::console::TUI
