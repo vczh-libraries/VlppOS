@@ -141,9 +141,6 @@
     <ClCompile Include="..\..\..\Source\TUI\TUI.Windows.cpp">
       <Filter>Common\TUI</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\TUI\UnicodeWidthTable.cpp">
-      <Filter>Common\TUI</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp">
       <Filter>Common</Filter>
     </ClCompile>
@@ -416,10 +413,5 @@
     <ClInclude Include="..\..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h">
       <Filter>Common\InterProcess\WindowsAPI</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\..\Source\TUI\GenerateUnicodeWidthTable.py">
-      <Filter>Common\TUI</Filter>
-    </None>
   </ItemGroup>
 </Project>

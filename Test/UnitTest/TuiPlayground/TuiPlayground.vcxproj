@@ -138,7 +138,6 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\TUI\TUI.Windows.cpp" />
-    <ClCompile Include="..\..\..\Source\TUI\UnicodeWidthTable.cpp" />
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -146,9 +145,6 @@
     <ClInclude Include="..\..\..\Source\Threading.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Internal.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\..\Source\TUI\GenerateUnicodeWidthTable.py" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -177,8 +177,25 @@ namespace vl
 			TuiRectCorner					corner = TuiRectCorner::Sharp;
 		};
 
+		namespace unittest
+		{
+			class ITuiBackend;
+			class ScopedTuiBackend;
+		}
+
 		class TUI abstract
 		{
+			friend class unittest::ScopedTuiBackend;
+
+		private:
+			class Impl;
+			class ListenerStorage;
+
+			static Impl*					impl;
+			static ListenerStorage*			listenerStorage;
+			static Ptr<unittest::ITuiBackend>* injectedBackend;
+			static Impl&					GetImpl();
+
 		public:
 			static bool						TryGetConsoleSize(vint& width, vint& height);
 			static void						Start(const TuiStartOptions& options);
@@ -254,7 +271,8 @@ namespace vl
 			class ScopedTuiBackend
 			{
 			private:
-				Ptr<ITuiBackend>				previous;
+				Ptr<ITuiBackend>*			previous = nullptr;
+				Ptr<ITuiBackend>				current;
 
 			public:
 				NOT_COPYABLE(ScopedTuiBackend);

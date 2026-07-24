@@ -14,10 +14,9 @@ namespace vl
 	{
 		namespace tui_internal
 		{
+			extern bool IsScalar(char32_t code);
 			extern vint QuantizeColor(TuiColor color, TuiColorMode colorMode, const TuiColor* customColor16 = nullptr);
 			extern TuiColor GetCanonicalColor(vint index);
-			extern bool IsZeroWidthCodePoint(char32_t code);
-			extern bool IsTwoWidthCodePoint(char32_t code);
 			extern Ptr<unittest::ITuiBackend> CreateTuiBackend();
 		}
 	}

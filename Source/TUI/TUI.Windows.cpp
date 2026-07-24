@@ -18,6 +18,40 @@ namespace vl
 {
 	namespace console
 	{
+		vint TUI::MeasureChar(char32_t code)
+		{
+#define ERROR_MESSAGE_PREFIX L"vl::console::TUI::MeasureChar(char32_t)#"
+			if (!tui_internal::IsScalar(code)) return 0;
+
+			wchar_t text[2];
+			auto length = 1;
+			if (code <= 0xFFFF)
+			{
+				text[0] = (wchar_t)code;
+			}
+			else
+			{
+				code -= 0x10000;
+				text[0] = (wchar_t)(0xD800 + (code >> 10));
+				text[1] = (wchar_t)(0xDC00 + (code & 0x3FF));
+				length = 2;
+			}
+
+			WORD ctype1[2] = {};
+			WORD ctype3[2] = {};
+			CHECK_ERROR(
+				GetStringTypeW(CT_CTYPE1, text, length, ctype1) &&
+				GetStringTypeW(CT_CTYPE3, text, length, ctype3),
+				ERROR_MESSAGE_PREFIX L"Failed to query character types."
+				);
+			if (ctype1[0] & C1_CNTRL) return 0;
+			if (ctype3[0] & (C3_NONSPACING | C3_DIACRITIC | C3_VOWELMARK)) return 0;
+			if (ctype3[0] & C3_HALFWIDTH) return 1;
+			if (length == 2 || (ctype3[0] & (C3_FULLWIDTH | C3_IDEOGRAPH | C3_HIRAGANA | C3_KATAKANA))) return 2;
+#undef ERROR_MESSAGE_PREFIX
+			return 1;
+		}
+
 		namespace tui_internal
 		{
 			void WriteConsoleAll(HANDLE handle, const wchar_t* text, vint length)

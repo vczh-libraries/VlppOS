@@ -5716,6 +5716,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include <string>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <wchar.h>
 
 using namespace vl;
 using namespace vl::collections;
@@ -5724,6 +5725,13 @@ namespace vl
 {
 	namespace console
 	{
+		vint TUI::MeasureChar(char32_t code)
+		{
+			if (!tui_internal::IsScalar(code)) return 0;
+			auto width = wcwidth((wchar_t)code);
+			return width < 0 ? 0 : width;
+		}
+
 		namespace tui_internal
 		{
 			int resizePipe[2] = { -1, -1 };

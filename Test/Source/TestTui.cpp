@@ -394,7 +394,7 @@ TEST_FILE
 			TEST_ASSERT(pixel.GetWChar() == 0);
 		});
 
-		TEST_CASE(L"MeasureChar uses the shared scalar-width policy")
+		TEST_CASE(L"MeasureChar uses the platform scalar-width policy")
 		{
 			TEST_ASSERT(TUI::MeasureChar(U'\0') == 0);
 			TEST_ASSERT(TUI::MeasureChar(U'\x1B') == 0);

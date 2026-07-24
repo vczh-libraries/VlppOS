@@ -7361,8 +7361,25 @@ namespace vl
 			TuiRectCorner					corner = TuiRectCorner::Sharp;
 		};
 
+		namespace unittest
+		{
+			class ITuiBackend;
+			class ScopedTuiBackend;
+		}
+
 		class TUI abstract
 		{
+			friend class unittest::ScopedTuiBackend;
+
+		private:
+			class Impl;
+			class ListenerStorage;
+
+			static Impl*					impl;
+			static ListenerStorage*			listenerStorage;
+			static Ptr<unittest::ITuiBackend>* injectedBackend;
+			static Impl&					GetImpl();
+
 		public:
 			static bool						TryGetConsoleSize(vint& width, vint& height);
 			static void						Start(const TuiStartOptions& options);
@@ -7438,7 +7455,8 @@ namespace vl
 			class ScopedTuiBackend
 			{
 			private:
-				Ptr<ITuiBackend>				previous;
+				Ptr<ITuiBackend>*			previous = nullptr;
+				Ptr<ITuiBackend>				current;
 
 			public:
 				NOT_COPYABLE(ScopedTuiBackend);
@@ -7470,10 +7488,9 @@ namespace vl
 	{
 		namespace tui_internal
 		{
+			extern bool IsScalar(char32_t code);
 			extern vint QuantizeColor(TuiColor color, TuiColorMode colorMode, const TuiColor* customColor16 = nullptr);
 			extern TuiColor GetCanonicalColor(vint index);
-			extern bool IsZeroWidthCodePoint(char32_t code);
-			extern bool IsTwoWidthCodePoint(char32_t code);
 			extern Ptr<unittest::ITuiBackend> CreateTuiBackend();
 		}
 	}

@@ -20,36 +20,64 @@ namespace vl
 				ITuiCallback*				listener = nullptr;
 				vuint64_t					generation = 0;
 			};
+		}
 
-			BEGIN_GLOBAL_STORAGE_CLASS(TuiStorage)
-				bool						active = false;
-				bool						stopRequested = false;
-				bool						shuttingDown = false;
-				bool						backendStarted = false;
-				bool						consoleDisabled = false;
-				vint						ownerThreadId = -1;
-				vint						width = 0;
-				vint						height = 0;
-				vint						timerPeriod = 0;
-				vuint64_t					nextTimer = 0;
-				vuint64_t					nextGeneration = 0;
-				TuiColorMode				colorMode = TuiColorMode::Auto;
-				Array<TuiPixel>				buffer;
-				List<ListenerEntry>			listeners;
-				List<unittest::TuiBackendEvent> eventQueue;
-				Ptr<unittest::ITuiBackend>	backend;
-				Ptr<unittest::ITuiBackend>	injectedBackend;
-				std::exception_ptr			callbackException;
-			INITIALIZE_GLOBAL_STORAGE_CLASS
-			FINALIZE_GLOBAL_STORAGE_CLASS
-				CHECK_ERROR(!active, L"vl::console::TUI cannot remain active while global storage is finalized.");
-				listeners.Clear();
-				eventQueue.Clear();
-				backend = nullptr;
-				injectedBackend = nullptr;
-				buffer.Resize(0);
-			END_GLOBAL_STORAGE_CLASS(TuiStorage)
+		class TUI::Impl
+		{
+		public:
+			bool							active = false;
+			bool							stopRequested = false;
+			bool							shuttingDown = false;
+			bool							backendStarted = false;
+			bool							consoleDisabled = false;
+			vint							ownerThreadId = -1;
+			vint							width = 0;
+			vint							height = 0;
+			vint							timerPeriod = 0;
+			vuint64_t						nextTimer = 0;
+			TuiColorMode					colorMode = TuiColorMode::Auto;
+			Array<TuiPixel>					buffer;
+			List<unittest::TuiBackendEvent>	eventQueue;
+			Ptr<unittest::ITuiBackend>		backend;
+			std::exception_ptr				callbackException;
+			std::exception_ptr*				cleanupException = nullptr;
 
+			~Impl()
+			{
+				if (backendStarted)
+				{
+					try
+					{
+						backend->Stop();
+					}
+					catch (...)
+					{
+						if (cleanupException && !*cleanupException)
+						{
+							*cleanupException = std::current_exception();
+						}
+					}
+				}
+				if (consoleDisabled)
+				{
+					Console::Enable();
+				}
+			}
+		};
+
+		class TUI::ListenerStorage
+		{
+		public:
+			vuint64_t						nextGeneration = 0;
+			List<tui_internal::ListenerEntry>	listeners;
+		};
+
+		TUI::Impl* TUI::impl = nullptr;
+		TUI::ListenerStorage* TUI::listenerStorage = nullptr;
+		Ptr<unittest::ITuiBackend>* TUI::injectedBackend = nullptr;
+
+		namespace tui_internal
+		{
 			constexpr vuint8_t PackState(vuint8_t up, vuint8_t down, vuint8_t left, vuint8_t right)
 			{
 				return (vuint8_t)((up << 6) | (down << 4) | (left << 2) | right);
@@ -299,31 +327,33 @@ namespace vl
 				if (background) pixel.backgroundColor = background.Value();
 			}
 
-			void CheckOwner(TuiStorage& storage)
+			void CheckOwner(auto& storage)
 			{
 				CHECK_ERROR(storage.active, L"vl::console::TUI operation requires an active TUI.");
 				CHECK_ERROR(storage.ownerThreadId == Thread::GetCurrentThreadId(), L"vl::console::TUI operation must run on the owner thread.");
 			}
 
-			vint FindListener(TuiStorage& storage, ITuiCallback* listener, vuint64_t generation = 0)
+			vint FindListener(auto* storage, ITuiCallback* listener, vuint64_t generation = 0)
 			{
-				for (vint i = 0; i < storage.listeners.Count(); i++)
+				if (!storage) return -1;
+				for (vint i = 0; i < storage->listeners.Count(); i++)
 				{
-					auto entry = storage.listeners[i];
+					auto entry = storage->listeners[i];
 					if (entry.listener == listener && (generation == 0 || entry.generation == generation)) return i;
 				}
 				return -1;
 			}
 
 			template<typename TCallback>
-			void InvokeListeners(TuiStorage& storage, TCallback&& callback, bool stopping = false)
+			void InvokeListeners(auto& storage, auto* listenerStorage, TCallback&& callback, bool stopping = false)
 			{
+				if (!listenerStorage) return;
 				List<ListenerEntry> snapshot;
-				for (auto entry : storage.listeners) snapshot.Add(entry);
+				for (auto entry : listenerStorage->listeners) snapshot.Add(entry);
 				for (auto entry : snapshot)
 				{
 					if (!stopping && storage.stopRequested) break;
-					if (FindListener(storage, entry.listener, entry.generation) == -1) continue;
+					if (FindListener(listenerStorage, entry.listener, entry.generation) == -1) continue;
 					try
 					{
 						callback(entry.listener);
@@ -338,7 +368,7 @@ namespace vl
 				}
 			}
 
-			void ResizeBuffer(TuiStorage& storage, vint width, vint height)
+			void ResizeBuffer(auto& storage, vint width, vint height)
 			{
 				CHECK_ERROR(width > 0 && height > 0, L"vl::console::TUI backend returned an invalid terminal size.");
 				Array<TuiPixel> newBuffer(width * height);
@@ -383,7 +413,7 @@ namespace vl
 				storage.height = height;
 			}
 
-			void DispatchEvent(TuiStorage& storage, const unittest::TuiBackendEvent& event)
+			void DispatchEvent(auto& storage, auto* listenerStorage, const unittest::TuiBackendEvent& event)
 			{
 				if (storage.stopRequested) return;
 				switch (event.type)
@@ -392,86 +422,40 @@ namespace vl
 					if (event.width != storage.width || event.height != storage.height)
 					{
 						ResizeBuffer(storage, event.width, event.height);
-						InvokeListeners(storage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
+						InvokeListeners(storage, listenerStorage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
 					}
 					break;
 				case unittest::TuiBackendEventType::MouseMove:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseMove(event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseMove(event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::MouseDown:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseDown(event.mouseButton, event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseDown(event.mouseButton, event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::MouseUp:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseUp(event.mouseButton, event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseUp(event.mouseButton, event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::MouseDoubleClick:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseDoubleClick(event.mouseButton, event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseDoubleClick(event.mouseButton, event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::MouseVerticalWheel:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseVerticalWheel(event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseVerticalWheel(event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::MouseHorizontalWheel:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->MouseHorizontalWheel(event.mouseInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->MouseHorizontalWheel(event.mouseInfo); });
 					break;
 				case unittest::TuiBackendEventType::KeyDown:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->KeyDown(event.keyInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->KeyDown(event.keyInfo); });
 					break;
 				case unittest::TuiBackendEventType::KeyUp:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->KeyUp(event.keyInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->KeyUp(event.keyInfo); });
 					break;
 				case unittest::TuiBackendEventType::Char:
-					InvokeListeners(storage, [&](ITuiCallback* listener) { listener->Char(event.charInfo); });
+					InvokeListeners(storage, listenerStorage, [&](ITuiCallback* listener) { listener->Char(event.charInfo); });
 					break;
 				default:
 					break;
 				}
 			}
-
-			struct StartCleanup
-			{
-				TuiStorage&					storage;
-				std::exception_ptr*			cleanupException = nullptr;
-
-				StartCleanup(TuiStorage& _storage, std::exception_ptr* _cleanupException)
-					: storage(_storage)
-					, cleanupException(_cleanupException)
-				{
-				}
-
-				~StartCleanup()
-				{
-					if (storage.backendStarted)
-					{
-						try
-						{
-							storage.backend->Stop();
-						}
-						catch (...)
-						{
-							if (!*cleanupException) *cleanupException = std::current_exception();
-						}
-					}
-					if (storage.consoleDisabled)
-					{
-						Console::Enable();
-					}
-					storage.active = false;
-					storage.stopRequested = false;
-					storage.shuttingDown = false;
-					storage.backendStarted = false;
-					storage.consoleDisabled = false;
-					storage.ownerThreadId = -1;
-					storage.width = 0;
-					storage.height = 0;
-					storage.timerPeriod = 0;
-					storage.nextTimer = 0;
-					storage.colorMode = TuiColorMode::Auto;
-					storage.eventQueue.Clear();
-					storage.buffer.Resize(0);
-					storage.backend = nullptr;
-					storage.callbackException = {};
-				}
-			};
 
 			const TuiColor canonicalColor16[] =
 			{
@@ -574,72 +558,90 @@ ITuiCallback
 TUI
 ***********************************************************************/
 
+		TUI::Impl& TUI::GetImpl()
+		{
+			CHECK_ERROR(impl, L"vl::console::TUI operation requires an active TUI.");
+			CheckOwner(*impl);
+			return *impl;
+		}
+
 		bool TUI::TryGetConsoleSize(vint& width, vint& height)
 		{
-			auto& storage = GetTuiStorage();
-			if (storage.active) CheckOwner(storage);
-			auto backend = storage.active ? storage.backend : storage.injectedBackend;
-			if (!backend) backend = CreateTuiBackend();
+			if (impl && impl->active)
+			{
+				CheckOwner(*impl);
+				return impl->backend->TryGetConsoleSize(width, height);
+			}
+			if (injectedBackend)
+			{
+				return (*injectedBackend)->TryGetConsoleSize(width, height);
+			}
+			auto backend = CreateTuiBackend();
 			return backend->TryGetConsoleSize(width, height);
 		}
 
 		void TUI::Start(const TuiStartOptions& options)
 		{
-			auto& storage = GetTuiStorage();
-			if (storage.active)
+			if (impl)
 			{
-				CheckOwner(storage);
+				if (impl->active) CheckOwner(*impl);
 				return;
 			}
 			CHECK_ERROR(IsColorMode(options.colorMode, true), L"vl::console::TUI::Start(const TuiStartOptions&)#The requested color mode is invalid.");
 			CHECK_ERROR(Console::IsEnabled(), L"vl::console::TUI::Start(const TuiStartOptions&)#Console must be enabled before TUI starts.");
 
+			auto storage = new Impl;
+			impl = storage;
 			std::exception_ptr thrown;
+			try
 			{
-				StartCleanup cleanup(storage, &thrown);
-				try
-				{
-					storage.backend = storage.injectedBackend ? storage.injectedBackend : CreateTuiBackend();
-					storage.colorMode = storage.backend->Start(options);
-					storage.backendStarted = true;
-					CHECK_ERROR(IsColorMode(storage.colorMode, false), L"vl::console::TUI::Start(const TuiStartOptions&)#The backend selected an invalid color mode.");
+				storage->backend = injectedBackend ? *injectedBackend : CreateTuiBackend();
+				storage->colorMode = storage->backend->Start(options);
+				storage->backendStarted = true;
+				CHECK_ERROR(IsColorMode(storage->colorMode, false), L"vl::console::TUI::Start(const TuiStartOptions&)#The backend selected an invalid color mode.");
 
-					vint width = 0;
-					vint height = 0;
-					CHECK_ERROR(storage.backend->TryGetConsoleSize(width, height), L"vl::console::TUI::Start(const TuiStartOptions&)#Failed to query the terminal size.");
-					Console::Disable();
-					storage.consoleDisabled = true;
-					ResizeBuffer(storage, width, height);
-					storage.ownerThreadId = Thread::GetCurrentThreadId();
-					storage.active = true;
+				vint width = 0;
+				vint height = 0;
+				CHECK_ERROR(storage->backend->TryGetConsoleSize(width, height), L"vl::console::TUI::Start(const TuiStartOptions&)#Failed to query the terminal size.");
+				Console::Disable();
+				storage->consoleDisabled = true;
+				ResizeBuffer(*storage, width, height);
+				storage->ownerThreadId = Thread::GetCurrentThreadId();
+				storage->active = true;
 
-					InvokeListeners(storage, [](ITuiCallback* listener) { listener->Starting(); });
-					if (!storage.stopRequested)
-					{
-						InvokeListeners(storage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
-					}
-					while (!storage.stopRequested)
-					{
-						if (!RunOneCycle()) break;
-					}
-					if (!storage.callbackException)
-					{
-						storage.shuttingDown = true;
-						InvokeListeners(storage, [](ITuiCallback* listener) { listener->Stopping(); }, true);
-					}
-				}
-				catch (...)
+				InvokeListeners(*storage, listenerStorage, [](ITuiCallback* listener) { listener->Starting(); });
+				if (!storage->stopRequested)
 				{
-					thrown = std::current_exception();
+					InvokeListeners(*storage, listenerStorage, [](ITuiCallback* listener) { listener->BufferSizeChanged(); });
 				}
+				while (!storage->stopRequested)
+				{
+					if (!RunOneCycle()) break;
+				}
+				if (!storage->callbackException)
+				{
+					storage->shuttingDown = true;
+					InvokeListeners(*storage, listenerStorage, [](ITuiCallback* listener) { listener->Stopping(); }, true);
+				}
+			}
+			catch (...)
+			{
+				thrown = std::current_exception();
+			}
+			storage->cleanupException = &thrown;
+			impl = nullptr;
+			delete storage;
+			if (listenerStorage && listenerStorage->listeners.Count() == 0)
+			{
+				delete listenerStorage;
+				listenerStorage = nullptr;
 			}
 			if (thrown) std::rethrow_exception(thrown);
 		}
 
 		bool TUI::RunOneCycle()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			if (storage.callbackException) std::rethrow_exception(storage.callbackException);
 			if (storage.stopRequested) return false;
 
@@ -652,7 +654,7 @@ TUI
 					if (now >= storage.nextTimer)
 					{
 						storage.nextTimer += storage.timerPeriod;
-						InvokeListeners(storage, [](ITuiCallback* listener) { listener->Timer(); });
+						InvokeListeners(storage, listenerStorage, [](ITuiCallback* listener) { listener->Timer(); });
 						return !storage.stopRequested;
 					}
 					auto remaining = storage.nextTimer - now;
@@ -666,7 +668,7 @@ TUI
 				else if (storage.timerPeriod > 0 && storage.backend->GetMonotonicTime() >= storage.nextTimer)
 				{
 					storage.nextTimer += storage.timerPeriod;
-					InvokeListeners(storage, [](ITuiCallback* listener) { listener->Timer(); });
+					InvokeListeners(storage, listenerStorage, [](ITuiCallback* listener) { listener->Timer(); });
 					return !storage.stopRequested;
 				}
 			}
@@ -675,7 +677,7 @@ TUI
 			{
 				auto event = storage.eventQueue[0];
 				storage.eventQueue.RemoveAt(0);
-				DispatchEvent(storage, event);
+				DispatchEvent(storage, listenerStorage, event);
 			}
 			if (storage.callbackException) std::rethrow_exception(storage.callbackException);
 			return !storage.stopRequested;
@@ -683,8 +685,8 @@ TUI
 
 		void TUI::Stop()
 		{
-			auto& storage = GetTuiStorage();
-			if (!storage.active) return;
+			if (!impl || !impl->active) return;
+			auto& storage = *impl;
 			CheckOwner(storage);
 			if (storage.shuttingDown) return;
 			storage.stopRequested = true;
@@ -692,50 +694,52 @@ TUI
 
 		bool TUI::IsInUse()
 		{
-			auto& storage = GetTuiStorage();
-			if (storage.active) CheckOwner(storage);
-			return storage.active;
+			if (!impl || !impl->active) return false;
+			CheckOwner(*impl);
+			return true;
 		}
 
 		bool TUI::IsStopRequested()
 		{
-			auto& storage = GetTuiStorage();
-			if (!storage.active) return false;
+			if (!impl || !impl->active) return false;
+			auto& storage = *impl;
 			CheckOwner(storage);
 			return storage.stopRequested;
 		}
 
 		TuiColorMode TUI::GetColorMode()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			return storage.colorMode;
 		}
 
 		bool TUI::InstallListener(ITuiCallback* listener)
 		{
-			auto& storage = GetTuiStorage();
-			if (storage.active) CheckOwner(storage);
-			if (!listener || FindListener(storage, listener) != -1) return false;
-			storage.listeners.Add({ listener, ++storage.nextGeneration });
+			if (impl && impl->active) CheckOwner(*impl);
+			if (!listener || FindListener(listenerStorage, listener) != -1) return false;
+			if (!listenerStorage) listenerStorage = new ListenerStorage;
+			listenerStorage->listeners.Add({ listener, ++listenerStorage->nextGeneration });
 			return true;
 		}
 
 		bool TUI::UninstallListener(ITuiCallback* listener)
 		{
-			auto& storage = GetTuiStorage();
-			if (storage.active) CheckOwner(storage);
+			if (impl && impl->active) CheckOwner(*impl);
 			if (!listener) return false;
-			auto index = FindListener(storage, listener);
+			auto index = FindListener(listenerStorage, listener);
 			if (index == -1) return false;
-			storage.listeners.RemoveAt(index);
+			listenerStorage->listeners.RemoveAt(index);
+			if (!impl && listenerStorage->listeners.Count() == 0)
+			{
+				delete listenerStorage;
+				listenerStorage = nullptr;
+			}
 			return true;
 		}
 
 		void TUI::StartTimer(vint milliseconds)
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			CHECK_ERROR(milliseconds > 0, L"vl::console::TUI::StartTimer(vint)#The timer period must be positive.");
 			storage.timerPeriod = milliseconds;
 			storage.nextTimer = storage.backend->GetMonotonicTime() + milliseconds;
@@ -743,46 +747,32 @@ TUI
 
 		void TUI::StopTimer()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			storage.timerPeriod = 0;
 			storage.nextTimer = 0;
 		}
 
 		TuiPixel* TUI::GetBuffer()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			return storage.buffer.Count() == 0 ? nullptr : &storage.buffer[0];
 		}
 
 		vint TUI::GetBufferWidth()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			return storage.width;
 		}
 
 		vint TUI::GetBufferHeight()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			return storage.height;
-		}
-
-		vint TUI::MeasureChar(char32_t code)
-		{
-			if (!IsScalar(code)) return 0;
-			if (code >= 0x2500 && code <= 0x257F) return 1;
-			if (IsZeroWidthCodePoint(code)) return 0;
-			if (IsTwoWidthCodePoint(code)) return 2;
-			return 1;
 		}
 
 		void TUI::RenderBuffer()
 		{
-			auto& storage = GetTuiStorage();
-			CheckOwner(storage);
+			auto& storage = GetImpl();
 			for (vint y = 0; y < storage.height; y++)
 			{
 				for (vint x = 0; x < storage.width; x++)
@@ -963,18 +953,17 @@ ScopedTuiBackend
 		{
 			ScopedTuiBackend::ScopedTuiBackend(Ptr<ITuiBackend> backend)
 			{
-				auto& storage = GetTuiStorage();
-				CHECK_ERROR(!storage.active, L"vl::console::unittest::ScopedTuiBackend::ScopedTuiBackend(...)#Cannot replace the backend while TUI is active.");
+				CHECK_ERROR(!TUI::impl, L"vl::console::unittest::ScopedTuiBackend::ScopedTuiBackend(...)#Cannot replace the backend while TUI is active.");
 				CHECK_ERROR(backend, L"vl::console::unittest::ScopedTuiBackend::ScopedTuiBackend(...)#The backend cannot be null.");
-				previous = storage.injectedBackend;
-				storage.injectedBackend = backend;
+				previous = TUI::injectedBackend;
+				current = backend;
+				TUI::injectedBackend = &current;
 			}
 
 			ScopedTuiBackend::~ScopedTuiBackend() noexcept(false)
 			{
-				auto& storage = GetTuiStorage();
-				CHECK_ERROR(!storage.active, L"vl::console::unittest::ScopedTuiBackend::~ScopedTuiBackend()#Cannot restore the backend while TUI is active.");
-				storage.injectedBackend = previous;
+				CHECK_ERROR(!TUI::impl, L"vl::console::unittest::ScopedTuiBackend::~ScopedTuiBackend()#Cannot restore the backend while TUI is active.");
+				TUI::injectedBackend = previous;
 			}
 		}
 	}
