@@ -32,7 +32,8 @@ namespace
 		Array<TuiPixel>						renderedBuffer;
 		List<U32String>						renderedTexts;
 		List<vint>							waitTimeouts;
-		vint								escapeAfterTimeouts = -1;
+		vint								exitAfterTimeouts = -1;
+		bool								stopWhenEventsEmpty = false;
 		TuiColorMode						startColorMode = TuiColorMode::TrueColor;
 		bool								honorRequestedColorMode = true;
 		bool								failStart = false;
@@ -74,16 +75,23 @@ namespace
 				events.RemoveAt(0);
 				return true;
 			}
+			if (stopWhenEventsEmpty)
+			{
+				stopWhenEventsEmpty = false;
+				TUI::Stop();
+				return false;
+			}
 			if (milliseconds > 0)
 			{
 				waitTimeouts.Add(milliseconds);
-				if (escapeAfterTimeouts == 0)
+				if (exitAfterTimeouts == 0)
 				{
-					event.type = tui_test::TuiBackendEventType::Char;
-					event.charInfo.code = (wchar_t)0x1B;
+					PushCommand(U"EXIT");
+					event = events[0];
+					events.RemoveAt(0);
 					return true;
 				}
-				if (escapeAfterTimeouts > 0) escapeAfterTimeouts--;
+				if (exitAfterTimeouts > 0) exitAfterTimeouts--;
 				time += milliseconds;
 			}
 			return false;
@@ -1304,25 +1312,74 @@ TEST_FILE
 			}
 		});
 
-		TEST_CASE(L"q and Q are command text and only Escape exits")
+		TEST_CASE(L"Help contains only the accepted command shapes")
+		{
+			auto information = CreateHelpInformation();
+			const char32_t* expected[] =
+			{
+				U"FC RRGGBB",
+				U"BC CLEAR|RRGGBB",
+				U"LINEV THIN|THICK|DOUBLE x y1 y2",
+				U"LINEH THIN|THICK|DOUBLE x1 x2 y",
+				U"RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2",
+				U"CLEAR RRGGBB x1 y1 x2 y2",
+				U"TYPE x y:TEXT",
+				U"HELP",
+				U"EXIT",
+			};
+			auto expectedCount = (vint)(sizeof(expected) / sizeof(*expected));
+			TEST_ASSERT(information.content.Count() == expectedCount);
+			for (vint i = 0; i < information.content.Count(); i++)
+			{
+				TEST_ASSERT(information.content[i] == expected[i]);
+			}
+		});
+
+		TEST_CASE(L"Help awaits Enter while Escape and command text are ignored")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(L'q');
-			backend->PushChar(L'Q');
+			backend->width = 60;
+			backend->height = 15;
+			backend->PushCommand(U"HeLp");
 			backend->PushChar((wchar_t)0x1B);
+			backend->PushCommand(U"EXIT");
+			backend->PushCommand(U"eXiT");
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(backend->events.Count() == 0);
+			TEST_ASSERT(backend->stopCount == 1);
+			TEST_ASSERT(!callback.state.information);
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
+			TEST_ASSERT(callback.state.commands.Count() == 0);
+		});
+
+		TEST_CASE(L"EXIT is the only in-application exit command")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushText(U"TYPE 0 0:qQ");
+			backend->PushChar((wchar_t)0x1B);
+			backend->PushChar(L'\r');
+			backend->PushCommand(U"eXiT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
 			TEST_ASSERT(backend->events.Count() == 0);
-			TEST_ASSERT(callback.state.typingCommand == U"qQ");
+			TEST_ASSERT(backend->stopCount == 1);
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
+			TEST_ASSERT(callback.state.commands.Count() == 1);
+			TEST_ASSERT(callback.state.commands[0].Get<TypeCommand>().text == U"qQ");
 		});
 
 		TEST_CASE(L"The bottom command row has a distinct dark gray background")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar((wchar_t)0x1B);
+			backend->PushCommand(U"EXIT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
@@ -1359,18 +1416,22 @@ TEST_FILE
 			backend->PushChar(L'q');
 			backend->PushChar(L'Q');
 			backend->PushChar((wchar_t)0x1B);
+			backend->PushChar(L'\b');
+			backend->PushChar(L'\b');
+			backend->PushCommand(U"EXIT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
-			TEST_ASSERT(callback.state.typingCommand == U"qQ");
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
+			TEST_ASSERT(backend->events.Count() == 0);
 #if defined VCZH_WCHAR_UTF16
 			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
 #endif
 		});
 
-		TEST_CASE(L"Malformed native units do not swallow Enter or Escape and errors retain no pending input")
+		TEST_CASE(L"Malformed native units do not swallow Enter or ignored Escape and information retains no pending input")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
 #if defined VCZH_WCHAR_UTF16
@@ -1394,12 +1455,13 @@ TEST_FILE
 			backend->PushChar(high);
 #endif
 			backend->PushChar((wchar_t)0x1B);
+			backend->PushCommand(U"EXIT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
-			TEST_ASSERT(!callback.state.error);
+			TEST_ASSERT(!callback.state.information);
 			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
 #if defined VCZH_WCHAR_UTF16
 			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
@@ -1416,8 +1478,8 @@ TEST_FILE
 			auto backend = Ptr(new FakeTuiBackend);
 			backend->width = 4;
 			backend->height = 5;
+			backend->stopWhenEventsEmpty = true;
 			backend->PushText(U"abcd");
-			backend->PushChar((wchar_t)0x1B);
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
@@ -1443,9 +1505,9 @@ TEST_FILE
 			auto backend = Ptr(new FakeTuiBackend);
 			backend->width = 1;
 			backend->height = 3;
+			backend->stopWhenEventsEmpty = true;
 			backend->PushScalar(U'\U0001F600');
 			backend->PushResize(2, 3);
-			backend->PushChar((wchar_t)0x1B);
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
@@ -1462,7 +1524,7 @@ TEST_FILE
 		TEST_CASE(L"The 500 millisecond timer alternates hidden and visible cursor frames")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->escapeAfterTimeouts = 2;
+			backend->exitAfterTimeouts = 2;
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
@@ -1474,7 +1536,7 @@ TEST_FILE
 			{
 				TEST_ASSERT(timeout == 500);
 			}
-			TEST_ASSERT(backend->renderedTexts.Count() == 4);
+			TEST_ASSERT(backend->renderedTexts.Count() == 8);
 			auto cursor = (backend->height - 1) * backend->width;
 			TEST_ASSERT(backend->renderedTexts[0][cursor] == U'\u2588');
 			TEST_ASSERT(backend->renderedTexts[1][cursor] == U'\u2588');
@@ -1497,7 +1559,7 @@ TEST_FILE
 			backend->PushCommand(U"TYPE 0 2:\u754CA");
 			backend->PushCommand(U"LINEH THICK 0 9 4");
 			backend->PushResize(14, 9);
-			backend->PushChar((wchar_t)0x1B);
+			backend->PushCommand(U"EXIT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
@@ -1532,11 +1594,12 @@ TEST_FILE
 			}
 		});
 
-		TEST_CASE(L"Parse errors preserve Unicode, hide the cursor and stay inside both borders")
+		TEST_CASE(L"Parse errors become two information items, preserve Unicode and stay inside both borders")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
 			backend->width = 14;
 			backend->height = 8;
+			backend->stopWhenEventsEmpty = true;
 			backend->PushCommand(U"BAD \U0001F600");
 			backend->PushChar(L'X');
 #if defined VCZH_WCHAR_UTF16
@@ -1550,8 +1613,10 @@ TEST_FILE
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
 
-			TEST_ASSERT(callback.state.error);
-			TEST_ASSERT(callback.state.error.Value().originalCommand == U"BAD \U0001F600");
+			TEST_ASSERT(callback.state.information);
+			TEST_ASSERT(callback.state.information.Value().content.Count() == 2);
+			TEST_ASSERT(callback.state.information.Value().content[0] == U"ERROR, original command:BAD \U0001F600");
+			TEST_ASSERT(callback.state.information.Value().content[1] == U"REASON:Unknown command.");
 			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
 #if defined VCZH_WCHAR_UTF16
 			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
@@ -1569,22 +1634,23 @@ TEST_FILE
 			}
 		});
 
-		TEST_CASE(L"Enter dismisses an error without submitting an empty command")
+		TEST_CASE(L"Enter dismisses information without submitting an empty command")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
 			backend->PushCommand(U"INVALID");
 			backend->PushChar(L'Z');
 			backend->PushChar(L'\r');
 			backend->PushChar(L'q');
-			backend->PushChar((wchar_t)0x1B);
+			backend->PushChar(L'\b');
+			backend->PushCommand(U"EXIT");
 			tui_test::ScopedTuiBackend backendScope(backend);
 			PlaygroundCallback callback;
 			TUI::InstallListener(&callback);
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
-			TEST_ASSERT(!callback.state.error);
+			TEST_ASSERT(!callback.state.information);
 			TEST_ASSERT(callback.state.commands.Count() == 0);
-			TEST_ASSERT(callback.state.typingCommand == U"q");
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
 		});
 	});
 }

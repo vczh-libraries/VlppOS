@@ -34,16 +34,18 @@ Run the browser verification project as `MiniHttpServer <WebsiteFolder> <AssetsF
 - `RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2` draws a rectangle. `ROUND` means a thin line with rounded corners.
 - `CLEAR RRGGBB x1 y1 x2 y2` clears a rectangle to the specified background.
 - `TYPE x y:TEXT` draws the payload without wrapping and preserves it exactly, including case, spaces, additional colons, and supplementary Unicode characters.
+- `HELP` displays this concise list of accepted command shapes.
+- `EXIT` quits the application.
 
 Command names, formats, `CLEAR`, and hexadecimal digits are case-insensitive. Parsing is otherwise strict: use exactly one ASCII space at each displayed separator, six hexadecimal digits, signed decimal coordinates in the platform `vint` range, and ordered ranges. Logical paper `(0,0)` appears at terminal `(1,1)` inside the double-line border; signed off-paper coordinates are accepted and clipped.
 
-The command box wraps complete Unicode scalars by display width, grows upward as needed, keeps its blinking cursor visible, and supports only Backspace editing. Enter submits and clears the box. A parse error instead shows the original command and reason in a centered rounded overlay; all typing is ignored until Enter dismisses it. `q` and `Q` are ordinary command text. Escape is the only exit key.
+The command box wraps complete Unicode scalars by display width, grows upward as needed, keeps its blinking cursor visible, and supports only Backspace editing. Enter submits and clears the box. `HELP` and parse errors display information in a centered rounded overlay; all typing, including Escape, is ignored until Enter dismisses it. `q` and `Q` are ordinary command text. `EXIT` is the only in-application way to quit.
 
 - Windows: from `REPO-ROOT/Test/UnitTest`, run `& REPO-ROOT/.github/Scripts/copilotBuild.ps1`, then run `& REPO-ROOT/.github/Scripts/copilotExecute.ps1 -Mode CLI -Executable TuiPlayground` in an interactive console.
 - Linux: from `REPO-ROOT/Test/Linux/TuiPlayground`, run the absolute `REPO-ROOT/.github/Ubuntu/build.sh`, then run `./Bin/TuiPlayground` in an interactive terminal.
 - macOS: from `REPO-ROOT/Test/Linux/TuiPlayground`, run the absolute `REPO-ROOT/.github/Ubuntu/build.sh`, then run `./Bin/TuiPlayground` in an interactive terminal.
 
-For manual verification, combine all commands and styles, overlap them, use `BC CLEAR` and `BC 000000`, type width-one/width-two and supplementary characters, and submit malformed commands. Resize larger and smaller after drawing: the border, wrapped command box, error overlay, and replayed paper must follow the visible terminal without scrolling. On Windows, start with a scrollback buffer taller than the viewport and require no vertical scrollbar while TUI is active. Press Escape and require the original buffer/window geometry and terminal state to be restored.
+For manual verification, combine all commands and styles, overlap them, use `BC CLEAR` and `BC 000000`, type width-one/width-two and supplementary characters, and submit malformed commands. Verify that `HELP` lists only the accepted command shapes, that Enter dismisses help and errors, and that Escape is ignored. Resize larger and smaller after drawing: the border, wrapped command box, information overlay, and replayed paper must follow the visible terminal without scrolling. On Windows, start with a scrollback buffer taller than the viewport and require no vertical scrollbar while TUI is active. Submit `EXIT` and require the original buffer/window geometry and terminal state to be restored.
 
 When any *.h or *.cpp file is changed, unit test is required to run.
 When shared product source changes, all relevant unit tests are required to run.

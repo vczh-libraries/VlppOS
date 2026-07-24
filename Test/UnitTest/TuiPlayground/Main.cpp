@@ -74,15 +74,14 @@ namespace
 		TypeCommand
 		>;
 
-	struct CommandError
+	struct Information
 	{
-		U32String						originalCommand;
-		U32String						reason;
+		List<U32String>					content;
 	};
 
 	struct PlaygroundState
 	{
-		Nullable<CommandError>			error;
+		Nullable<Information>			information;
 		U32String						typingCommand;
 #if defined VCZH_WCHAR_UTF16
 		wchar_t							pendingHighSurrogate = 0;
@@ -407,6 +406,21 @@ namespace
 		return false;
 	}
 
+	Information CreateHelpInformation()
+	{
+		Information information;
+		information.content.Add(U32String(U"FC RRGGBB"));
+		information.content.Add(U32String(U"BC CLEAR|RRGGBB"));
+		information.content.Add(U32String(U"LINEV THIN|THICK|DOUBLE x y1 y2"));
+		information.content.Add(U32String(U"LINEH THIN|THICK|DOUBLE x1 x2 y"));
+		information.content.Add(U32String(U"RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2"));
+		information.content.Add(U32String(U"CLEAR RRGGBB x1 y1 x2 y2"));
+		information.content.Add(U32String(U"TYPE x y:TEXT"));
+		information.content.Add(U32String(U"HELP"));
+		information.content.Add(U32String(U"EXIT"));
+		return information;
+	}
+
 	WrappedText WrapText(const U32String& text, vint width, bool includeCursor)
 	{
 		WrappedText result;
@@ -509,20 +523,23 @@ namespace
 		}
 	}
 
-	void DrawErrorOverlay(TuiPixel* buffer, vint width, vint height, const CommandError& error)
+	void DrawInformationOverlay(TuiPixel* buffer, vint width, vint height, const Information& information)
 	{
 		if (width <= 0 || height <= 0) return;
 
 		auto drawBorder = width >= 2 && height >= 2;
 		auto textWidth = drawBorder ? width - 2 : width;
-		WrappedText original;
-		WrappedText reason;
+		List<WrappedText> wrappedItems;
+		vint textRows = 0;
 		if (textWidth > 0)
 		{
-			original = WrapText(U32String::Unmanaged(U"ERROR, original command:") + error.originalCommand, textWidth, false);
-			reason = WrapText(U32String::Unmanaged(U"REASON:") + error.reason, textWidth, false);
+			for (auto&& item : information.content)
+			{
+				auto wrapped = WrapText(item, textWidth, false);
+				textRows += wrapped.rowWidths.Count();
+				wrappedItems.Add(std::move(wrapped));
+			}
 		}
-		auto textRows = original.rowWidths.Count() + reason.rowWidths.Count();
 		auto overlayHeight = drawBorder
 			? (textRows > height - 2 ? height : textRows + 2)
 			: (textRows > height ? height : textRows);
@@ -543,7 +560,8 @@ namespace
 
 		TuiPrintOptions options;
 		options.foregroundColor = { 255, 192, 192 };
-		auto renderRows = [&](const WrappedText& wrapped, vint rowOffset)
+		vint rowOffset = 0;
+		for (auto&& wrapped : wrappedItems)
 		{
 			for (auto&& scalar : wrapped.scalars)
 			{
@@ -555,9 +573,8 @@ namespace
 				options.backgroundColor = buffer[y * width + x].backgroundColor;
 				TUI::PrintChar(buffer, width, height, options, scalar.code, x, y);
 			}
-		};
-		renderRows(original, 0);
-		renderRows(reason, original.rowWidths.Count());
+			rowOffset += wrapped.rowWidths.Count();
+		}
 	}
 
 	class PlaygroundCallback : public ITuiCallback
@@ -606,11 +623,21 @@ namespace
 			ResetPendingUnit();
 		}
 
-		void SubmitCommand()
+		bool SubmitCommand()
 		{
 			auto original = state.typingCommand;
 			ClearTypingCommand();
 			state.cursorVisible = true;
+			if (EqualsAsciiIgnoreCase(original, U"HELP"))
+			{
+				state.information = CreateHelpInformation();
+				return true;
+			}
+			if (EqualsAsciiIgnoreCase(original, U"EXIT"))
+			{
+				TUI::Stop();
+				return false;
+			}
 			PaintingCommand command;
 			U32String reason;
 			if (TryParseCommand(original, command, reason))
@@ -619,12 +646,12 @@ namespace
 			}
 			else
 			{
-				state.error = CommandError
-				{
-					.originalCommand = original,
-					.reason = reason,
-				};
+				Information information;
+				information.content.Add(U32String::Unmanaged(U"ERROR, original command:") + original);
+				information.content.Add(U32String::Unmanaged(U"REASON:") + reason);
+				state.information = std::move(information);
 			}
+			return true;
 		}
 
 		void Redraw()
@@ -644,9 +671,9 @@ namespace
 			{
 				Array<TuiPixel> paper(interiorWidth * interiorHeight);
 				ReplayCommands(&paper[0], interiorWidth, interiorHeight, state);
-				if (state.error)
+				if (state.information)
 				{
-					DrawErrorOverlay(&paper[0], interiorWidth, interiorHeight, state.error.Value());
+					DrawInformationOverlay(&paper[0], interiorWidth, interiorHeight, state.information.Value());
 				}
 				auto buffer = TUI::GetBuffer();
 				for (vint y = 0; y < interiorHeight; y++)
@@ -675,7 +702,7 @@ namespace
 				if (scalar.row < firstInputRow) continue;
 				TUI::PrintChar(inputOptions, scalar.code, scalar.x, paintingHeight + scalar.row - firstInputRow);
 			}
-			if (!state.error && state.cursorVisible && wrappedInput.cursorRow >= firstInputRow)
+			if (!state.information && state.cursorVisible && wrappedInput.cursorRow >= firstInputRow)
 			{
 				TUI::PrintChar(inputOptions, U'\u2588', wrappedInput.cursorX, paintingHeight + wrappedInput.cursorRow - firstInputRow);
 			}
@@ -706,19 +733,15 @@ namespace
 
 		void Char(const TuiCharInfo& info) override
 		{
-			if (state.error)
+			if (state.information)
 			{
 				ResetPendingUnit();
 				auto code = DecodeNativeUnit(info.code);
 				ResetPendingUnit();
 				if (!code) return;
-				if (code.Value() == U'\x1B')
+				if (code.Value() == U'\r' || code.Value() == U'\n')
 				{
-					TUI::Stop();
-				}
-				else if (code.Value() == U'\r' || code.Value() == U'\n')
-				{
-					state.error.Reset();
+					state.information.Reset();
 					state.cursorVisible = true;
 					Redraw();
 				}
@@ -728,16 +751,12 @@ namespace
 			auto decoded = DecodeNativeUnit(info.code);
 			if (!decoded) return;
 			auto code = decoded.Value();
-			if (code == U'\x1B')
-			{
-				ResetPendingUnit();
-				TUI::Stop();
-				return;
-			}
 			if (code == U'\r' || code == U'\n')
 			{
-				SubmitCommand();
-				Redraw();
+				if (SubmitCommand())
+				{
+					Redraw();
+				}
 				return;
 			}
 			if (code == U'\b' || code == U'\x7F')
