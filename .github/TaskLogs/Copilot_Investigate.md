@@ -181,7 +181,7 @@ The initial Debug x64 solution build completed with zero warnings and zero error
 
 # PROPOSALS
 
-- No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER
+- No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER [CONFIRMED]
 
 ## No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER
 
@@ -196,3 +196,27 @@ When parsing fails, clear input immediately and derive two wrapped logical error
 Retain the test-only inclusion guard so `TestTui.cpp` exercises the executable's actual internal callback. Expand its fake backend to capture frames and add command/state/frame cases for parser strictness, native-unit decoding, wrapping/cursor/error behavior, replay/clipping/background semantics, resize reconstruction, and timer configuration. Document the complete user workflow and all three platform commands in `Project.md`. Regenerate `Release/VlppOS.Windows.cpp` from `Release/CodegenConfig.xml`, build/run the complete suite, and perform the real Win32 console geometry and interaction verification required by the test plan.
 
 ### CODE CHANGE
+
+- Replace the border-only `TuiPlayground` callback with the requested `PlaygroundState` and command variants. Add strict, case-insensitive command parsing with exact separators, six-digit colors, overflow-checked signed `vint` coordinates, ordered-range validation, and exact `TYPE` payload preservation.
+- Decode each native `wchar_t` event into zero or one scalar before input handling. The Windows UTF-16 path retains one high surrogate, combines only a valid following low surrogate through `UtfConversion<wchar_t>::To32`, and reprocesses a valid current unit after malformed input. Store input, payloads, and errors as `U32String`; make U+0008/U+007F Backspace, CR/LF Enter, and Escape exit while leaving `q`/`Q` as ordinary text.
+- Derive wrapped input rows and cursor placement on every repaint, including the exact-full-row next-line cursor, trailing-row display under height capping, and retention/temporary omission of width-two input in a one-column terminal. Draw the text box dark gray, start a 500-millisecond timer, and hide the cursor while an error is active.
+- Replay all accumulated commands in submission order into a temporary painting-interior buffer from white/clear defaults. Use the buffer-explicit TUI drawing helpers with original signed logical coordinates, preserve destination backgrounds for clear-style drawing and `TYPE`, copy only bounded interior cells to terminal `(1,1)`, and draw the double-line outer border afterward.
+- Render parse failures as two source-order, independently wrapped and centered Unicode lines inside a vertically centered thin rounded rectangle in the painting interior. Cap to leading rows that fit, keep the command box clear, ignore non-Enter/non-Escape input without retaining UTF-16 state, and dismiss the overlay on Enter.
+- In `WindowsTuiBackend`, save the original buffer/window geometry before changing modes. Add Win32-safe window/buffer resizing, synchronize the active buffer to the zero-origin visible viewport at startup and after input or timer deadlines, and queue resize events for viewport-only changes. Cover both VT and classic alternate-screen paths and preserve the original startup exception during backend-local rollback.
+- Restore VT/classic output, cursor, modes, buffer size, and window rectangle on every shutdown path. The VT path requests the original terminal viewport before leaving the alternate screen, waits for the asynchronous terminal transition to stabilize, and then applies the original Win32 buffer/window geometry. Regenerate `Release/VlppOS.Windows.cpp` through CodePack.
+- Include the executable implementation in `TestTui.cpp` under `VCZH_TUI_PLAYGROUND_TEST`, expand the fake backend to capture frames/timer waits, and add deterministic parser, UTF-16/UTF-32, wrapping, cursor, replay, clipping, background, resize, and error-overlay cases.
+- Document the complete painter grammar, input/error behavior, Escape-only exit, cross-platform build/run commands, and manual verification procedure in `Project.md`.
+
+### CONFIRMED
+
+The pre-fix tests reproduced both root symptoms: the old callback stopped on `q` before consuming `Q` or Escape, and its bottom row retained the painting area's black background. The implementation now passes the expanded `TuiPlayground regression` category, including every command shape and format, strict malformed inputs and integer limits, exact `TYPE` payloads, native-unit resynchronization and controls, width-aware wrapping/cursor behavior, 500-millisecond blinking, command replay/background/clipping semantics, resize reconstruction, and Unicode error-overlay behavior.
+
+The final Debug x64 solution build completed with zero warnings and zero errors. The complete unit-test run passed 16/16 files and 259/259 cases. The final execution log contains no failed-case or Debug memory-leak marker, and `git diff --check` reports no whitespace error.
+
+`TuiPlayground` was launched only through `copilotExecute.ps1` in a Windows pseudoconsole initialized with a 70x50 buffer and 70x18 viewport. While active, the buffer and viewport both became 70x18, establishing the no-scrollback/no-vertical-scrollbar condition. The production probe observed both phases of the 500-millisecond cursor, kept `qQ` as input, removed them with U+0008 and U+007F, submitted color/clear/rounded-rectangle/Unicode `TYPE` commands, and verified replayed text at logical paper coordinates.
+
+The same production run resized the real terminal through its standard resize control from 70x18 to 50x12, 60x15, 45x10, and 55x14. Every transition produced an exact buffer/viewport match and replayed the retained commands. A Unicode invalid command displayed both `ERROR` and `REASON`, ignored ordinary input, dismissed on Enter, and Escape exited with code zero while restoring the original viewport and sentinel screen contents.
+
+To separate backend restoration from the wrapper's own child-exit scrollback adjustment, one temporary post-`TUI::Start` pause was built for inspection and then removed. While the actual `TuiPlayground` process was still alive after Escape, Win32 reported the exact original 70x50 buffer and 70x18 viewport and the original sentinel contents. This exposed the VT host's asynchronous alternate-screen transition; requiring ten stable one-millisecond viewport samples before the final Win32 geometry call made restoration deterministic. The temporary pause and diagnostic instrumentation are absent from the final source.
+
+CodePack regenerated all six release outputs from `Release/CodegenConfig.xml`; only the expected Windows implementation differs. `Project.md` now contains the complete grammar and Windows/Linux/macOS instructions. Linux and macOS runtime hosts are unavailable in this Windows session, so their shared painter implementation and conditional UTF-32 test path compile structurally but runtime execution remains deferred to those hosts as required.
