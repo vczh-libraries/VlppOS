@@ -125,7 +125,7 @@ namespace vl
 
 		struct TuiCharInfo
 		{
-			char32_t						code = 0;
+			wchar_t							code = 0;
 			bool							ctrl = false;
 			bool							shift = false;
 			bool							alt = false;

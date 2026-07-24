@@ -1,6 +1,6 @@
 # TUI platform implementation details
 
-This file contains only the verified technical details needed to execute [`TODO_Task.md`](./TODO_Task.md) on Windows, Linux, and macOS. The public contract and task scope remain in `TODO_Task.md`; that file has priority.
+This file contains only the verified technical details needed to execute [`TODO_Task.md`](./TODO_Task.md) on Windows, Linux, and macOS. [`TODO_Task_TuiRefactor.md`](./TODO_Task_TuiRefactor.md) supersedes both files for the character-event contract; otherwise the public contract and task scope remain in `TODO_Task.md`.
 
 ## Common terminal assumptions
 
@@ -81,7 +81,7 @@ Clearing `ENABLE_PROCESSED_INPUT` lets Ctrl+C arrive as a key/character input re
 
 The console input handle is waitable. Use `WaitForSingleObject` with the earliest timer/parser deadline, then drain a bounded batch using `ReadConsoleInputW` into the persistent event queue. Both operations remain on the `Start` thread:
 
-- `KEY_EVENT_RECORD` supplies press/release, repeat, modifiers, and UTF-16 input. Emit `Char` only for key-down records with a nonzero character, honor `wRepeatCount`, and combine valid surrogate pairs incrementally before invoking `Char(const TuiCharInfo&)`. Key-code translation remains a placeholder.
+- `KEY_EVENT_RECORD` supplies press/release, repeat, modifiers, and UTF-16 input. For each key-down record with a nonzero character, honor `wRepeatCount` and invoke `Char(const TuiCharInfo&)` once per repeat with `uChar.UnicodeChar` forwarded unchanged as one native `wchar_t` unit. High and low surrogates are independent events in record order, isolated surrogates are not replaced, and each emitted unit keeps its record's modifiers. Key-code translation remains a placeholder.
 - `MOUSE_EVENT_RECORD` maps movement, button press/release, `DOUBLE_CLICK`, `MOUSE_WHEELED`, and `MOUSE_HWHEELED` to the TUI mouse callbacks. Treat the signed high word of `dwButtonState` as the wheel delta.
 - `MOUSE_EVENT_RECORD` coordinates are screen-buffer-relative. Subtract `srWindow.Left` and `srWindow.Top` unless the owned buffer guarantees a `(0, 0)` viewport.
 - A resize input record is only a trigger. Query `GetConsoleScreenBufferInfo` again for the visible size before reallocating and invoking `BufferSizeChanged`.
@@ -167,10 +167,10 @@ References:
 
 Read available bytes only after `poll` reports readiness. Preserve incomplete data across reads:
 
-- Decode UTF-8 incrementally and invoke `Char(const TuiCharInfo&)` only after a complete valid scalar is available. Replace each maximal malformed subsequence with U+FFFD and resynchronize.
+- Decode UTF-8 incrementally. After a complete valid scalar is available, convert it to the platform-native UTF-32 `wchar_t` and invoke `Char(const TuiCharInfo&)` with that one unit. Replace each maximal malformed subsequence with a native U+FFFD unit and resynchronize.
 - Parse mouse escape sequences incrementally; a read boundary is not an event boundary.
 - Keep ordinary special-key escape sequences as placeholders for the future keyboard task and consume them without emitting a key callback.
-- Distinguish a standalone Escape byte from a longer sequence with a one-shot deadline, not a busy polling loop. After the deadline, emit standalone Escape through `Char(const TuiCharInfo&)` with `code == char32_t{0x1B}`, matching the Windows character record; do not leak the bytes of a recognized longer key sequence as character callbacks.
+- Distinguish a standalone Escape byte from a longer sequence with a one-shot deadline, not a busy polling loop. After the deadline, emit standalone Escape through `Char(const TuiCharInfo&)` with `code == (wchar_t)0x1B`, matching the Windows character record; do not leak the bytes of a recognized longer key sequence as character callbacks.
 
 Enable xterm-compatible all-motion mouse tracking with `CSI ? 1003 h` and SGR coordinates with `CSI ? 1006 h`. Mode 1002 reports motion only while a button is held and therefore does not satisfy ordinary mouse-move callbacks. SGR coordinates are one-based and must be converted to zero-based cells.
 

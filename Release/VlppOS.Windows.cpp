@@ -6508,7 +6508,6 @@ namespace vl
 				CONSOLE_SCREEN_BUFFER_INFOEX	screenInfo = {};
 				List<unittest::TuiBackendEvent> pendingEvents;
 				DWORD						mouseButtons = 0;
-				wchar_t						highSurrogate = 0;
 				bool						started = false;
 				bool						inputModeChanged = false;
 				bool						outputModeChanged = false;
@@ -6542,7 +6541,7 @@ namespace vl
 					return result;
 				}
 
-				void QueueChar(char32_t code, const KEY_EVENT_RECORD& record)
+				void QueueChar(wchar_t code, const KEY_EVENT_RECORD& record)
 				{
 					unittest::TuiBackendEvent event;
 					event.type = unittest::TuiBackendEventType::Char;
@@ -6566,33 +6565,7 @@ namespace vl
 					auto repeat = record.wRepeatCount == 0 ? 1 : record.wRepeatCount;
 					for (vint i = 0; i < repeat; i++)
 					{
-						if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF)
-						{
-							if (highSurrogate) QueueChar(U'\uFFFD', record);
-							highSurrogate = codeUnit;
-						}
-						else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF)
-						{
-							if (highSurrogate)
-							{
-								auto code = (char32_t)(0x10000 + ((highSurrogate - 0xD800) << 10) + (codeUnit - 0xDC00));
-								highSurrogate = 0;
-								QueueChar(code, record);
-							}
-							else
-							{
-								QueueChar(U'\uFFFD', record);
-							}
-						}
-						else
-						{
-							if (highSurrogate)
-							{
-								QueueChar(U'\uFFFD', record);
-								highSurrogate = 0;
-							}
-							QueueChar((char32_t)codeUnit, record);
-						}
+						QueueChar(codeUnit, record);
 					}
 				}
 
@@ -6795,7 +6768,6 @@ namespace vl
 					if (inputModeChanged) SetConsoleMode(inputHandle, inputMode);
 					pendingEvents.Clear();
 					mouseButtons = 0;
-					highSurrogate = 0;
 					outputHandle = INVALID_HANDLE_VALUE;
 					originalOutputHandle = INVALID_HANDLE_VALUE;
 					inputHandle = INVALID_HANDLE_VALUE;

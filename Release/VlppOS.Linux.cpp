@@ -5823,7 +5823,7 @@ namespace vl
 				bool						termiosChanged = false;
 				bool						signalInstalled = false;
 
-				void QueueChar(char32_t code, bool alt = false)
+				void QueueChar(wchar_t code, bool alt = false)
 				{
 					unittest::TuiBackendEvent event;
 					event.type = unittest::TuiBackendEventType::Char;
@@ -5872,7 +5872,7 @@ namespace vl
 						if (!(inputBytes[i] == ';' || (inputBytes[i] >= '0' && inputBytes[i] <= '9')))
 						{
 							inputBytes.RemoveRange(0, i + 1);
-							QueueChar(U'\uFFFD');
+							QueueChar(L'\uFFFD');
 							return true;
 						}
 					}
@@ -6017,7 +6017,7 @@ namespace vl
 					else
 					{
 						inputBytes.RemoveRange(0, offset + 1);
-						QueueChar(U'\uFFFD', alt);
+						QueueChar(L'\uFFFD', alt);
 						return true;
 					}
 					if (inputBytes.Count() < offset + length) return false;
@@ -6027,7 +6027,7 @@ namespace vl
 						if ((next & 0xC0) != 0x80)
 						{
 							inputBytes.RemoveRange(0, offset + 1);
-							QueueChar(U'\uFFFD', alt);
+							QueueChar(L'\uFFFD', alt);
 							return true;
 						}
 						code = (code << 6) | (next & 0x3F);
@@ -6036,12 +6036,12 @@ namespace vl
 					if (code < minimum || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF))
 					{
 						inputBytes.RemoveRange(0, offset + length);
-						QueueChar(U'\uFFFD', alt);
+						QueueChar(L'\uFFFD', alt);
 						return true;
 					}
 					inputBytes.RemoveRange(0, offset + length);
 					escapeDeadline = 0;
-					QueueChar(code, alt);
+					QueueChar((wchar_t)code, alt);
 					return true;
 				}
 
@@ -6061,7 +6061,7 @@ namespace vl
 						{
 							inputBytes.RemoveAt(0);
 							escapeDeadline = 0;
-							QueueChar((char32_t)0x1B);
+							QueueChar((wchar_t)0x1B);
 							return true;
 						}
 						return false;

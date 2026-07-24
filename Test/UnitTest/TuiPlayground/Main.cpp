@@ -36,7 +36,7 @@ namespace
 
 		void Char(const TuiCharInfo& info) override
 		{
-			if (info.code == U'q' || info.code == U'Q' || info.code == 0x1B)
+			if (info.code == L'q' || info.code == L'Q' || info.code == (wchar_t)0x1B)
 			{
 				TUI::Stop();
 			}
