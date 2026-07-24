@@ -81,12 +81,17 @@ namespace
 			renderColorMode = colorMode;
 		}
 
-		void PushChar(char32_t code)
+		void PushChar(const TuiCharInfo& info)
 		{
 			tui_test::TuiBackendEvent event;
 			event.type = tui_test::TuiBackendEventType::Char;
-			event.charInfo.code = code;
+			event.charInfo = info;
 			events.Add(event);
+		}
+
+		void PushChar(wchar_t code)
+		{
+			PushChar({ .code = code });
 		}
 
 		void PushResize(vint newWidth, vint newHeight)
@@ -102,11 +107,12 @@ namespace
 	struct Callback : ITuiCallback
 	{
 		List<WString>		events;
+		List<TuiCharInfo>	charInfos;
 		Func<void()>		onStarting;
 		Func<void()>		onStopping;
 		Func<void()>		onResize;
 		Func<void()>		onTimer;
-		Func<void(char32_t)>	onChar;
+		Func<void(wchar_t)>	onChar;
 
 		void Starting() override
 		{
@@ -128,7 +134,8 @@ namespace
 
 		void Char(const TuiCharInfo& info) override
 		{
-			events.Add(L"Char:" + u32tow(U32String::CopyFrom(&info.code, 1)));
+			events.Add(L"Char");
+			charInfos.Add(info);
 			if (onChar) onChar(info.code);
 		}
 
@@ -517,13 +524,115 @@ TEST_FILE
 
 	TEST_CATEGORY(L"Lifecycle and callbacks")
 	{
+		TEST_CASE(L"Character events use native wchar_t units")
+		{
+			TEST_ASSERT((std::is_same_v<decltype(TuiCharInfo::code), wchar_t>));
+		});
+
+#if defined VCZH_WCHAR_UTF16
+		TEST_CASE(L"UTF-16 character events preserve native units, order and modifiers")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			const wchar_t high = (wchar_t)0xD83D;
+			const wchar_t low = (wchar_t)0xDE00;
+			const TuiCharInfo inputs[] =
+			{
+				{ .code = L'A', .ctrl = true, .shift = true, .alt = true, .capslock = true },
+				{ .code = (wchar_t)0xD800, .ctrl = true },
+				{ .code = L'B' },
+				{ .code = (wchar_t)0xDC00, .shift = true },
+				{ .code = high, .alt = true },
+				{ .code = low, .capslock = true },
+			};
+			for (auto&& input : inputs)
+			{
+				backend->PushChar(input);
+			}
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			callback.onChar = [&](wchar_t)
+			{
+				if (callback.charInfos.Count() == sizeof(inputs) / sizeof(*inputs))
+				{
+					TUI::Stop();
+				}
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TEST_ASSERT(callback.charInfos.Count() == sizeof(inputs) / sizeof(*inputs));
+			for (vint i = 0; i < callback.charInfos.Count(); i++)
+			{
+				auto&& expected = inputs[i];
+				auto&& actual = callback.charInfos[i];
+				TEST_ASSERT(actual.code == expected.code);
+				TEST_ASSERT(actual.ctrl == expected.ctrl);
+				TEST_ASSERT(actual.shift == expected.shift);
+				TEST_ASSERT(actual.alt == expected.alt);
+				TEST_ASSERT(actual.capslock == expected.capslock);
+			}
+			TEST_ASSERT(callback.charInfos[4].code == high);
+			TEST_ASSERT(callback.charInfos[5].code == low);
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Stopping on a UTF-16 high surrogate suppresses the queued low surrogate")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			const wchar_t high = (wchar_t)0xD83D;
+			const wchar_t low = (wchar_t)0xDE00;
+			backend->PushChar(high);
+			backend->PushChar(low);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			callback.onChar = [&](wchar_t code)
+			{
+				if (code == high)
+				{
+					TUI::Stop();
+				}
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TEST_ASSERT(callback.charInfos.Count() == 1);
+			TEST_ASSERT(callback.charInfos[0].code == high);
+			TUI::UninstallListener(&callback);
+		});
+#elif defined VCZH_WCHAR_UTF32
+		TEST_CASE(L"UTF-32 character events preserve one native supplementary unit")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			TuiCharInfo input =
+			{
+				.code = (wchar_t)0x1F600,
+				.ctrl = true,
+				.shift = true,
+				.alt = true,
+				.capslock = true,
+			};
+			backend->PushChar(input);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			Callback callback;
+			callback.onChar = [](wchar_t) { TUI::Stop(); };
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TEST_ASSERT(callback.charInfos.Count() == 1);
+			auto&& actual = callback.charInfos[0];
+			TEST_ASSERT(actual.code == input.code);
+			TEST_ASSERT(actual.ctrl == input.ctrl);
+			TEST_ASSERT(actual.shift == input.shift);
+			TEST_ASSERT(actual.alt == input.alt);
+			TEST_ASSERT(actual.capslock == input.capslock);
+			TUI::UninstallListener(&callback);
+		});
+#endif
+
 		TEST_CASE(L"Start, initial resize, character stop and cleanup ordering")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'Q');
+			backend->PushChar(L'Q');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback callback;
-			callback.onChar = [](char32_t) { TUI::Stop(); };
+			callback.onChar = [](wchar_t) { TUI::Stop(); };
 			TEST_ASSERT(TUI::InstallListener(&callback));
 			TEST_ASSERT(!TUI::InstallListener(nullptr));
 			TEST_ASSERT(!TUI::InstallListener(&callback));
@@ -538,7 +647,9 @@ TEST_FILE
 			TEST_ASSERT(callback.events.Count() == 4);
 			TEST_ASSERT(callback.events[0] == L"Starting");
 			TEST_ASSERT(callback.events[1] == L"BufferSizeChanged");
-			TEST_ASSERT(callback.events[2] == L"Char:Q");
+			TEST_ASSERT(callback.events[2] == L"Char");
+			TEST_ASSERT(callback.charInfos.Count() == 1);
+			TEST_ASSERT(callback.charInfos[0].code == L'Q');
 			TEST_ASSERT(callback.events[3] == L"Stopping");
 			TEST_ASSERT(TUI::UninstallListener(&callback));
 			TEST_ASSERT(!TUI::UninstallListener(&callback));
@@ -586,14 +697,14 @@ TEST_FILE
 		TEST_CASE(L"RunOneCycle is reentrant and consumes queued events")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'A');
-			backend->PushChar(U'B');
+			backend->PushChar(L'A');
+			backend->PushChar(L'B');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback callback;
 			callback.onStarting = []() { TEST_ASSERT(!TUI::RunOneCycle()); };
-			callback.onChar = [](char32_t code)
+			callback.onChar = [](wchar_t code)
 			{
-				if (code == U'A')
+				if (code == L'A')
 				{
 					TEST_ASSERT(!TUI::IsStopRequested());
 					TEST_ASSERT(!TUI::RunOneCycle());
@@ -606,8 +717,11 @@ TEST_FILE
 			};
 			TUI::InstallListener(&callback);
 			TUI::Start({});
-			TEST_ASSERT(callback.events[1] == L"Char:A");
-			TEST_ASSERT(callback.events[2] == L"Char:B");
+			TEST_ASSERT(callback.events[1] == L"Char");
+			TEST_ASSERT(callback.events[2] == L"Char");
+			TEST_ASSERT(callback.charInfos.Count() == 2);
+			TEST_ASSERT(callback.charInfos[0].code == L'A');
+			TEST_ASSERT(callback.charInfos[1].code == L'B');
 			TUI::UninstallListener(&callback);
 		});
 
@@ -644,7 +758,7 @@ TEST_FILE
 		TEST_CASE(L"Listener generations protect mutation during dispatch")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'X');
+			backend->PushChar(L'X');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback first;
 			Callback second;
@@ -653,13 +767,15 @@ TEST_FILE
 				TEST_ASSERT(TUI::UninstallListener(&second));
 				TEST_ASSERT(TUI::InstallListener(&second));
 			};
-			second.onChar = [](char32_t) { TUI::Stop(); };
+			second.onChar = [](wchar_t) { TUI::Stop(); };
 			TUI::InstallListener(&first);
 			TUI::InstallListener(&second);
 			TUI::Start({});
 			TEST_ASSERT(second.events.Count() == 3);
 			TEST_ASSERT(second.events[0] == L"BufferSizeChanged");
-			TEST_ASSERT(second.events[1] == L"Char:X");
+			TEST_ASSERT(second.events[1] == L"Char");
+			TEST_ASSERT(second.charInfos.Count() == 1);
+			TEST_ASSERT(second.charInfos[0].code == L'X');
 			TEST_ASSERT(second.events[2] == L"Stopping");
 			TUI::UninstallListener(&first);
 			TUI::UninstallListener(&second);
@@ -668,24 +784,24 @@ TEST_FILE
 		TEST_CASE(L"Nested dispatch snapshots the newly installed listener generation")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'A');
-			backend->PushChar(U'B');
-			backend->PushChar(U'C');
+			backend->PushChar(L'A');
+			backend->PushChar(L'B');
+			backend->PushChar(L'C');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback first;
 			Callback second;
-			first.onChar = [&](char32_t code)
+			first.onChar = [&](wchar_t code)
 			{
-				if (code == U'A')
+				if (code == L'A')
 				{
 					TEST_ASSERT(TUI::UninstallListener(&second));
 					TEST_ASSERT(TUI::InstallListener(&second));
 					TEST_ASSERT(TUI::RunOneCycle());
 				}
 			};
-			second.onChar = [](char32_t code)
+			second.onChar = [](wchar_t code)
 			{
-				if (code == U'C') TUI::Stop();
+				if (code == L'C') TUI::Stop();
 			};
 			TUI::InstallListener(&first);
 			TUI::InstallListener(&second);
@@ -693,8 +809,11 @@ TEST_FILE
 			TEST_ASSERT(second.events.Count() == 5);
 			TEST_ASSERT(second.events[0] == L"Starting");
 			TEST_ASSERT(second.events[1] == L"BufferSizeChanged");
-			TEST_ASSERT(second.events[2] == L"Char:B");
-			TEST_ASSERT(second.events[3] == L"Char:C");
+			TEST_ASSERT(second.events[2] == L"Char");
+			TEST_ASSERT(second.events[3] == L"Char");
+			TEST_ASSERT(second.charInfos.Count() == 2);
+			TEST_ASSERT(second.charInfos[0].code == L'B');
+			TEST_ASSERT(second.charInfos[1].code == L'C');
 			TEST_ASSERT(second.events[4] == L"Stopping");
 			TUI::UninstallListener(&first);
 			TUI::UninstallListener(&second);
@@ -800,7 +919,7 @@ TEST_FILE
 				tui_test::TuiBackendEvent event;
 				event.type = type;
 				backend->events.Add(event);
-				backend->PushChar(U'Z');
+				backend->PushChar(L'Z');
 				tui_test::ScopedTuiBackend backendScope(backend);
 				StopOnEventCallback callback;
 				callback.type = type;
@@ -816,12 +935,12 @@ TEST_FILE
 		TEST_CASE(L"IsStopRequested supports bridge-style suppression")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'X');
+			backend->PushChar(L'X');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback bridge;
 			Callback later;
 			vint higherLevelCallbacks = 0;
-			bridge.onChar = [&](char32_t)
+			bridge.onChar = [&](wchar_t)
 			{
 				TUI::Stop();
 				if (!TUI::IsStopRequested())
@@ -997,15 +1116,15 @@ TEST_FILE
 		TEST_CASE(L"Nested callback exceptions stay latched until Start cleanup")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			backend->PushChar(U'A');
-			backend->PushChar(U'B');
+			backend->PushChar(L'A');
+			backend->PushChar(L'B');
 			tui_test::ScopedTuiBackend backendScope(backend);
 			Callback callback;
 			bool caughtNested = false;
 			callback.onStarting = []() { TUI::RunOneCycle(); };
-			callback.onChar = [&](char32_t code)
+			callback.onChar = [&](wchar_t code)
 			{
-				if (code == U'A')
+				if (code == L'A')
 				{
 					try
 					{
@@ -1029,8 +1148,11 @@ TEST_FILE
 			TEST_ASSERT(caughtNested);
 			TEST_ASSERT(callback.events.Count() == 3);
 			TEST_ASSERT(callback.events[0] == L"Starting");
-			TEST_ASSERT(callback.events[1] == L"Char:A");
-			TEST_ASSERT(callback.events[2] == L"Char:B");
+			TEST_ASSERT(callback.events[1] == L"Char");
+			TEST_ASSERT(callback.events[2] == L"Char");
+			TEST_ASSERT(callback.charInfos.Count() == 2);
+			TEST_ASSERT(callback.charInfos[0].code == L'A');
+			TEST_ASSERT(callback.charInfos[1].code == L'B');
 			TEST_ASSERT(backend->stopCount == 1);
 			TEST_ASSERT(Console::IsEnabled());
 			TEST_ASSERT(!TUI::IsInUse());
