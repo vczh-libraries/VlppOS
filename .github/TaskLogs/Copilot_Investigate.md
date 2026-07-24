@@ -111,7 +111,7 @@ The initial Debug x64 build compiled with zero warnings and zero errors. The pre
 
 # PROPOSALS
 
-- No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END
+- No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END [CONFIRMED]
 
 ## No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END
 
@@ -120,3 +120,22 @@ Make the public event field and both platform queues use the platform-native `wc
 Keep every scalar-oriented drawing and buffer API as `char32_t`. Convert the current playground and test callback inputs to native literals, document the new unit contract in `Task_TUI.md`, regenerate the complete release from `Release/CodegenConfig.xml`, and verify source/generated files contain no stale scalar assumption specifically for `TuiCharInfo`.
 
 ### CODE CHANGE
+
+- Change only `TuiCharInfo::code` in `Source/TUI/TUI.h` from `char32_t` to `wchar_t`; leave every pixel, width, and drawing scalar signature unchanged.
+- In `Source/TUI/TUI.Windows.cpp`, remove `WindowsTuiBackend::highSurrogate`, make `QueueChar` accept `wchar_t`, and enqueue `record.uChar.UnicodeChar` unchanged once per repeat without combination, substitution, or cleanup state.
+- In `Source/TUI/TUI.Linux.cpp`, make `QueueChar` accept `wchar_t`; keep the existing UTF-8 decoder and validation, casting each decoded scalar and U+FFFD recovery result to the platform UTF-32 unit, and emit Escape as `(wchar_t)0x1B`.
+- Finish the native-unit test-helper conversion in `Test/Source/TestTui.cpp` and update `Test/UnitTest/TuiPlayground/Main.cpp` to compare `L'q'`, `L'Q'`, and `(wchar_t)0x1B`.
+- Update the affected Windows and POSIX input clauses in `Task_TUI.md`, including the task-priority note, independent UTF-16 unit order, complete-scalar decoding only before POSIX conversion, and native Escape value.
+- Regenerate all six tracked VlppOS release files through CodePack using `Release/CodegenConfig.xml`; do not edit generated output manually.
+
+### CONFIRMED
+
+The public source and generated release header now define only `TuiCharInfo::code` as `wchar_t`; `TuiPixel::c`, `TuiPixel::GetChar32`, `TUI::MeasureChar`, and both `TUI::PrintChar` overloads remain `char32_t`. Shared dispatch still forwards `TuiBackendEvent::charInfo` directly without conversion.
+
+The Windows backend has no pending-surrogate field, pairing branch, isolated-surrogate substitution, or cleanup state. Its queue accepts `wchar_t`, copies all four modifier fields from the producing input record, and enqueues the record's nonzero UTF-16 unit once per repeat. The POSIX backend retains its incremental UTF-8 validation and buffering, but now queues completed scalars, U+FFFD recovery, and standalone Escape as native UTF-32 `wchar_t` units.
+
+The Debug x64 solution builds with zero warnings and zero errors. The complete unit-test run passes 16/16 files and 247/247 cases, including exact type identity, ordinary and isolated UTF-16 units, adjacent high/low order, all modifiers, stop suppression after a high surrogate, and every pre-existing lifecycle/callback case. The final execution log contains no Debug memory-leak signal.
+
+CodePack regenerated all six release outputs from `Release/CodegenConfig.xml`; the three files whose content should change—`VlppOS.h`, `VlppOS.Windows.cpp`, and `VlppOS.Linux.cpp`—contain the same native-unit contract as source, and searches find no stale `TuiCharInfo` scalar or Windows surrogate-combination assumption.
+
+The current TuiPlayground was launched through `copilotExecute.ps1` in fresh native 120x30 consoles. `q`, `Q`, and Escape each exited with code zero and restored pre-start buffer sentinels. The `Q` and Escape probes also observed the exact double-line corners U+2554, U+2557, U+255A, and U+255D while active. Linux and macOS runtime hosts are not available in this Windows session; their shared POSIX source, generated release implementation, and conditional `VCZH_WCHAR_UTF32` test path are present, but runtime execution remains deferred to those hosts.
