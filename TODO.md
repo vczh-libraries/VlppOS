@@ -18,9 +18,6 @@
 
 ### TUI
 
-- `TuiPlayground`:
-  - Windows version should disable scrollbar when possible.
-  - Implement a drawing app with command typing.
 - Move key definitions and convertions from GacUI/iGac/wGac to VlppOS.
 
 ## Optional
