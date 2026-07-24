@@ -193,7 +193,7 @@ The initial Debug x64 solution build completed with zero warnings and zero error
 # PROPOSALS
 
 - No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER [CONFIRMED]
-- No.2 MAKE HELP AND EXIT COMMANDS SHARE A GENERAL INFORMATION OVERLAY
+- No.2 MAKE HELP AND EXIT COMMANDS SHARE A GENERAL INFORMATION OVERLAY [CONFIRMED]
 
 ## No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER
 
@@ -208,6 +208,23 @@ When parsing fails, clear input immediately and derive two wrapped logical error
 Retain the test-only inclusion guard so `TestTui.cpp` exercises the executable's actual internal callback. Expand its fake backend to capture frames and add command/state/frame cases for parser strictness, native-unit decoding, wrapping/cursor/error behavior, replay/clipping/background semantics, resize reconstruction, and timer configuration. Document the complete user workflow and all three platform commands in `Project.md`. Regenerate `Release/VlppOS.Windows.cpp` from `Release/CodegenConfig.xml`, build/run the complete suite, and perform the real Win32 console geometry and interaction verification required by the test plan.
 
 ### CODE CHANGE
+
+- Rename `CommandError` to `Information`, replace its two fixed fields with `List<U32String> content`, and store an optional `Information` in `PlaygroundState`.
+- Build parse failures as two ordered information items containing the exact original command and parser reason. Generalize overlay wrapping and centering to any number of information items while retaining height clipping, border protection, command clearing, cursor hiding, and Enter dismissal.
+- Add the exact case-insensitive control commands `HELP` and `EXIT` before painting-command parsing. Populate help with the nine concise accepted command shapes, do not add either command to painting history, and stop without a final redraw for `EXIT`.
+- Remove Escape shutdown handling in both the command box and information state. Escape is now ignored after native-unit resynchronization, and information ignores every character except Enter.
+- Update the fake-backend regression suite to use `EXIT` for ordinary application shutdown and an explicit harness stop only where a pre-exit input frame or active information state must be inspected. Cover the exact help list, help dismissal, ignored Escape, case-insensitive exit, error information content, painter history, timer termination, and existing Unicode/layout behavior.
+- Update `Project.md` with `HELP`, `EXIT`, the shared information overlay, ignored Escape behavior, and `EXIT`-based restoration verification.
+
+### CONFIRMED
+
+The executable-level tests prove that `HELP` produces exactly the nine short command shapes, case-insensitively, without explanations or painter-history entries. While help is active, Escape and the characters in a typed `EXIT` are ignored; its Enter dismisses the overlay, and a subsequent mixed-case `eXiT` is the one action that stops the application. The normal-input case submits `TYPE 0 0:qQ` after an Escape and preserves `qQ`, proving that neither those letters nor Escape stop the TUI.
+
+Parse failures now retain exactly two ordered `Information::content` items, including the original supplementary Unicode scalar and the useful reason. The generalized overlay keeps its inner rounded rectangle inside the outer painting border, hides the cursor, ignores other Unicode input without pending UTF-16 state, and dismisses on Enter without submitting an empty command. Existing wrapping, replay, clipping, color, background, resize, and 500-millisecond timer coverage remains passing.
+
+The final Debug x64 solution build completed with zero warnings and zero errors. The complete `UnitTest` run passed 16/16 files and 261/261 cases; its final log has no assertion failure or Debug memory-leak marker, and `git diff --check` reports no whitespace error.
+
+The production `TuiPlayground` executable was launched through `copilotExecute.ps1` in an isolated Windows console. The probe read `BC CLEAR|RRGGBB`, `LINEV THIN|THICK|DOUBLE x y1 y2`, `HELP`, and `EXIT` from the real console buffer, found help unchanged after Escape, found it removed after Enter, confirmed Escape also left normal command input running, and waited for both the application and wrapper to exit with code zero after `exit`. No playground process remained. Shared TUI source and generated release files were unchanged; Linux and macOS runtime hosts were unavailable in this Windows session.
 
 - Replace the border-only `TuiPlayground` callback with the requested `PlaygroundState` and command variants. Add strict, case-insensitive command parsing with exact separators, six-digit colors, overflow-checked signed `vint` coordinates, ordered-range validation, and exact `TYPE` payload preservation.
 - Decode each native `wchar_t` event into zero or one scalar before input handling. The Windows UTF-16 path retains one high surrogate, combines only a valid following low surrogate through `UtfConversion<wchar_t>::To32`, and reprocesses a valid current unit after malformed input. Store input, payloads, and errors as `U32String`; make U+0008/U+007F Backspace, CR/LF Enter, and Escape exit while leaving `q`/`Q` as ordinary text.
