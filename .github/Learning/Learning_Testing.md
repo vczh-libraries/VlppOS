@@ -11,6 +11,8 @@
 - Test inherited `Thread` completion with a custom subclass [1]
 - Synchronize server startup outside dedicated retry tests [1]
 - Test shared Socket HTTP routing through one injected listener and client [1]
+- Inject response failure when testing Socket HTTP poll requeue [1]
+- Verify Windows TUI geometry with the production backend [1]
 
 # Refinements
 
@@ -57,3 +59,15 @@ Keep client-before-server behavior in a dedicated native async-socket test that 
 ## Test shared Socket HTTP routing through one injected listener and client
 
 To verify the Socket HTTP composition boundary, construct multiple server APIs with the exact same server pointer and distinct prefixes, then call all of them through one client API. Cover exact and descendant routes, a textual near-match that must return 404, longest-prefix selection, independent registration shutdown, and final listener shutdown.
+
+## Inject response failure when testing Socket HTTP poll requeue
+
+Do not assume that stopping an HTTP client after the server claims a long poll will make the server's response submission fail. A successful TCP write only proves local acceptance, and disconnect processing may be delayed by the same completion worker used by the test hook.
+
+Use a private test hook to cancel the claimed server request context immediately before response submission. Require that the failed completion restores the retained message to the FIFO head and that a replacement poll receives the same token and exact UTF-8 bytes. Keep the production rule unchanged; treating a locally successful send as failed can duplicate messages without a protocol acknowledgement.
+
+## Verify Windows TUI geometry with the production backend
+
+An injected backend is appropriate for deterministic layout, input, timer, resize, and replay tests, but it cannot prove Win32 console takeover or restoration. Also run the production executable in a console whose scrollback buffer is taller than its viewport. While active, inspect that buffer and viewport dimensions match through repeated grow/shrink operations and that no vertical-scrollbar condition returns.
+
+After application-controlled shutdown, inspect the real process before any wrapper adjusts child-exit scrollback and require the original buffer size, window rectangle, modes, and sentinel contents to be restored.

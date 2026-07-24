@@ -23,6 +23,13 @@
 - Socket HTTP adapters keep async sockets caller-injected [1]
 - Share Socket HTTP listeners by exact server identity and segment-bounded prefixes [1]
 - `HttpRequestClient` owns the fatal HTTP 404 policy [1]
+- Keep active TUI state inside the `TUI` lifecycle [1]
+- Measure TUI character width through platform APIs [1]
+- `TuiCharInfo::code` carries one native `wchar_t` unit [1]
+- Convert TUI native units to scalars in the consumer [1]
+- Synchronize Windows TUI buffer geometry with the visible viewport [1]
+- Store semantic TUI state and derive each frame [1]
+- Use one general information overlay for TUI help and errors [1]
 
 # Refinements
 
@@ -135,3 +142,43 @@ Normalize a trailing slash from each origin-form prefix and route only the exact
 Keep `HttpRequestConnection` permissive so it can parse and deliver an ordinary 404 response. `HttpRequestClient`, which owns the physical socket client, applies the stricter policy: classify 404 as `HttpResponseFailure::NotFound`, skip normal response delivery, report the structured failure, and stop the connection.
 
 Map that failure through `SocketHttpClientApi` as `SocketHttpClientErrorCode::ResponseNotFound`. The high-level client treats it as one fatal local error on `/Connect`, `/Request`, or `/Response` and does not retry the endpoint.
+
+## Keep active TUI state inside the `TUI` lifecycle
+
+Do not place per-run TUI state in `BEGIN_GLOBAL_STORAGE_CLASS`. Store it behind a `TUI`-owned `Impl`, allocate it on the inactive-to-active `Start` transition, and deallocate it after `Stop` cleanup. A shared `Impl` declaration can be inherited by platform-specific implementations when they need extra state.
+
+Keep only state that intentionally survives runs, such as listener registrations and a scoped test-backend binding, outside the active `Impl`.
+
+## Measure TUI character width through platform APIs
+
+Do not maintain a generated Unicode-width table or its generator for `TUI::MeasureChar`. Delegate width classification to the operating system in the platform implementation—for example, Win32 character-type APIs on Windows and `wcwidth` on POSIX—while keeping common buffer and drawing rules in shared code.
+
+## `TuiCharInfo::code` carries one native `wchar_t` unit
+
+Keep TUI character events aligned with native `wchar_t` consumers. On Windows, enqueue each UTF-16 code unit from `KEY_EVENT_RECORD` unchanged, so a supplementary scalar produces independent high- and low-surrogate callbacks in native event order. On Linux and macOS, retain incremental UTF-8 decoding and enqueue each completed scalar as one UTF-32 `wchar_t`.
+
+Do not combine or replace Windows surrogates in the backend or shared dispatcher. Repeat counts and modifiers apply to each native unit, and the existing stop contract may suppress a queued low surrogate after its high-surrogate callback. Keep `TuiPixel::c`, width measurement, and drawing APIs scalar-based with `char32_t`.
+
+## Convert TUI native units to scalars in the consumer
+
+Scalar-oriented consumers of `TuiCharInfo` should use `vl::encoding::UtfConversion<wchar_t>::To32`. Under `VCZH_WCHAR_UTF16`, retain at most one high surrogate across callbacks, combine only adjacent high/low units in the character-unit stream, and reprocess a valid current unit after handling an unmatched pending surrogate so input and controls are not swallowed. Under `VCZH_WCHAR_UTF32`, convert one unit directly and validate it before passing it to scalar-only APIs.
+
+Do not use `UtfToUtfReaderBase` or `UtfStringToStringReader` across callbacks; those pull readers assume their input is already available, treat zero as end-of-input, and cannot wait for or resynchronize an incomplete pair.
+
+## Synchronize Windows TUI buffer geometry with the visible viewport
+
+While TUI owns a Windows console, keep the active screen buffer and zero-origin window synchronized to the visible viewport in Win32-safe resize order. Recheck after input and timer wakeups so viewport-only changes generate resize events and shrinking does not leave a vertical scrollbar; startup-only buffer shrinking is insufficient.
+
+Save the original buffer size and window rectangle before entering either VT or classic output mode. Restore the alternate-screen state, cursor, modes, buffer size, and window geometry on normal shutdown and exceptions, with partial-startup rollback owned by `WindowsTuiBackend::Start`. Account for the terminal host's asynchronous alternate-screen transition before the final geometry restoration.
+
+## Store semantic TUI state and derive each frame
+
+Keep durable callback state semantic: completed scalar input, accumulated commands in submission order, optional information content, and cursor phase. Do not cache the active `TuiPixel*`, terminal dimensions, wrapped rows, translated coordinates, or a painted canvas because resize invalidates or changes them.
+
+Rebuild each frame from semantic state. Replay commands from logical coordinates into a temporary interior buffer, clip there, copy the bounded result into the terminal buffer, and draw protected borders and command UI last.
+
+## Use one general information overlay for TUI help and errors
+
+Represent modal playground information as an ordered `List<U32String>` instead of an error-specific structure. Parse failures populate two items for the original command and reason; `HELP` populates only the concise accepted command shapes. Use the same wrapping, centering, clipping, cursor hiding, and Enter-to-dismiss behavior for both.
+
+Handle exact case-insensitive `HELP` and `EXIT` controls before painting-command parsing and never add them to painting history. `EXIT` is the only application-controlled quit action; ordinary characters such as `q`/`Q` and Escape do not stop the playground.
