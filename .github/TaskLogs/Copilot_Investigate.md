@@ -110,3 +110,13 @@ Add native-unit character-event coverage to `Test/Source/TestTui.cpp` before cha
 The initial Debug x64 build compiled with zero warnings and zero errors. The pre-fix complete unit-test run reached `Test/Source/TestTui.cpp` and failed exactly at `std::is_same_v<decltype(TuiCharInfo::code), wchar_t>`, confirming that the current public contract is still `char32_t`. After the proposal, the complete suite must pass with no Debug memory leaks. Final verification also requires regenerated `Release` files to contain the native-unit contract, the current TuiPlayground to stop on `L'q'`, `L'Q'`, and native Escape while restoring the terminal, and the available-host build matrix to remain valid.
 
 # PROPOSALS
+
+- No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END
+
+## No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END
+
+Make the public event field and both platform queues use the platform-native `wchar_t` unit without any shared-dispatch conversion. Windows should enqueue each nonzero `KEY_EVENT_RECORD::uChar.UnicodeChar` unchanged for every repeat and remove all pending-surrogate state and replacement behavior. POSIX should retain its validated incremental UTF-8 scalar decoder, cast each completed scalar or recovery value to its UTF-32 `wchar_t`, and use a native Escape unit.
+
+Keep every scalar-oriented drawing and buffer API as `char32_t`. Convert the current playground and test callback inputs to native literals, document the new unit contract in `Task_TUI.md`, regenerate the complete release from `Release/CodegenConfig.xml`, and verify source/generated files contain no stale scalar assumption specifically for `TuiCharInfo`.
+
+### CODE CHANGE
