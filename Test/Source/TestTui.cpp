@@ -30,6 +30,9 @@ namespace
 		vint								renderHeight = 0;
 		TuiColorMode						renderColorMode = TuiColorMode::Auto;
 		Array<TuiPixel>						renderedBuffer;
+		List<U32String>						renderedTexts;
+		List<vint>							waitTimeouts;
+		vint								escapeAfterTimeouts = -1;
 		TuiColorMode						startColorMode = TuiColorMode::TrueColor;
 		bool								honorRequestedColorMode = true;
 		bool								failStart = false;
@@ -73,6 +76,14 @@ namespace
 			}
 			if (milliseconds > 0)
 			{
+				waitTimeouts.Add(milliseconds);
+				if (escapeAfterTimeouts == 0)
+				{
+					event.type = tui_test::TuiBackendEventType::Char;
+					event.charInfo.code = (wchar_t)0x1B;
+					return true;
+				}
+				if (escapeAfterTimeouts > 0) escapeAfterTimeouts--;
 				time += milliseconds;
 			}
 			return false;
@@ -90,6 +101,12 @@ namespace
 				copiedBuffer[i] = buffer[i];
 			}
 			renderedBuffer = std::move(copiedBuffer);
+			List<char32_t> text;
+			for (vint i = 0; i < width * height; i++)
+			{
+				text.Add(buffer[i].GetChar32());
+			}
+			renderedTexts.Add(U32String::CopyFrom(&text[0], text.Count()));
 		}
 
 		void PushChar(const TuiCharInfo& info)
@@ -103,6 +120,31 @@ namespace
 		void PushChar(wchar_t code)
 		{
 			PushChar({ .code = code });
+		}
+
+		void PushScalar(char32_t code)
+		{
+			wchar_t units[encoding::UtfConversion<wchar_t>::BufferLength];
+			auto count = encoding::UtfConversion<wchar_t>::From32(code, units);
+			TEST_ASSERT(count > 0);
+			for (vint i = 0; i < count; i++)
+			{
+				PushChar(units[i]);
+			}
+		}
+
+		void PushText(const U32String& text)
+		{
+			for (vint i = 0; i < text.Length(); i++)
+			{
+				PushScalar(text[i]);
+			}
+		}
+
+		void PushCommand(const U32String& text)
+		{
+			PushText(text);
+			PushChar(L'\r');
 		}
 
 		void PushResize(vint newWidth, vint newHeight)
@@ -1173,6 +1215,95 @@ TEST_FILE
 
 	TEST_CATEGORY(L"TuiPlayground regression")
 	{
+		TEST_CASE(L"Strict parser accepts every command shape and preserves payloads")
+		{
+			PaintingCommand command;
+			U32String reason;
+
+			TEST_ASSERT(TryParseCommand(U"fC fFaA00", command, reason));
+			TEST_ASSERT(command.Get<SetForegroundColorCommand>().color == TuiColor({ 255, 170, 0 }));
+
+			TEST_ASSERT(TryParseCommand(U"Bc ClEaR", command, reason));
+			TEST_ASSERT(!command.Get<SetBackgroundColorCommand>().color);
+			TEST_ASSERT(TryParseCommand(U"BC 000000", command, reason));
+			TEST_ASSERT(command.Get<SetBackgroundColorCommand>().color.Value() == TuiColor({ 0, 0, 0 }));
+
+			const char32_t* lineFormats[] = { U"thin", U"THICK", U"DoUbLe" };
+			const TuiMergeableGlyph lineGlyphs[] =
+			{
+				TuiMergeableGlyph::ThinLine,
+				TuiMergeableGlyph::ThickLine,
+				TuiMergeableGlyph::DoubleLine,
+			};
+			for (vint i = 0; i < 3; i++)
+			{
+				TEST_ASSERT(TryParseCommand(U32String(U"LINEV ") + lineFormats[i] + U" -1 -2 3", command, reason));
+				auto&& vertical = command.Get<DrawLineVCommand>();
+				TEST_ASSERT(vertical.glyph == lineGlyphs[i] && vertical.x == -1 && vertical.y1 == -2 && vertical.y2 == 3);
+
+				TEST_ASSERT(TryParseCommand(U32String(U"lineh ") + lineFormats[i] + U" -3 4 5", command, reason));
+				auto&& horizontal = command.Get<DrawLineHCommand>();
+				TEST_ASSERT(horizontal.glyph == lineGlyphs[i] && horizontal.x1 == -3 && horizontal.x2 == 4 && horizontal.y == 5);
+
+				TEST_ASSERT(TryParseCommand(U32String(U"RECT ") + lineFormats[i] + U" -3 -2 4 5", command, reason));
+				auto&& rectangle = command.Get<DrawRectCommand>();
+				TEST_ASSERT(rectangle.glyph == lineGlyphs[i] && rectangle.corner == TuiRectCorner::Sharp);
+			}
+
+			TEST_ASSERT(TryParseCommand(U"rEcT rOuNd -3 -2 4 5", command, reason));
+			auto&& rounded = command.Get<DrawRectCommand>();
+			TEST_ASSERT(rounded.glyph == TuiMergeableGlyph::ThinLine && rounded.corner == TuiRectCorner::Round);
+
+			TEST_ASSERT(TryParseCommand(U"cLeAr aBcDeF -4 -3 2 1", command, reason));
+			auto&& clear = command.Get<ClearRectCommand>();
+			TEST_ASSERT(clear.backgroundColor == TuiColor({ 0xAB, 0xCD, 0xEF }));
+			TEST_ASSERT(clear.x1 == -4 && clear.y1 == -3 && clear.x2 == 2 && clear.y2 == 1);
+
+			TEST_ASSERT(TryParseCommand(U"TyPe -1 2:Ab :\U0001F600", command, reason));
+			auto&& type = command.Get<TypeCommand>();
+			TEST_ASSERT(type.x == -1 && type.y == 2);
+			TEST_ASSERT(type.text == U"Ab :\U0001F600");
+
+			vint parsed = 0;
+			TEST_ASSERT(TryParseVint(wtou32(itow(std::numeric_limits<vint>::min())), parsed));
+			TEST_ASSERT(parsed == std::numeric_limits<vint>::min());
+			TEST_ASSERT(TryParseVint(wtou32(itow(std::numeric_limits<vint>::max())), parsed));
+			TEST_ASSERT(parsed == std::numeric_limits<vint>::max());
+		});
+
+		TEST_CASE(L"Strict parser rejects malformed commands, whitespace, overflow and ranges")
+		{
+			List<U32String> invalid;
+			invalid.Add(U32String(U""));
+			invalid.Add(U32String(U" FC FFFFFF"));
+			invalid.Add(U32String(U"FC  FFFFFF"));
+			invalid.Add(U32String(U"FC FFFFFF "));
+			invalid.Add(U32String(U"FC FFFFF"));
+			invalid.Add(U32String(U"FC GFFFFF"));
+			invalid.Add(U32String(U"BC clear "));
+			invalid.Add(U32String(U"LINEV ROUND 0 0 1"));
+			invalid.Add(U32String(U"LINEV THIN 0 2 1"));
+			invalid.Add(U32String(U"LINEH THIN 2 1 0"));
+			invalid.Add(U32String(U"RECT ROUND 0 0 0 1"));
+			invalid.Add(U32String(U"RECT CURVE 0 0 1 1"));
+			invalid.Add(U32String(U"CLEAR FFFFFF 0 2 1 1"));
+			invalid.Add(U32String(U"TYPE 0 0:"));
+			invalid.Add(U32String(U"TYPE +0 0:text"));
+			invalid.Add(U32String(U"TYPE 0  0:text"));
+			invalid.Add(U32String(U"TYPE 0 0 :text"));
+			invalid.Add(U32String(U"UNKNOWN"));
+			invalid.Add(U32String(U"LINEV THIN ") + wtou32(itow(std::numeric_limits<vint>::max())) + U"0 0 1");
+			invalid.Add(U32String(U"LINEH THIN -") + wtou32(itow(std::numeric_limits<vint>::max())) + U"0 1 0");
+
+			for (auto&& text : invalid)
+			{
+				PaintingCommand command;
+				U32String reason;
+				TEST_ASSERT(!TryParseCommand(text, command, reason));
+				TEST_ASSERT(reason.Length() > 0);
+			}
+		});
+
 		TEST_CASE(L"q and Q are command text and only Escape exits")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
@@ -1185,6 +1316,7 @@ TEST_FILE
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
 			TEST_ASSERT(backend->events.Count() == 0);
+			TEST_ASSERT(callback.state.typingCommand == U"qQ");
 		});
 
 		TEST_CASE(L"The bottom command row has a distinct dark gray background")
@@ -1201,6 +1333,258 @@ TEST_FILE
 			{
 				TEST_ASSERT(backend->renderedBuffer[(backend->height - 1) * backend->width + x].backgroundColor == TuiColor({ 64, 64, 64 }));
 			}
+		});
+
+		TEST_CASE(L"Native units resynchronize without swallowing scalars or Backspace")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+#if defined VCZH_WCHAR_UTF16
+			auto high = (wchar_t)0xD83D;
+			auto low = (wchar_t)0xDE00;
+			backend->PushChar(low);
+			backend->PushChar(high);
+			backend->PushChar(high);
+			backend->PushChar(low);
+			backend->PushChar(high);
+			backend->PushChar(L'B');
+			backend->PushChar(high);
+			backend->PushChar(L'\b');
+			backend->PushChar((wchar_t)0x7F);
+#else
+			backend->PushChar((wchar_t)U'\U0001F600');
+			backend->PushChar(L'B');
+			backend->PushChar(L'\b');
+			backend->PushChar((wchar_t)0x7F);
+#endif
+			backend->PushChar(L'q');
+			backend->PushChar(L'Q');
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(callback.state.typingCommand == U"qQ");
+#if defined VCZH_WCHAR_UTF16
+			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
+#endif
+		});
+
+		TEST_CASE(L"Malformed native units do not swallow Enter or Escape and errors retain no pending input")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+#if defined VCZH_WCHAR_UTF16
+			auto high = (wchar_t)0xD83D;
+			auto low = (wchar_t)0xDE00;
+			backend->PushChar(high);
+#endif
+			backend->PushChar(L'\r');
+#if defined VCZH_WCHAR_UTF16
+			backend->PushChar(high);
+			backend->PushChar(low);
+#endif
+			backend->PushChar(L'Z');
+			backend->PushChar(L'\r');
+#if defined VCZH_WCHAR_UTF16
+			backend->PushChar(high);
+#endif
+			backend->PushChar(L'\n');
+			backend->PushChar(L'\r');
+#if defined VCZH_WCHAR_UTF16
+			backend->PushChar(high);
+#endif
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(!callback.state.error);
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
+#if defined VCZH_WCHAR_UTF16
+			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
+#endif
+		});
+
+		TEST_CASE(L"Wrapping grows the command box and moves a full-row cursor to the next line")
+		{
+			auto wrapped = WrapText(U"abcd", 4, true);
+			TEST_ASSERT(wrapped.rowWidths.Count() == 2);
+			TEST_ASSERT(wrapped.rowWidths[0] == 4 && wrapped.rowWidths[1] == 0);
+			TEST_ASSERT(wrapped.cursorX == 0 && wrapped.cursorRow == 1);
+
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 4;
+			backend->height = 5;
+			backend->PushText(U"abcd");
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[2 * 4].GetChar32() == U'\u255A');
+			for (vint x = 0; x < 4; x++)
+			{
+				TEST_ASSERT(backend->renderedBuffer[3 * 4 + x].GetChar32() == U'a' + x);
+				TEST_ASSERT(backend->renderedBuffer[3 * 4 + x].backgroundColor == TuiColor({ 64, 64, 64 }));
+			}
+			TEST_ASSERT(backend->renderedBuffer[4 * 4].GetChar32() == U'\u2588');
+		});
+
+		TEST_CASE(L"A width-two scalar is retained in one column and appears after resize")
+		{
+			auto narrow = WrapText(U"\U0001F600", 1, true);
+			TEST_ASSERT(narrow.scalars.Count() == 0);
+			TEST_ASSERT(narrow.rowWidths.Count() == 1);
+
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 1;
+			backend->height = 3;
+			backend->PushScalar(U'\U0001F600');
+			backend->PushResize(2, 3);
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(callback.state.typingCommand == U"\U0001F600");
+			TEST_ASSERT(backend->renderWidth == 2 && backend->renderHeight == 3);
+			TEST_ASSERT(backend->renderedBuffer[2].GetChar32() == U'\U0001F600');
+			TEST_ASSERT(backend->renderedBuffer[3].glyph == TuiPixelGlyph::WideCharContinuation);
+			TEST_ASSERT(backend->renderedBuffer[4].GetChar32() == U'\u2588');
+		});
+
+		TEST_CASE(L"The 500 millisecond timer alternates hidden and visible cursor frames")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->escapeAfterTimeouts = 2;
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(backend->waitTimeouts.Count() == 3);
+			for (auto timeout : backend->waitTimeouts)
+			{
+				TEST_ASSERT(timeout == 500);
+			}
+			TEST_ASSERT(backend->renderedTexts.Count() == 4);
+			auto cursor = (backend->height - 1) * backend->width;
+			TEST_ASSERT(backend->renderedTexts[0][cursor] == U'\u2588');
+			TEST_ASSERT(backend->renderedTexts[1][cursor] == U'\u2588');
+			TEST_ASSERT(backend->renderedTexts[2][cursor] == 0);
+			TEST_ASSERT(backend->renderedTexts[3][cursor] == U'\u2588');
+		});
+
+		TEST_CASE(L"Commands replay in logical paper coordinates with clipping and background preservation")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 12;
+			backend->height = 8;
+			backend->PushCommand(U"FC FF0000");
+			backend->PushCommand(U"BC 112233");
+			backend->PushCommand(U"CLEAR 445566 0 0 9 4");
+			backend->PushCommand(U"LINEH THIN -2 9 1");
+			backend->PushCommand(U"LINEV DOUBLE 2 -2 4");
+			backend->PushCommand(U"RECT ROUND 4 0 8 4");
+			backend->PushCommand(U"BC CLEAR");
+			backend->PushCommand(U"TYPE 0 2:\u754CA");
+			backend->PushCommand(U"LINEH THICK 0 9 4");
+			backend->PushResize(14, 9);
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(callback.state.commands.Count() == 9);
+			TEST_ASSERT(backend->renderWidth == 14 && backend->renderHeight == 9);
+			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[13].GetChar32() == U'\u2557');
+			TEST_ASSERT(backend->renderedBuffer[7 * 14].GetChar32() == U'\u255A');
+			TEST_ASSERT(backend->renderedBuffer[7 * 14 + 13].GetChar32() == U'\u255D');
+
+			auto&& wide = backend->renderedBuffer[3 * 14 + 1];
+			auto&& continuation = backend->renderedBuffer[3 * 14 + 2];
+			auto&& ascii = backend->renderedBuffer[3 * 14 + 3];
+			TEST_ASSERT(wide.GetChar32() == U'\u754C');
+			TEST_ASSERT(continuation.glyph == TuiPixelGlyph::WideCharContinuation);
+			TEST_ASSERT(wide.foregroundColor == TuiColor({ 255, 0, 0 }));
+			TEST_ASSERT(wide.backgroundColor == TuiColor({ 0x44, 0x55, 0x66 }));
+			TEST_ASSERT(continuation.backgroundColor == wide.backgroundColor);
+			TEST_ASSERT(ascii.GetChar32() == U'A');
+			TEST_ASSERT(ascii.foregroundColor == TuiColor({ 255, 0, 0 }));
+			TEST_ASSERT(ascii.backgroundColor == TuiColor({ 0x11, 0x22, 0x33 }));
+
+			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 5].GetChar32() == U'\u256D');
+			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 1].backgroundColor == TuiColor({ 0x44, 0x55, 0x66 }));
+			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 11].backgroundColor == TuiColor({ 0, 0, 0 }));
+			for (vint x = 0; x < 14; x++)
+			{
+				TEST_ASSERT(backend->renderedBuffer[8 * 14 + x].backgroundColor == TuiColor({ 64, 64, 64 }));
+			}
+		});
+
+		TEST_CASE(L"Parse errors preserve Unicode, hide the cursor and stay inside both borders")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 14;
+			backend->height = 8;
+			backend->PushCommand(U"BAD \U0001F600");
+			backend->PushChar(L'X');
+#if defined VCZH_WCHAR_UTF16
+			backend->PushChar((wchar_t)0xD83D);
+			backend->PushChar((wchar_t)0xDE00);
+#endif
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+
+			TEST_ASSERT(callback.state.error);
+			TEST_ASSERT(callback.state.error.Value().originalCommand == U"BAD \U0001F600");
+			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
+#if defined VCZH_WCHAR_UTF16
+			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
+#endif
+			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[6 * 14].GetChar32() == U'\u255A');
+			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 1].GetChar32() == U'\u256D');
+			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 12].GetChar32() == U'\u256E');
+			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 1].GetChar32() == U'\u2570');
+			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 12].GetChar32() == U'\u256F');
+			for (vint x = 0; x < 14; x++)
+			{
+				TEST_ASSERT(backend->renderedBuffer[7 * 14 + x].backgroundColor == TuiColor({ 64, 64, 64 }));
+				TEST_ASSERT(backend->renderedBuffer[7 * 14 + x].GetChar32() != U'\u2588');
+			}
+		});
+
+		TEST_CASE(L"Enter dismisses an error without submitting an empty command")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushCommand(U"INVALID");
+			backend->PushChar(L'Z');
+			backend->PushChar(L'\r');
+			backend->PushChar(L'q');
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(!callback.state.error);
+			TEST_ASSERT(callback.state.commands.Count() == 0);
+			TEST_ASSERT(callback.state.typingCommand == U"q");
 		});
 	});
 }

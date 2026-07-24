@@ -6430,6 +6430,7 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #define _WINSOCKAPI_
+#include <exception>
 
 #ifndef VCZH_MSVC
 static_assert(false, "Do not build this file for non-Windows applications.");
@@ -6506,13 +6507,80 @@ namespace vl
 				DWORD						outputMode = 0;
 				CONSOLE_CURSOR_INFO			cursorInfo = {};
 				CONSOLE_SCREEN_BUFFER_INFOEX	screenInfo = {};
+				CONSOLE_SCREEN_BUFFER_INFO	originalGeometry = {};
 				List<unittest::TuiBackendEvent> pendingEvents;
 				DWORD						mouseButtons = 0;
+				vint						viewportWidth = 0;
+				vint						viewportHeight = 0;
 				bool						started = false;
 				bool						inputModeChanged = false;
 				bool						outputModeChanged = false;
 				bool						cursorInfoSaved = false;
+				bool						geometrySaved = false;
 				bool						usingVt = false;
+
+				void SetConsoleGeometry(HANDLE handle, COORD bufferSize, SMALL_RECT window)
+				{
+					CONSOLE_SCREEN_BUFFER_INFO current = {};
+					CHECK_ERROR(GetConsoleScreenBufferInfo(handle, &current), L"vl::console::TUI Windows backend failed to query console geometry.");
+					auto currentWidth = (SHORT)(current.srWindow.Right - current.srWindow.Left + 1);
+					auto currentHeight = (SHORT)(current.srWindow.Bottom - current.srWindow.Top + 1);
+					auto temporaryWidth = currentWidth < bufferSize.X ? currentWidth : bufferSize.X;
+					auto temporaryHeight = currentHeight < bufferSize.Y ? currentHeight : bufferSize.Y;
+					SMALL_RECT temporary = { 0, 0, (SHORT)(temporaryWidth - 1), (SHORT)(temporaryHeight - 1) };
+					if (current.srWindow.Left != temporary.Left ||
+						current.srWindow.Top != temporary.Top ||
+						current.srWindow.Right != temporary.Right ||
+						current.srWindow.Bottom != temporary.Bottom)
+					{
+						CHECK_ERROR(SetConsoleWindowInfo(handle, TRUE, &temporary), L"vl::console::TUI Windows backend failed to prepare the console window for resizing.");
+					}
+					if (current.dwSize.X != bufferSize.X || current.dwSize.Y != bufferSize.Y)
+					{
+						CHECK_ERROR(SetConsoleScreenBufferSize(handle, bufferSize), L"vl::console::TUI Windows backend failed to resize the console screen buffer.");
+					}
+					if (temporary.Left != window.Left ||
+						temporary.Top != window.Top ||
+						temporary.Right != window.Right ||
+						temporary.Bottom != window.Bottom)
+					{
+						CHECK_ERROR(SetConsoleWindowInfo(handle, TRUE, &window), L"vl::console::TUI Windows backend failed to resize the console window.");
+					}
+				}
+
+				void QueueResize(vint width, vint height)
+				{
+					unittest::TuiBackendEvent event;
+					event.type = unittest::TuiBackendEventType::Resize;
+					event.width = width;
+					event.height = height;
+					pendingEvents.Add(event);
+				}
+
+				void SynchronizeViewport(bool queueEvent)
+				{
+					CONSOLE_SCREEN_BUFFER_INFO info = {};
+					CHECK_ERROR(GetConsoleScreenBufferInfo(outputHandle, &info), L"vl::console::TUI Windows backend failed to query the console viewport.");
+					auto width = (vint)(info.srWindow.Right - info.srWindow.Left + 1);
+					auto height = (vint)(info.srWindow.Bottom - info.srWindow.Top + 1);
+					CHECK_ERROR(width > 0 && height > 0, L"vl::console::TUI Windows backend received an invalid console viewport.");
+					auto changed = width != viewportWidth || height != viewportHeight;
+					COORD bufferSize = { (SHORT)width, (SHORT)height };
+					SMALL_RECT window = { 0, 0, (SHORT)(width - 1), (SHORT)(height - 1) };
+					if (info.dwSize.X != bufferSize.X ||
+						info.dwSize.Y != bufferSize.Y ||
+						info.srWindow.Left != 0 ||
+						info.srWindow.Top != 0)
+					{
+						SetConsoleGeometry(outputHandle, bufferSize, window);
+					}
+					viewportWidth = width;
+					viewportHeight = height;
+					if (queueEvent && changed)
+					{
+						QueueResize(width, height);
+					}
+				}
 
 				TuiMouseInfo GetMouseInfo(const MOUSE_EVENT_RECORD& record)
 				{
@@ -6640,18 +6708,7 @@ namespace vl
 						DecodeMouse(record.Event.MouseEvent);
 						break;
 					case WINDOW_BUFFER_SIZE_EVENT:
-						{
-							vint width = 0;
-							vint height = 0;
-							if (TryGetConsoleSize(width, height))
-							{
-								unittest::TuiBackendEvent event;
-								event.type = unittest::TuiBackendEventType::Resize;
-								event.width = width;
-								event.height = height;
-								pendingEvents.Add(event);
-							}
-						}
+						SynchronizeViewport(true);
 						break;
 					}
 				}
@@ -6703,7 +6760,12 @@ namespace vl
 					cursorInfoSaved = GetConsoleCursorInfo(originalOutputHandle, &cursorInfo) != 0;
 					screenInfo = {};
 					screenInfo.cbSize = sizeof(screenInfo);
-					GetConsoleScreenBufferInfoEx(originalOutputHandle, &screenInfo);
+					if (!GetConsoleScreenBufferInfoEx(originalOutputHandle, &screenInfo))
+					{
+						screenInfo.cbSize = 0;
+					}
+					CHECK_ERROR(GetConsoleScreenBufferInfo(originalOutputHandle, &originalGeometry), L"vl::console::TUI failed to save the original console geometry.");
+					geometrySaved = true;
 					started = true;
 
 					try
@@ -6721,53 +6783,98 @@ namespace vl
 							outputModeChanged = true;
 							const wchar_t sequence[] = L"\x1B[?1049h\x1B[?25l";
 							WriteConsoleAll(outputHandle, sequence, sizeof(sequence) / sizeof(*sequence) - 1);
+							SynchronizeViewport(false);
 							if (options.colorMode == TuiColorMode::Auto) return TuiColorMode::TrueColor;
 							return options.colorMode;
 						}
 
 						classicOutputHandle = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CONSOLE_TEXTMODE_BUFFER, nullptr);
 						CHECK_ERROR(classicOutputHandle != INVALID_HANDLE_VALUE, L"vl::console::TUI failed to create an alternate console screen buffer.");
-						CONSOLE_SCREEN_BUFFER_INFO info = {};
-						CHECK_ERROR(GetConsoleScreenBufferInfo(originalOutputHandle, &info), L"vl::console::TUI failed to query the original console screen buffer.");
-						auto width = (SHORT)(info.srWindow.Right - info.srWindow.Left + 1);
-						auto height = (SHORT)(info.srWindow.Bottom - info.srWindow.Top + 1);
-						SetConsoleScreenBufferSize(classicOutputHandle, { width, height });
+						auto width = (SHORT)(originalGeometry.srWindow.Right - originalGeometry.srWindow.Left + 1);
+						auto height = (SHORT)(originalGeometry.srWindow.Bottom - originalGeometry.srWindow.Top + 1);
+						SetConsoleGeometry(classicOutputHandle, { width, height }, { 0, 0, (SHORT)(width - 1), (SHORT)(height - 1) });
 						CHECK_ERROR(SetConsoleActiveScreenBuffer(classicOutputHandle), L"vl::console::TUI failed to activate the alternate console screen buffer.");
 						outputHandle = classicOutputHandle;
+						viewportWidth = width;
+						viewportHeight = height;
 						return TuiColorMode::Color16;
 					}
 					catch (...)
 					{
-						Stop();
-						throw;
+						auto exception = std::current_exception();
+						try
+						{
+							Stop();
+						}
+						catch (...)
+						{
+						}
+						std::rethrow_exception(exception);
 					}
 				}
 
 				void Stop() override
 				{
 					if (!started) return;
+					auto restored = true;
 					if (usingVt)
 					{
-						const wchar_t sequence[] = L"\x1B[0m\x1B[?25h\x1B[?1049l";
+						auto width = originalGeometry.srWindow.Right - originalGeometry.srWindow.Left + 1;
+						auto height = originalGeometry.srWindow.Bottom - originalGeometry.srWindow.Top + 1;
+						auto sequence = WString::Unmanaged(L"\x1B[0m\x1B[8;")
+							+ itow(height) + L";" + itow(width) + L"t\x1B[?1049l\x1B[?25h";
 						try
 						{
-							WriteConsoleAll(outputHandle, sequence, sizeof(sequence) / sizeof(*sequence) - 1);
+							WriteConsoleAll(outputHandle, sequence.Buffer(), sequence.Length());
+							auto deadline = GetTickCount64() + 250;
+							vint stableCount = 0;
+							while (true)
+							{
+								CONSOLE_SCREEN_BUFFER_INFO info = {};
+								CHECK_ERROR(GetConsoleScreenBufferInfo(outputHandle, &info), L"vl::console::TUI Windows backend failed to wait for terminal restoration.");
+								auto currentWidth = info.srWindow.Right - info.srWindow.Left + 1;
+								auto currentHeight = info.srWindow.Bottom - info.srWindow.Top + 1;
+								if (currentWidth == width && currentHeight == height)
+								{
+									if (++stableCount == 10) break;
+								}
+								else
+								{
+									stableCount = 0;
+								}
+								if (GetTickCount64() >= deadline) break;
+								::Sleep(1);
+							}
 						}
 						catch (...)
 						{
+							restored = false;
 						}
 					}
 					if (classicOutputHandle != INVALID_HANDLE_VALUE)
 					{
-						SetConsoleActiveScreenBuffer(originalOutputHandle);
-						CloseHandle(classicOutputHandle);
+						if (!SetConsoleActiveScreenBuffer(originalOutputHandle)) restored = false;
+						if (!CloseHandle(classicOutputHandle)) restored = false;
 						classicOutputHandle = INVALID_HANDLE_VALUE;
 					}
-					if (cursorInfoSaved) SetConsoleCursorInfo(originalOutputHandle, &cursorInfo);
-					if (outputModeChanged) SetConsoleMode(originalOutputHandle, outputMode);
-					if (inputModeChanged) SetConsoleMode(inputHandle, inputMode);
+					if (geometrySaved)
+					{
+						try
+						{
+							SetConsoleGeometry(originalOutputHandle, originalGeometry.dwSize, originalGeometry.srWindow);
+						}
+						catch (...)
+						{
+							restored = false;
+						}
+					}
+					if (cursorInfoSaved && !SetConsoleCursorInfo(originalOutputHandle, &cursorInfo)) restored = false;
+					if (outputModeChanged && !SetConsoleMode(originalOutputHandle, outputMode)) restored = false;
+					if (inputModeChanged && !SetConsoleMode(inputHandle, inputMode)) restored = false;
 					pendingEvents.Clear();
 					mouseButtons = 0;
+					viewportWidth = 0;
+					viewportHeight = 0;
 					outputHandle = INVALID_HANDLE_VALUE;
 					originalOutputHandle = INVALID_HANDLE_VALUE;
 					inputHandle = INVALID_HANDLE_VALUE;
@@ -6775,7 +6882,9 @@ namespace vl
 					inputModeChanged = false;
 					outputModeChanged = false;
 					cursorInfoSaved = false;
+					geometrySaved = false;
 					started = false;
+					CHECK_ERROR(restored, L"vl::console::TUI Windows backend failed to restore the original console state.");
 				}
 
 				bool TryGetConsoleSize(vint& width, vint& height) override
@@ -6797,13 +6906,25 @@ namespace vl
 				{
 					if (pendingEvents.Count() == 0)
 					{
+						SynchronizeViewport(true);
+					}
+					if (pendingEvents.Count() == 0)
+					{
 						auto result = WaitForSingleObject(inputHandle, milliseconds < 0 ? INFINITE : (DWORD)milliseconds);
-						if (result == WAIT_TIMEOUT) return false;
-						CHECK_ERROR(result == WAIT_OBJECT_0, L"vl::console::TUI Windows backend failed while waiting for console input.");
-						INPUT_RECORD records[32];
-						DWORD count = 0;
-						CHECK_ERROR(ReadConsoleInputW(inputHandle, records, sizeof(records) / sizeof(*records), &count), L"vl::console::TUI Windows backend failed to read console input.");
-						for (DWORD i = 0; i < count; i++) DecodeRecord(records[i]);
+						if (result == WAIT_TIMEOUT)
+						{
+							SynchronizeViewport(true);
+							if (pendingEvents.Count() == 0) return false;
+						}
+						else
+						{
+							CHECK_ERROR(result == WAIT_OBJECT_0, L"vl::console::TUI Windows backend failed while waiting for console input.");
+							INPUT_RECORD records[32];
+							DWORD count = 0;
+							CHECK_ERROR(ReadConsoleInputW(inputHandle, records, sizeof(records) / sizeof(*records), &count), L"vl::console::TUI Windows backend failed to read console input.");
+							for (DWORD i = 0; i < count; i++) DecodeRecord(records[i]);
+							SynchronizeViewport(true);
+						}
 					}
 					if (pendingEvents.Count() == 0) return false;
 					event = pendingEvents[0];
