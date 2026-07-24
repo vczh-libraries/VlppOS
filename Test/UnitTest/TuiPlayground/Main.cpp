@@ -43,6 +43,7 @@ namespace
 		}
 	};
 
+#if !defined VCZH_TUI_PLAYGROUND_TEST
 	vint RunPlayground()
 	{
 		PlaygroundCallback callback;
@@ -59,8 +60,10 @@ namespace
 		CHECK_ERROR(TUI::UninstallListener(&callback), L"TuiPlayground failed to uninstall its callback.");
 		return 0;
 	}
+#endif
 }
 
+#if !defined VCZH_TUI_PLAYGROUND_TEST
 #if defined VCZH_MSVC
 int wmain()
 #elif defined VCZH_GCC
@@ -92,3 +95,4 @@ int main()
 #endif
 	return (int)result;
 }
+#endif

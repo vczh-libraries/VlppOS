@@ -5,6 +5,10 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "../../Source/TUI/TUI.h"
 
+#define VCZH_TUI_PLAYGROUND_TEST
+#include "../UnitTest/TuiPlayground/Main.cpp"
+#undef VCZH_TUI_PLAYGROUND_TEST
+
 using namespace vl;
 using namespace vl::collections;
 using namespace vl::console;
@@ -25,6 +29,7 @@ namespace
 		vint								renderWidth = 0;
 		vint								renderHeight = 0;
 		TuiColorMode						renderColorMode = TuiColorMode::Auto;
+		Array<TuiPixel>						renderedBuffer;
 		TuiColorMode						startColorMode = TuiColorMode::TrueColor;
 		bool								honorRequestedColorMode = true;
 		bool								failStart = false;
@@ -73,12 +78,18 @@ namespace
 			return false;
 		}
 
-		void Render(const TuiPixel*, vint width, vint height, TuiColorMode colorMode) override
+		void Render(const TuiPixel* buffer, vint width, vint height, TuiColorMode colorMode) override
 		{
 			renderCount++;
 			renderWidth = width;
 			renderHeight = height;
 			renderColorMode = colorMode;
+			Array<TuiPixel> copiedBuffer(width * height);
+			for (vint i = 0; i < width * height; i++)
+			{
+				copiedBuffer[i] = buffer[i];
+			}
+			renderedBuffer = std::move(copiedBuffer);
 		}
 
 		void PushChar(const TuiCharInfo& info)
@@ -1157,6 +1168,39 @@ TEST_FILE
 			TEST_ASSERT(Console::IsEnabled());
 			TEST_ASSERT(!TUI::IsInUse());
 			TUI::UninstallListener(&callback);
+		});
+	});
+
+	TEST_CATEGORY(L"TuiPlayground regression")
+	{
+		TEST_CASE(L"q and Q are command text and only Escape exits")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushChar(L'q');
+			backend->PushChar(L'Q');
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(backend->events.Count() == 0);
+		});
+
+		TEST_CASE(L"The bottom command row has a distinct dark gray background")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->PushChar((wchar_t)0x1B);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(backend->renderedBuffer.Count() == backend->width * backend->height);
+			for (vint x = 0; x < backend->width; x++)
+			{
+				TEST_ASSERT(backend->renderedBuffer[(backend->height - 1) * backend->width + x].backgroundColor == TuiColor({ 64, 64, 64 }));
+			}
 		});
 	});
 }

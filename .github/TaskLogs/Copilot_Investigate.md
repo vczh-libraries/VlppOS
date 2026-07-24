@@ -2,96 +2,158 @@
 
 # PROBLEM DESCRIPTION
 
-# Native `wchar_t` TUI character events
+Complete [`TODO_Task_TuiRefactor.md`](./TODO_Task_TuiRefactor.md) first. This task consumes its native-`wchar_t` character-event contract while keeping painter text and drawing operations scalar-based.
 
-This task refactors the already implemented cross-platform TUI from [`TODO_Task.md`](./TODO_Task.md). Complete and commit this task before implementing [`TODO_Task_TuiPlayground.md`](./TODO_Task_TuiPlayground.md).
+You are going to improve the `TuiPlayground` project to make it a real playground for manual testing:
+- The TUI playground becomes an ASCII art painting app by typing commands, put the usage in `Project.md`.
+- Commit and push all local changes after finishing.
 
-For the `TuiCharInfo` character-event contract, this task has priority over the decoded-scalar rules in `TODO_Task.md`, [`Task_TUI.md`](./Task_TUI.md), and the future GacUI integration plan.
+Before actually implementing, fix a bug first. On Windows, `TUI` does not expand to the whole window because the console window always displays a vertical scroll bar. `TUI` does not scroll because it uses the buffer for rendering. Disable the vertical scroll bar so that `TUI` appears to take over the whole area.
 
-- Commit and push all changes after finishing this task.
-- Do not implement the ASCII-art painter in this task.
+Now implement the ASCII art painter like this:
+- Automatic layout happens when the console window is resized.
+- At the very bottom there will be a text box:
+  - The background will be dark gray, making it distinct from the painting area and indicating that it is for typing.
+  - A cursor will flash every half second at the end of the typed text, indicating where the next character will appear.
+  - No actual cursor editing is supported. Pressing Backspace is the only way to delete typed text, and it deletes the last character.
+  - Character width must be respected while implementing automatic line wrapping. Decode native `wchar_t` character-event units into complete `char32_t` scalar values first. Complex scripts do not need to be supported; treat the input as a simple left-to-right script and render each scalar separately. When multiple lines are needed, the text box expands or shrinks immediately. If the last line is completely occupied, render the cursor on the next line.
+- The rest of the area will be the ASCII art display area:
+  - Its border is always a double-line rectangle, just like it is now.
+  - The app remembers all valid typed commands and replays them whenever repainting is needed. The border clips anything outside the painting area, including anything that would overwrite the border itself. The paper does not scroll; its `(0, 0)` is always at terminal coordinate `(1, 1)` because the double-line border occupies one cell.
+- Here are all commands to support. Command and format names are case-insensitive:
+  - `FC FFFFFF`: set foreground color using HTML color format without '#', default to white.
+  - `BC CLEAR|000000`: background color, default to clear.
+  - `LINEV FORMAT x y1 y2`, FORMAT would be `THIN|THICK|DOUBLE`.
+  - `LINEH FORMAT x1 x2 y`
+  - `RECT FORMAT x1 y1 x2 y2`, FORMAT would be `THIN|THICK|DOUBLE|ROUND`.
+  - `CLEAR FFFFFF x1 y1 x2 y2`, clear a rectangle using the specified background color.
+  - `TYPE x y:TEXT`, put text without automatic line wrapping.
+- Parsing is strict and happens when the user presses Enter.
+- When parsing fails, display an error message like:
+  - `ERROR, original command:xxxx`
+  - `REASON:xxxx`
+  - Display a rounded rectangle occupying the available painting width and align it vertically in the center.
+  - The error has two logical text lines. Both support line wrapping, and each wrapped line is horizontally centered.
+  - When the user presses Enter again, the error disappears and the user can continue typing.
+- Regardless of success or failure, clear the command text box immediately after submission.
 
-## GOAL
+Data structure:
 
-Change `TuiCharInfo::code` from `char32_t` to the platform-native `wchar_t`:
+Here is the suggested data structure to store everything in the UI, so that when the console window resized, repaints could happen and render everything correctly, including:
+- Rendering error message, or empty.
+- Typing commands.
+- All accumulated valid commands.
 
 ```C++
-struct TuiCharInfo
+struct SetForegroundColorCommand
 {
-	wchar_t							code = 0;
-	bool							ctrl = false;
-	bool							shift = false;
-	bool							alt = false;
-	bool							capslock = false;
+	TuiColor						color = { 255, 255, 255 };
+};
+
+struct SetBackgroundColorCommand
+{
+	Nullable<TuiColor>				color; // null means BC CLEAR
+};
+
+struct DrawLineVCommand
+{
+	TuiMergeableGlyph				glyph = TuiMergeableGlyph::ThinLine;
+	vint							x = 0;
+	vint							y1 = 0;
+	vint							y2 = 0;
+};
+
+struct DrawLineHCommand
+{
+	TuiMergeableGlyph				glyph = TuiMergeableGlyph::ThinLine;
+	vint							x1 = 0;
+	vint							x2 = 0;
+	vint							y = 0;
+};
+
+struct DrawRectCommand
+{
+	TuiMergeableGlyph				glyph = TuiMergeableGlyph::ThinLine;
+	TuiRectCorner					corner = TuiRectCorner::Sharp;
+	vint							x1 = 0;
+	vint							y1 = 0;
+	vint							x2 = 0;
+	vint							y2 = 0;
+};
+
+struct ClearRectCommand
+{
+	TuiColor						backgroundColor = { 0, 0, 0 };
+	vint							x1 = 0;
+	vint							y1 = 0;
+	vint							x2 = 0;
+	vint							y2 = 0;
+};
+
+struct TypeCommand
+{
+	vint							x = 0;
+	vint							y = 0;
+	U32String						text;
+};
+
+using PaintingCommand = Variant<
+	SetForegroundColorCommand,
+	SetBackgroundColorCommand,
+	DrawLineVCommand,
+	DrawLineHCommand,
+	DrawRectCommand,
+	ClearRectCommand,
+	TypeCommand
+	>;
+
+struct CommandError
+{
+	U32String						originalCommand;
+	U32String						reason;
+};
+
+struct PlaygroundState
+{
+	Nullable<CommandError>			error;
+	U32String						typingCommand;
+#if defined VCZH_WCHAR_UTF16
+	wchar_t							pendingHighSurrogate = 0;
+#endif
+	collections::List<PaintingCommand>	commands;
+	bool							cursorVisible = true;
 };
 ```
 
-`ITuiCallback::Char(const TuiCharInfo&)` reports one native `wchar_t` code unit per character callback, not necessarily one complete Unicode scalar value:
-
-- Windows uses UTF-16 `wchar_t`. A supplementary scalar is reported as independent high- and low-surrogate `Char` callbacks in native character-unit order. Other callback types may occur between them.
-- Linux and macOS use UTF-32 `wchar_t`. A decoded scalar is normally reported in one callback.
-- Each code unit is an ordinary independently dispatched TUI event. If a callback requests `TUI::Stop` after a high surrogate, the queued low surrogate is suppressed by the existing stop contract.
-
-This change intentionally aligns TUI character input with native `wchar_t` consumers. It does not change the scalar-based drawing and buffer APIs: in particular, `TuiPixel::c` remains `char32_t`.
-
 ## DETAILS
 
-### Public and internal event contract
-
-- Change only `TuiCharInfo::code` to `wchar_t`. `TuiPixel::c`, `TuiPixel::GetChar32`, `TUI::MeasureChar`, and both `TUI::PrintChar` overloads remain `char32_t`.
-- `unittest::TuiBackendEvent::charInfo` follows the public structure automatically. Test backends and callbacks must inject and observe native code units without converting them back to scalars in the dispatcher.
-- Preserve modifier fields from the native input record that produced each unit. Repeat counts and modifiers apply to each native record and emitted unit.
-- Do not add a worker thread, lock, atomic, new public conversion helper, or key-code translation as part of this refactoring.
-
-### Windows backend
-
-- Change the Windows backend's character queue to accept `wchar_t`.
-- For every key-down `KEY_EVENT_RECORD` with a nonzero `uChar.UnicodeChar`, enqueue that UTF-16 code unit unchanged and honor `wRepeatCount`.
-- Delete the backend's pending-high-surrogate field, surrogate-pair combination, U+FFFD substitution for isolated surrogates, and related cleanup. Isolated high or low surrogates are exposed unchanged because `TuiCharInfo` now represents one native code unit.
-- Keep key, modifier, repeat, event-order, reentrancy, stop, and callback-exception behavior unchanged.
-
-### Linux and macOS backend
-
-- Keep the existing incremental UTF-8 decoder, including its validation, incomplete-sequence buffering, and U+FFFD recovery for malformed UTF-8.
-- After one scalar is decoded, enqueue it as the platform-native UTF-32 `wchar_t`. Platform-specific POSIX code may assume `wchar_t` is UTF-32.
-- Standalone Escape and all other character/control callbacks use `wchar_t` values. Mouse and key placeholder behavior is unchanged.
-
-### Converting native units back to scalars
-
-- Scalar-oriented consumers use `vl::encoding::UtfConversion<wchar_t>::To32`, declared by Vlpp and available through the existing VlppOS includes.
-- Do not use `vl::encoding::UtfToUtfReaderBase` or `vl::encoding::UtfStringToStringReader` across separate callbacks. They are pull readers for already available input, treat zero as the end, and cannot wait and resynchronize after an incomplete UTF-16 pair.
-- Shared code distinguishes the native encoding with `VCZH_WCHAR_UTF16` and `VCZH_WCHAR_UTF32`. Platform-specific code may assume Windows is UTF-16 and Linux/macOS is UTF-32.
-- On UTF-16, retain at most one high surrogate and call `vl::encoding::UtfConversion<wchar_t>::To32` with adjacent high/low units in the character-unit stream. The consumer owns its malformed-sequence policy and must reprocess a current valid unit after discarding or replacing an unmatched pending unit so input and controls are not swallowed.
-- On UTF-32, one native unit is converted directly, then validated as a Unicode scalar before scalar-only APIs such as `TUI::MeasureChar` or `TUI::PrintChar` receive it.
-
-### Source, tests, and generated output
-
-Update at least:
-
-- `Source/TUI/TUI.h`.
-- `Source/TUI/TUI.Windows.cpp`.
-- `Source/TUI/TUI.Linux.cpp`.
-- `Test/Source/TestTui.cpp`.
-- The current `Test/UnitTest/TuiPlayground/Main.cpp`, using `L'q'`, `L'Q'`, and a native Escape value until the painter task replaces its input handling.
-
-Regenerate the complete VlppOS release from `CodegenConfig.xml`; do not hand-edit `Release`. Confirm that the generated public header and Windows/Linux implementations contain the native-unit contract.
-
-Update every affected character-event clause in [`Task_TUI.md`](./Task_TUI.md) to describe native `wchar_t` units. This includes removing the Windows scalar-combination rule, replacing any complete-scalar-before-`Char` guarantee, and expressing Escape with a native `wchar_t` value. `TODO_Task.md` remains the historical implemented requirement and is superseded by this task for character events.
-
-Do not edit the sibling GacUI repository in this task. This contract supersedes the affected bridge description in the future `../GacUI/ToDo/Task_TUI.md`; before GacUI Phase 2 is implemented, that task must be updated so the bridge forwards `TuiCharInfo::code` directly instead of splitting a `char32_t`, because Windows already receives separate high/low `Char` events from TUI.
+- `PlaygroundState` is owned directly by the TUI callback. Do not store a `TuiPixel*`, terminal dimensions, wrapped lines, translated coordinates, or a cached painted canvas in it because all of these values are derived during repaint and the TUI buffer pointer is invalidated by resize. A temporary painting-interior buffer allocated for one repaint is allowed.
+- `commands` contains every successfully parsed command, including `FC` and `BC`, in submission order. Every repaint starts with white foreground and a clear background, then replays this list. Do not persist a second copy of the current foreground or background.
+- An empty `SetBackgroundColorCommand::color` represents `BC CLEAR`; a present black `TuiColor` represents `BC 000000`. A clear background means that line and rectangle operations preserve the destination background. `TYPE` also preserves the destination background; for a width-two character, use the leading destination cell's background for both cells.
+- `ROUND` is stored as `TuiMergeableGlyph::ThinLine` with `TuiRectCorner::Round`. All other `RECT` formats use `TuiRectCorner::Sharp`. Reject any other combination while parsing.
+- Store coordinates in logical paper coordinates without translation. Signed coordinates outside the paper are valid. During each repaint, replay the original coordinates into a temporary interior-sized buffer using the buffer-explicit TUI drawing helpers so clipping happens in logical space without translated-integer overflow or invented edges at a clipped rectangle boundary. Copy the bounded interior cells into the active buffer at terminal `(1, 1)`, then draw the outer border so commands cannot overwrite it or the command text box.
+- `TuiCharInfo::code` is one native `wchar_t` unit after the prerequisite refactoring, while `TuiPixel::c` and the drawing and measurement APIs remain `char32_t`. Convert character events to zero or one complete `char32_t` scalar before appending, measuring, wrapping, parsing, or capturing an error command. Under `VCZH_WCHAR_UTF16`, retain a high surrogate in `pendingHighSurrogate` and combine it only when the next `Char` event supplies a low surrogate, using `vl::encoding::UtfConversion<wchar_t>::To32`. Key, mouse, timer, resize, and repaint callbacks neither flush nor invalidate the pending unit. An isolated low surrogate is ignored. If the next character unit after a pending high surrogate is anything else, discard the pending unit and reprocess the current unit; if the current unit is another high surrogate, it becomes the new pending unit. Under `VCZH_WCHAR_UTF32`, convert the one native unit directly and validate the resulting scalar.
+- Do not use `vl::encoding::UtfToUtfReaderBase` or `vl::encoding::UtfStringToStringReader` across callbacks; they cannot retain and resynchronize an incomplete event-by-event UTF-16 sequence. Never append or measure an individual surrogate.
+- Use `U32String` for typed commands, `TYPE` payloads, and error strings so Backspace removes one completed `char32_t` on every platform. After native-unit conversion, treat U+0008 and U+007F as Backspace, U+000D and U+000A as Enter, and U+001B as Escape. A valid control following an unmatched high surrogate must still execute after the unmatched unit is discarded. The physical Delete key remains unsupported because `TuiKeyInfo::code` is reserved for future key-code translation. Use `TUI::MeasureChar` for input wrapping and cursor placement. Other than these controls, ignore input that cannot be rendered as an independent width-one or width-two scalar.
+- Parse exactly the command shapes shown above with one ASCII space at every displayed separator, no leading whitespace, no trailing whitespace outside a `TYPE` payload, exactly six hexadecimal color digits, signed decimal coordinates checked for `vint` overflow, and ordered ranges accepted by the corresponding TUI drawing helper. Compare only command names, formats, `CLEAR`, and hexadecimal digits case-insensitively. Preserve the `TYPE` payload after the required colon exactly, including case, spaces, additional colons, and non-BMP characters. Submitting an empty command and submitting `TYPE x y:` without at least one payload scalar are parse errors.
+- Escape exits the playground. `q` and `Q` are ordinary command text. Reset `pendingHighSurrogate` whenever the command box is cleared or submitted and when TUI starts or stops. While an error is displayed, Enter dismisses it without submitting an empty command, Escape exits, and every other native character unit is ignored without creating pending UTF-16 state. Clear pending state again when the error is dismissed. The typing command has already been cleared, and the blinking cursor is hidden until the error is dismissed.
+- Draw the error overlay inside the painting interior so the outer double-line border remains unchanged. Wrap the `ERROR` and `REASON` logical lines in source order, cap the overlay to the available painting height, and display the leading wrapped rows that fit; clipped rows become visible after a later enlarging resize. Skip the overlay border or text portions that do not fit rather than writing into the outer border or command text box.
+- Start the TUI timer with a 500-millisecond period. Each timer callback toggles `cursorVisible` and repaints. All state remains owner-thread-only; do not add atomics, locks, or worker threads.
+- Cap the command text box at the terminal height and display its trailing wrapped rows so that the cursor stays visible. The painting area may become empty. If the terminal is narrower than a width-two scalar, retain the scalar in `typingCommand` but omit it until a later resize makes it renderable. Draw the painting border or error rectangle only when the available dimensions satisfy the corresponding TUI drawing helper.
+- On Windows, remove the vertical scroll bar without preventing the visible window from growing or shrinking. Do not assume that shrinking the screen buffer once during startup is sufficient; keep any buffer-based solution synchronized with viewport changes. Queue a resize event whenever the visible viewport dimensions change, including viewport-only changes that do not produce `WINDOW_BUFFER_SIZE_EVENT`; checking after console input or an existing timer deadline is acceptable, but do not add busy polling. Keep both virtual-terminal and classic output paths correct. Save and restore the original screen-buffer dimensions and window geometry on normal shutdown, partial backend startup failure, and callback exceptions. Respect the Win32 ordering constraints between window and buffer resizing, and keep partial-startup rollback inside the Windows backend because generic TUI cleanup begins only after backend startup succeeds.
 
 ## VERIFICATION
 
-- Add a compile-time or equivalent test that `TuiCharInfo::code` is exactly `wchar_t`.
-- Update the fake backend and callback helpers to store `wchar_t` values. Do not create temporary invalid one-unit UTF-16 strings merely to log a surrogate; record raw unit values for such tests.
-- Verify that ordinary, isolated-high-surrogate, and isolated-low-surrogate character units and all modifier fields survive backend-event dispatch unchanged under `VCZH_WCHAR_UTF16`.
-- Under `VCZH_WCHAR_UTF16`, enqueue a known high/low surrogate pair and verify two callbacks with the exact units and order. In a separate case, request `TUI::Stop` from the high-surrogate callback and verify that the low-surrogate callback is suppressed.
-- Under `VCZH_WCHAR_UTF32`, enqueue the corresponding supplementary `wchar_t` value and verify one callback.
-- Keep the existing lifecycle, listener mutation, nested `RunOneCycle`, stop, timer, resize, callback-exception, and Console-cleanup cases passing after converting their character helpers and literals to `wchar_t`.
-- Build `Test/UnitTest/UnitTest.sln` in Debug x64 through `.github/Scripts/copilotBuild.ps1`. Run the complete `UnitTest` project through `.github/Scripts/copilotExecute.ps1`, and inspect the final log for failures and Debug memory leaks.
-- Build and run the current `TuiPlayground` through the repository scripts. Confirm that `q`, `Q`, and Escape still stop it and restore the terminal.
-- Verify that regenerated `Release` output matches the changed source contract and that no stale `char32_t` assumption remains for `TuiCharInfo`.
-- Keep Linux/macOS source and build configurations valid. Build and run the complete unit tests on those hosts when they are available, confirming the one-unit UTF-32 path.
+- Build `Test/UnitTest/UnitTest.sln` in Debug x64 using `.github/Scripts/copilotBuild.ps1`. Run the complete `UnitTest` project using `.github/Scripts/copilotExecute.ps1`, and check the final log for failures and Debug memory leaks.
+- Start `TuiPlayground` through `.github/Scripts/copilotExecute.ps1` from a Windows console that has a scrollback buffer taller than its visible window. Confirm that no vertical scroll bar remains while TUI is active, repeatedly growing and shrinking the window continues to report and use the full visible area without bringing the scroll bar back, and the original buffer/window geometry and terminal state return after Escape.
+- Verify the 500-millisecond cursor blink, both platform Backspace character codes, width-one and width-two input wrapping, an exactly full final row placing the cursor on the next row, text-box growth and shrinkage, a one-column terminal retaining width-two input for a later resize, and layouts in which the text box consumes the whole terminal.
+- On a UTF-16 Windows build, feed a valid supplementary-character high/low pair and confirm that it becomes one `U32String` scalar, is measured and rendered as one width-two character, survives in `TYPE` payloads and error text, and is removed by one Backspace. Cover an isolated low surrogate, high-plus-high, high-plus-BMP, and a high surrogate followed by each supported control; malformed units must be ignored without swallowing the following valid scalar or control. Confirm that ignored input while an error is visible cannot leave pending state after dismissal.
+- On UTF-32 Linux/macOS builds, confirm that one native `wchar_t` event takes the direct one-scalar path and produces the same painter state.
+- Submit every command and format in lower-, upper-, and mixed-case forms. Combine `FC`, `BC CLEAR`, `BC 000000`, overlapping lines and rectangles, `CLEAR`, and `TYPE` so foreground replacement, background preservation, wide-character placement, and command ordering are all visible.
+- Resize the terminal larger and smaller after multiple commands. Confirm that commands replay from logical paper `(0, 0)`, offscreen content clips at the painting interior, the border and command text box are never overwritten, and newly visible content is reconstructed from command history.
+- Verify strict-parser failures for an empty submission, an empty `TYPE` payload, bad keywords, formats, whitespace, color lengths/digits, missing fields or colon, integer overflow, and invalid ordered ranges. Confirm that the overlay preserves the original Unicode command, displays a useful reason as two centered wrapping logical lines inside a thin rounded rectangle, stays inside the outer border, clips predictably in a short painting area, clears the command text, ignores non-Enter/non-Escape input, and disappears on Enter.
+- Confirm that `q` and `Q` can be typed and Escape exits. Keep the existing injected-backend coverage for generic startup/callback failure and Console cleanup, but do not treat it as verification of real Win32 geometry restoration; verify the production Windows backend's normal restoration manually.
+- Update `Project.md` with the complete command grammar, input/error behavior, Escape exit key, and Windows/Linux/macOS build and manual verification instructions. Keep the source and build configurations portable. Perform Windows runtime verification now; build and repeat all platform-independent runtime checks on Linux and macOS when those hosts are available.
 
 ## REVIEW COMMENTS
 
@@ -99,43 +161,20 @@ Do not edit the sibling GacUI repository in this task. This contract supersedes 
 
 # TEST [CONFIRMED]
 
-Add native-unit character-event coverage to `Test/Source/TestTui.cpp` before changing production code:
+Use the existing injected TUI backend for deterministic playground behavior and the production Win32 backend for the geometry contract:
 
-- Require `decltype(TuiCharInfo::code)` to be exactly `wchar_t`; this is the root-cause-sensitive reproduction against the current `char32_t` contract.
-- Make the fake backend and callback helper inject and record raw `wchar_t` values without constructing strings from isolated UTF-16 surrogates.
-- Under `VCZH_WCHAR_UTF16`, dispatch an ordinary unit, isolated high and low surrogates, and an adjacent supplementary high/low pair. Verify exact unit order and every modifier field. In a separate run, stop from the high-surrogate callback and verify the low-surrogate callback is suppressed.
-- Under `VCZH_WCHAR_UTF32`, dispatch the corresponding supplementary scalar as one `wchar_t` unit and verify one callback with unchanged modifiers.
-- Keep the existing lifecycle, nested-cycle, listener-generation, stop, timer, resize, exception, rendering, and Console-cleanup cases using native character literals.
+- Compile `Test/UnitTest/TuiPlayground/Main.cpp` into `Test/Source/TestTui.cpp` under a test-only main-function guard so the tests exercise the executable's actual callback and state without duplicating painter logic or adding source files.
+- Capture the last fake-backend frame and verify the current implementation reproduces two root symptoms before the proposal: `q`/`Q` stop event processing instead of becoming command text, and the bottom row has the painting area's black background instead of a distinct dark-gray command box.
+- Expand the committed playground suite with strict-parser coverage for every command and format in lower, upper, and mixed case; exact whitespace and token shapes; six-digit colors; signed `vint` limits and overflow; ordered ranges; empty input and empty `TYPE` payload; and exact preservation of payload case, spaces, colons, and supplementary scalars.
+- Drive native character events through the fake backend. Under UTF-16, cover a valid high/low pair, isolated low, high/high, high/BMP, and high followed by Backspace, Delete-character Backspace, Enter, and Escape. Verify malformed input does not swallow the next scalar or control, one Backspace removes one completed scalar, ignored error-overlay input leaves no pending unit, and `q`/`Q` are ordinary input. Keep the corresponding direct one-unit UTF-32 path compiled for Linux/macOS.
+- Capture frames at multiple fake terminal sizes. Verify 500-millisecond cursor timing, width-one and width-two wrapping, a full last row moving the cursor to the next row, immediate command-box growth/shrinkage, trailing-row display when capped to terminal height, one-column retention of a width-two scalar, empty painting layouts, a dark-gray command background, and a hidden cursor during errors.
+- Submit and replay `FC`, `BC CLEAR`, `BC 000000`, every line/rectangle style, `CLEAR`, and `TYPE`. Verify command ordering, foreground replacement, background preservation, width-two background selection, logical coordinates, offscreen clipping, repaint reconstruction after resize, and protection of the outer border and command box.
+- Verify error overlays preserve the original Unicode command, render `ERROR` then `REASON` as horizontally centered wrapped rows in a thin rounded rectangle, remain inside the painting interior, show leading rows under height clipping, clear the command box, ignore non-Enter/non-Escape input, dismiss on Enter, and exit on Escape.
+- Build the complete Debug x64 solution through `copilotBuild.ps1`, run the complete `UnitTest` project through `copilotExecute.ps1`, require every file/case to pass, and inspect the log tail for Debug memory leaks.
+- Run `TuiPlayground` through `copilotExecute.ps1` in a real Windows console initialized with a scrollback buffer taller than its viewport. Inspect Win32 buffer/window geometry and screen cells while active; repeatedly grow and shrink the viewport; require the active buffer to match the visible viewport, no vertical scrollbar condition, repaint dimensions to follow, and the original buffer size, window rectangle, modes, and terminal contents to return after Escape.
+- In the same production-console run, exercise command entry, cursor blinking, both Backspace character values, width-one/width-two wrapping, supplementary input, successful command combinations, strict failures, overlay dismissal, resize replay, `q`/`Q`, and Escape. Windows runtime evidence is required now; Linux/macOS builds and platform-independent runtime checks remain explicitly deferred unless those hosts are available.
+- Verify `Project.md` contains the complete grammar and input/error/exit behavior plus Windows, Linux, and macOS build/run instructions. If shared TUI source changes, regenerate the complete `Release` output through the repository's existing code-generation workflow and verify the generated Windows implementation matches source.
 
-The initial Debug x64 build compiled with zero warnings and zero errors. The pre-fix complete unit-test run reached `Test/Source/TestTui.cpp` and failed exactly at `std::is_same_v<decltype(TuiCharInfo::code), wchar_t>`, confirming that the current public contract is still `char32_t`. After the proposal, the complete suite must pass with no Debug memory leaks. Final verification also requires regenerated `Release` files to contain the native-unit contract, the current TuiPlayground to stop on `L'q'`, `L'Q'`, and native Escape while restoring the terminal, and the available-host build matrix to remain valid.
+Passing all automated and production-console checks, with zero compiler warnings/errors, no failed tests, no Debug leak dump, and exact geometry restoration, confirms the task.
 
-# PROPOSALS
-
-- No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END [CONFIRMED]
-
-## No.1 ADOPT NATIVE `wchar_t` CHARACTER UNITS END TO END
-
-Make the public event field and both platform queues use the platform-native `wchar_t` unit without any shared-dispatch conversion. Windows should enqueue each nonzero `KEY_EVENT_RECORD::uChar.UnicodeChar` unchanged for every repeat and remove all pending-surrogate state and replacement behavior. POSIX should retain its validated incremental UTF-8 scalar decoder, cast each completed scalar or recovery value to its UTF-32 `wchar_t`, and use a native Escape unit.
-
-Keep every scalar-oriented drawing and buffer API as `char32_t`. Convert the current playground and test callback inputs to native literals, document the new unit contract in `Task_TUI.md`, regenerate the complete release from `Release/CodegenConfig.xml`, and verify source/generated files contain no stale scalar assumption specifically for `TuiCharInfo`.
-
-### CODE CHANGE
-
-- Change only `TuiCharInfo::code` in `Source/TUI/TUI.h` from `char32_t` to `wchar_t`; leave every pixel, width, and drawing scalar signature unchanged.
-- In `Source/TUI/TUI.Windows.cpp`, remove `WindowsTuiBackend::highSurrogate`, make `QueueChar` accept `wchar_t`, and enqueue `record.uChar.UnicodeChar` unchanged once per repeat without combination, substitution, or cleanup state.
-- In `Source/TUI/TUI.Linux.cpp`, make `QueueChar` accept `wchar_t`; keep the existing UTF-8 decoder and validation, casting each decoded scalar and U+FFFD recovery result to the platform UTF-32 unit, and emit Escape as `(wchar_t)0x1B`.
-- Finish the native-unit test-helper conversion in `Test/Source/TestTui.cpp` and update `Test/UnitTest/TuiPlayground/Main.cpp` to compare `L'q'`, `L'Q'`, and `(wchar_t)0x1B`.
-- Update the affected Windows and POSIX input clauses in `Task_TUI.md`, including the task-priority note, independent UTF-16 unit order, complete-scalar decoding only before POSIX conversion, and native Escape value.
-- Regenerate all six tracked VlppOS release files through CodePack using `Release/CodegenConfig.xml`; do not edit generated output manually.
-
-### CONFIRMED
-
-The public source and generated release header now define only `TuiCharInfo::code` as `wchar_t`; `TuiPixel::c`, `TuiPixel::GetChar32`, `TUI::MeasureChar`, and both `TUI::PrintChar` overloads remain `char32_t`. Shared dispatch still forwards `TuiBackendEvent::charInfo` directly without conversion.
-
-The Windows backend has no pending-surrogate field, pairing branch, isolated-surrogate substitution, or cleanup state. Its queue accepts `wchar_t`, copies all four modifier fields from the producing input record, and enqueues the record's nonzero UTF-16 unit once per repeat. The POSIX backend retains its incremental UTF-8 validation and buffering, but now queues completed scalars, U+FFFD recovery, and standalone Escape as native UTF-32 `wchar_t` units.
-
-The Debug x64 solution builds with zero warnings and zero errors. The complete unit-test run passes 16/16 files and 247/247 cases, including exact type identity, ordinary and isolated UTF-16 units, adjacent high/low order, all modifiers, stop suppression after a high surrogate, and every pre-existing lifecycle/callback case. The final execution log contains no Debug memory-leak signal.
-
-CodePack regenerated all six release outputs from `Release/CodegenConfig.xml`; the three files whose content should change—`VlppOS.h`, `VlppOS.Windows.cpp`, and `VlppOS.Linux.cpp`—contain the same native-unit contract as source, and searches find no stale `TuiCharInfo` scalar or Windows surrogate-combination assumption.
-
-The current TuiPlayground was launched through `copilotExecute.ps1` in fresh native 120x30 consoles. `q`, `Q`, and Escape each exited with code zero and restored pre-start buffer sentinels. The `Q` and Escape probes also observed the exact double-line corners U+2554, U+2557, U+255A, and U+255D while active. Linux and macOS runtime hosts are not available in this Windows session; their shared POSIX source, generated release implementation, and conditional `VCZH_WCHAR_UTF32` test path are present, but runtime execution remains deferred to those hosts.
+The initial Debug x64 solution build completed with zero warnings and zero errors. The complete pre-fix unit-test run reached the new `TuiPlayground regression` category and failed at `q and Q are command text and only Escape exits`: the existing callback stopped on `q`, leaving the queued `Q` and Escape events unprocessed. The existing redraw implementation also clears the entire frame to black and draws only the outer rectangle, so it cannot produce the required dark-gray bottom command row. These executable-level checks reproduce the current playground behavior without copying its implementation into the test.
