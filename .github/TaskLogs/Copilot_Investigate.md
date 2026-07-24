@@ -159,6 +159,17 @@ struct PlaygroundState
 
 # UPDATES
 
+## UPDATE
+
+The task is overall good, but I would like to propose a very small improvement:
+- Add a command "exit" to quit the application, if there is already any other ways to quit, remove them. "exit" will be the only way, but yes user could just close the console application window, I believe this is not controllable.
+- Rename `CommandError` to `Information`, and replace the content to `List<U32String>`, so that when user type "help" command, a list of commands would show, awaiting for ENTER to close just like what `CommandError` originally does. Now the two-lined error prompt would become two items in this list.
+- When displaying help, the text should be very short, no commnand explanation is needed, just display acceptable commands like what is written in `Project.md`
+  - `BC CLEAR|RRGGBB`
+  - `LINEV THIN|THICK|DOUBLE x y1 y2`
+  - ... including help and exit
+commit and push all local changes
+
 # TEST [CONFIRMED]
 
 Use the existing injected TUI backend for deterministic playground behavior and the production Win32 backend for the geometry contract:
@@ -182,6 +193,7 @@ The initial Debug x64 solution build completed with zero warnings and zero error
 # PROPOSALS
 
 - No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER [CONFIRMED]
+- No.2 MAKE HELP AND EXIT COMMANDS SHARE A GENERAL INFORMATION OVERLAY
 
 ## No.1 SYNCHRONIZE THE WINDOWS VIEWPORT AND REPLAY A SCALAR-BASED PAINTER
 
@@ -220,3 +232,15 @@ The same production run resized the real terminal through its standard resize co
 To separate backend restoration from the wrapper's own child-exit scrollback adjustment, one temporary post-`TUI::Start` pause was built for inspection and then removed. While the actual `TuiPlayground` process was still alive after Escape, Win32 reported the exact original 70x50 buffer and 70x18 viewport and the original sentinel contents. This exposed the VT host's asynchronous alternate-screen transition; requiring ten stable one-millisecond viewport samples before the final Win32 geometry call made restoration deterministic. The temporary pause and diagnostic instrumentation are absent from the final source.
 
 CodePack regenerated all six release outputs from `Release/CodegenConfig.xml`; only the expected Windows implementation differs. `Project.md` now contains the complete grammar and Windows/Linux/macOS instructions. Linux and macOS runtime hosts are unavailable in this Windows session, so their shared painter implementation and conditional UTF-32 test path compile structurally but runtime execution remains deferred to those hosts as required.
+
+## No.2 MAKE HELP AND EXIT COMMANDS SHARE A GENERAL INFORMATION OVERLAY
+
+Replace `CommandError` with an `Information` value whose only content is an ordered `List<U32String>`. Parse failures will construct the same two logical items as before—`ERROR, original command:` plus the exact submitted command, followed by `REASON:` plus the parser reason—so the existing error presentation and Enter-to-dismiss interaction are preserved without giving errors a special state shape.
+
+Recognize exact, case-insensitive `HELP` and `EXIT` submissions before the painting-command parser. `HELP` will populate `Information` with the short accepted command shapes only: `FC RRGGBB`, `BC CLEAR|RRGGBB`, both line forms, the rectangle form, `CLEAR`, `TYPE`, `HELP`, and `EXIT`. It will not add a painting command or include explanations. The common overlay will independently wrap and center every information item in order, display the leading rows that fit, hide the command cursor, ignore all input except Enter dismissal, and preserve the painting border and command box.
+
+`EXIT` will stop the TUI without entering command history or drawing another frame. Remove Escape handling from both normal entry and the information overlay; after native-unit resynchronization it becomes an ignored non-renderable control. Keep `q` and `Q` ordinary input. Therefore `EXIT` is the only application-controlled quit action, while closing the hosting console window remains outside the application's input contract.
+
+Update the executable-level regression suite to require the exact help list, generalized two-item error information, Enter-only overlay dismissal, ignored Escape in both input states, case-insensitive `EXIT`, and no command-history entry for either control command. Replace Escape-based test termination with queued `EXIT` submissions, preserving timer and Unicode resynchronization coverage. Update `Project.md` with the concise command shapes and the new help/exit behavior. Build and run the complete Debug x64 suite, inspect its final log for leaks, and drive the production executable through `copilotExecute.ps1` to observe help, Enter dismissal, ignored Escape, and `EXIT` shutdown.
+
+### CODE CHANGE
