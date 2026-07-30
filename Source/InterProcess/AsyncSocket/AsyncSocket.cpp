@@ -778,10 +778,15 @@ NetworkProtocolConnection
 		}
 		else
 		{
+			bool promoted = false;
 			InvokeProtocolCallback(state, false, [&](INetworkProtocolCallback* installed)
 			{
-				installed->OnLocalError(error, false);
+				promoted = installed->OnLocalError(error, false);
 			});
+			if (promoted)
+			{
+				StopConnection(state);
+			}
 		}
 	}
 

@@ -48,13 +48,15 @@ NetworkProtocolChannelClient
 				client->NotifyDisconnected();
 			}
 
-			void OnLocalError(const WString& error, bool fatal) override
+			bool OnLocalError(const WString& error, bool fatal) override
 			{
+				fatal = fatal || client->GetClientId() > 0;
 				client->OnLocalError(error, fatal);
 				if (fatal)
 				{
 					client->NotifyDisconnected();
 				}
+				return fatal;
 			}
 
 			void OnConnected() override

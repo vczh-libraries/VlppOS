@@ -52,11 +52,6 @@ namespace vl::inter_process::async_tcp_socket
 			return WString::Unmanaged(operation) + L" failed: " + error.message;
 		}
 
-		bool IsResponseNotFoundError(const windows_http::HttpError& error)
-		{
-			return error.errorCode == (vuint32_t)SocketHttpClientErrorCode::ResponseNotFound;
-		}
-
 		bool DecodeSuccessfulResponse(
 			const windows_http::HttpResponse& response,
 			const wchar_t* operation,
@@ -503,10 +498,19 @@ SocketHttpClient::Impl
 
 		void ReportLocalError(const WString& error, bool fatal)
 		{
+			bool promoted = false;
 			InvokeProtocolCallback(fatal, [&](INetworkProtocolCallback* installed)
 			{
-				installed->OnLocalError(error, fatal);
+				promoted = installed->OnLocalError(error, fatal);
 			});
+			if (fatal || promoted)
+			{
+				CS_LOCK(lockState)
+				{
+					fatalStarted = true;
+				}
+				Stop(true);
+			}
 		}
 
 		void NotifyDisconnected()
@@ -905,11 +909,7 @@ SocketHttpClient::Impl
 
 			if (auto httpError = result.TryGet<windows_http::HttpError>())
 			{
-				if (IsResponseNotFoundError(*httpError))
-				{
-					ReportFatalError(DescribeHttpError(L"/Request", *httpError));
-					return;
-				}
+				ReportLocalError(DescribeHttpError(L"/Request", *httpError), false);
 				HandleReceiveTransportFailure(api);
 				return;
 			}
@@ -917,13 +917,22 @@ SocketHttpClient::Impl
 			WString body;
 			WString error;
 			auto valid = DecodeSuccessfulResponse(result.Get<windows_http::HttpResponse>(), L"/Request", body, error);
+			if (!valid)
+			{
+				ReportLocalError(error, false);
+				if (ReserveReceivePoll(api))
+				{
+					SubmitReceivePoll(api);
+				}
+				return;
+			}
 			if (ReserveReceivePoll(api))
 			{
 				// SocketHttpClientApi starts this replacement from inside its response
 				// callback before any user callback below can create a receive gap.
 				SubmitReceivePoll(api);
 			}
-			if (valid && body.Length() > 0)
+			if (body.Length() > 0)
 			{
 				InvokeProtocolCallback(false, [&](INetworkProtocolCallback* installed)
 				{
@@ -1180,11 +1189,6 @@ SocketHttpClient::Impl
 		{
 			if (auto httpError = result.TryGet<windows_http::HttpError>())
 			{
-				if (IsResponseNotFoundError(*httpError))
-				{
-					ReportFatalError(DescribeHttpError(L"/Response", *httpError));
-					return;
-				}
 				HandleSendFailure(api, item, DescribeHttpError(L"/Response", *httpError), true);
 				return;
 			}
@@ -1340,11 +1344,6 @@ SocketHttpClient::Impl
 				if (auto httpError = result->TryGet<windows_http::HttpError>())
 				{
 					auto error = DescribeHttpError(L"/Connect", *httpError);
-					if (IsResponseNotFoundError(*httpError))
-					{
-						ReportFatalError(error);
-						return;
-					}
 					StopApiNoThrow(api);
 					ClearApi(api, false);
 					api = nullptr;

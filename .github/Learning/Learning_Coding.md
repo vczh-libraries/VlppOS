@@ -17,6 +17,7 @@
 - Group `SpinLock`-protected fields with coverage comments [1]
 - `HttpServerConnection` queues pending outbound `/Request` responses [1]
 - Split remote channel errors from local transport errors [1]
+- Treat fatal channel broadcast as an admission barrier [1]
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 - `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
 - `Thread::Wait` completion belongs to the native thread entry point [1]
@@ -105,7 +106,15 @@ The same rule applies to native accept paths: capture the installed callback whi
 
 ## Split remote channel errors from local transport errors
 
-Use `IChannelClient::OnReadError` only for errors broadcast by `IChannelServer::BroadcastError`. Route lower-level connection, request, response, named-pipe, and HTTP transport failures through `OnLocalError`; if the failure closes the client, report the fatal local error before disconnecting. HTTP `/Connect` and `/Response` failures should retry a bounded number of times and report each failed attempt locally, while long-poll `/Request` failures can retry silently as long as the client is still running.
+Use `IChannelClient::OnReadError` only for errors broadcast by `IChannelServer::BroadcastError`. Route lower-level connection, request, response, named-pipe, and HTTP transport failures through `OnLocalError`; if the failure closes the client, report the fatal local error before disconnecting. Raw HTTP clients should report each recoverable failed `/Connect`, `/Request`, or `/Response` exchange as a nonfatal local error before applying normal retry or physical-lane replacement policy; bounded retry exhaustion remains raw-fatal. A connected `NetworkProtocolChannelClient` promotes any such local error to fatal through the callback return value, notifies its channel user, and makes the raw transport stop after the callback returns.
+
+## Treat fatal channel broadcast as an admission barrier
+
+Publish the retained first terminal error and reject new admissions under the same lock used to enroll application `OnClientConnected` callbacks. Keep the underlying protocol server running until all enrolled callbacks and fatal-delivery work finish: accepted callbacks that lost the commit race must deliver the retained fatal before their connection is stopped, and concurrent `Stop` callers must wait for the same one-shot completion.
+
+Do not make a newly committed client visible to the fatal snapshot until its client-id response or local `OnConnected` callback completes. If the snapshot wins first, deliver the retained fatal afterward so lifecycle order remains `connected -> fatal -> disconnected`.
+
+Do not let a callback-reentrant `BroadcastError` or `Stop` wait on its own barrier. Publish terminal state synchronously, let the callback finish retained delivery, and have the last protected operation perform the deferred physical stop. Keep completion callbacks reentrant too, record their first exception, and never allow one throwing recipient to bypass best-effort terminal shutdown.
 
 ## `NetworkPackage` first section preserves null client ids and normalizes empty extras
 
@@ -141,7 +150,7 @@ Normalize a trailing slash from each origin-form prefix and route only the exact
 
 Keep `HttpRequestConnection` permissive so it can parse and deliver an ordinary 404 response. `HttpRequestClient`, which owns the physical socket client, applies the stricter policy: classify 404 as `HttpResponseFailure::NotFound`, skip normal response delivery, report the structured failure, and stop the connection.
 
-Map that failure through `SocketHttpClientApi` as `SocketHttpClientErrorCode::ResponseNotFound`. The high-level client treats it as one fatal local error on `/Connect`, `/Request`, or `/Response` and does not retry the endpoint.
+Map that physical-lane failure through `SocketHttpClientApi` as `SocketHttpClientErrorCode::ResponseNotFound`. The logical `SocketHttpClient` reports it as a nonfatal endpoint error and follows the same retry or lane-replacement policy as other transport failures. Fatality at a connected channel belongs to `NetworkProtocolChannelClient`, which promotes the callback result and stops the logical transport after notification.
 
 ## Keep active TUI state inside the `TUI` lifecycle
 

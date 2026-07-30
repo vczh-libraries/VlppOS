@@ -42,7 +42,8 @@ INetworkProtocolServer
 		/// </summary>
 		/// <param name="error">The error message.</param>
 		/// <param name="fatal">Indicates whether the connection should be disconnected after this callback.</param>
-		virtual void							OnLocalError(const WString&, bool) {}
+		/// <returns>Returns true to promote a nonfatal error to fatal. A fatal error cannot be demoted.</returns>
+		virtual bool							OnLocalError(const WString&, bool) { return false; }
 
 		/// <summary>
 		/// Called when the connection becomes available.

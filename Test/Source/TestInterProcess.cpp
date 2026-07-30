@@ -403,6 +403,318 @@ namespace mynamespace
 		}
 	};
 
+	class ChannelAdmissionProtocolServer
+		: public Object
+		, public virtual INetworkProtocolServer
+	{
+	private:
+		inline static thread_local ChannelAdmissionProtocolServer*
+										currentCallbackServer = nullptr;
+		// covers activeCallbacks, started, stopped and stopCalledFromCallback
+		SpinLock						lockState;
+		EventObject						eventCallbacksDrained;
+		vint							activeCallbacks = 0;
+		bool							started = false;
+		bool							stopped = false;
+		bool							stopCalledFromCallback = false;
+
+	public:
+		ChannelAdmissionProtocolServer()
+		{
+			CHECK_ERROR(eventCallbacksDrained.CreateManualUnsignal(true), L"Failed to create the protocol callback-drain event.");
+		}
+
+		ChannelAdmissionProtocolServer* BeginCallback()
+		{
+			auto previous = currentCallbackServer;
+			currentCallbackServer = this;
+			SPIN_LOCK(lockState)
+			{
+				if (activeCallbacks++ == 0)
+				{
+					CHECK_ERROR(eventCallbacksDrained.Unsignal(), L"Failed to unsignal the protocol callback-drain event.");
+				}
+			}
+			return previous;
+		}
+
+		void EndCallback(ChannelAdmissionProtocolServer* previous)
+		{
+			currentCallbackServer = previous;
+			SPIN_LOCK(lockState)
+			{
+				if (--activeCallbacks == 0)
+				{
+					CHECK_ERROR(eventCallbacksDrained.Signal(), L"Failed to signal the protocol callback-drain event.");
+				}
+			}
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection*) override
+		{
+			return WaitForClientResult::Reject;
+		}
+
+		void Start() override
+		{
+			SPIN_LOCK(lockState)
+			{
+				started = true;
+			}
+		}
+
+		void Stop() override
+		{
+			auto calledFromCallback = currentCallbackServer == this;
+			if (!calledFromCallback)
+			{
+				CHECK_ERROR(eventCallbacksDrained.Wait(), L"Failed to wait for protocol callbacks to drain.");
+			}
+			SPIN_LOCK(lockState)
+			{
+				started = false;
+				stopped = true;
+				stopCalledFromCallback |= calledFromCallback;
+			}
+		}
+
+		bool IsStopped() override
+		{
+			bool result = false;
+			SPIN_LOCK(lockState)
+			{
+				result = stopped;
+			}
+			return result;
+		}
+
+		bool StopCalledFromCallback()
+		{
+			bool result = false;
+			SPIN_LOCK(lockState)
+			{
+				result = stopCalledFromCallback;
+			}
+			return result;
+		}
+	};
+
+	class ChannelAdmissionConnection
+		: public Object
+		, public virtual INetworkProtocolConnection
+	{
+	private:
+		// covers callback, sentMessages and stopped
+		SpinLock						lockState;
+		ChannelAdmissionProtocolServer*	protocolServer = nullptr;
+		INetworkProtocolCallback*		callback = nullptr;
+		List<WString>					sentMessages;
+		bool							stopped = false;
+		bool							throwOnFatal = false;
+		bool							blockClientIdSend = false;
+
+	public:
+		EventObject						eventFatalSendEntered;
+		EventObject						eventClientIdSendEntered;
+		EventObject						eventReleaseClientIdSend;
+
+		ChannelAdmissionConnection(ChannelAdmissionProtocolServer* _protocolServer, bool _throwOnFatal = false, bool _blockClientIdSend = false)
+			: protocolServer(_protocolServer)
+			, throwOnFatal(_throwOnFatal)
+			, blockClientIdSend(_blockClientIdSend)
+		{
+			CHECK_ERROR(eventFatalSendEntered.CreateManualUnsignal(false), L"Failed to create the fatal-send-entered event.");
+			CHECK_ERROR(eventClientIdSendEntered.CreateManualUnsignal(false), L"Failed to create the client-id-send-entered event.");
+			CHECK_ERROR(eventReleaseClientIdSend.CreateManualUnsignal(false), L"Failed to create the client-id-send-release event.");
+		}
+
+		void InstallCallback(INetworkProtocolCallback* value) override
+		{
+			SPIN_LOCK(lockState)
+			{
+				callback = value;
+			}
+			if (value)
+			{
+				value->OnInstalled(this);
+			}
+		}
+
+		void BeginReadingLoopUnsafe() override
+		{
+		}
+
+		void SendString(const WString& str) override
+		{
+			auto isFatal = str == NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), L"fatal"));
+			NetworkPackage package;
+			NetworkPackage::Parse(str, package);
+			auto isClientId = package.clientId && package.channelName == WString::Empty && package.messageBody == WString::Empty;
+			if (blockClientIdSend && isClientId)
+			{
+				CHECK_ERROR(eventClientIdSendEntered.Signal(), L"Failed to signal the client-id-send-entered event.");
+				CHECK_ERROR(eventReleaseClientIdSend.Wait(), L"Failed to wait for the client-id-send release event.");
+			}
+			if (isFatal)
+			{
+				CHECK_ERROR(eventFatalSendEntered.Signal(), L"Failed to signal the fatal-send-entered event.");
+				CHECK_ERROR(!throwOnFatal, L"ChannelAdmissionConnection injected a fatal-send failure.");
+			}
+			CHECK_ERROR(!protocolServer->ChannelAdmissionProtocolServer::IsStopped(), L"ChannelAdmissionConnection cannot send after the protocol server stops.");
+			SPIN_LOCK(lockState)
+			{
+				sentMessages.Add(str);
+			}
+		}
+
+		void Stop() override
+		{
+			INetworkProtocolCallback* installedCallback = nullptr;
+			{
+				SPIN_LOCK(lockState)
+				{
+					if (!stopped)
+					{
+						stopped = true;
+						installedCallback = callback;
+					}
+				}
+			}
+			if (installedCallback)
+			{
+				installedCallback->OnDisconnected();
+			}
+		}
+
+		void ReadString(const WString& str)
+		{
+			INetworkProtocolCallback* installedCallback = nullptr;
+			{
+				SPIN_LOCK(lockState)
+				{
+					installedCallback = callback;
+				}
+			}
+			CHECK_ERROR(installedCallback, L"ChannelAdmissionConnection needs an installed callback.");
+			auto previous = protocolServer->BeginCallback();
+			try
+			{
+				installedCallback->OnReadString(str);
+			}
+			catch (...)
+			{
+				protocolServer->EndCallback(previous);
+				throw;
+			}
+			protocolServer->EndCallback(previous);
+		}
+
+		vint GetSentMessageCount()
+		{
+			vint result = 0;
+			SPIN_LOCK(lockState)
+			{
+				result = sentMessages.Count();
+			}
+			return result;
+		}
+
+		WString GetSentMessage(vint index)
+		{
+			WString result;
+			SPIN_LOCK(lockState)
+			{
+				CHECK_ERROR(index >= 0 && index < sentMessages.Count(), L"ChannelAdmissionConnection message index is out of range.");
+				result = sentMessages[index];
+			}
+			return result;
+		}
+
+		bool IsStopped()
+		{
+			bool result = false;
+			SPIN_LOCK(lockState)
+			{
+				result = stopped;
+			}
+			return result;
+		}
+	};
+
+	class ChannelAdmissionServer
+		: public NetworkProtocolChannelServer<WString, WStringListSerializer, ChannelAdmissionProtocolServer>
+	{
+	private:
+		using Base = NetworkProtocolChannelServer<WString, WStringListSerializer, ChannelAdmissionProtocolServer>;
+		atomic_vint						admissionCount = 0;
+		bool							broadcastOnSecondAdmission = false;
+		bool							blockSecondAdmission = true;
+
+	public:
+		using Base::OnClientConnected;
+
+		EventObject						eventSecondAdmissionEntered;
+		EventObject						eventReleaseSecondAdmission;
+		EventObject						eventReentrantBroadcastReturned;
+
+		ChannelAdmissionServer()
+		{
+			CHECK_ERROR(eventSecondAdmissionEntered.CreateManualUnsignal(false), L"Failed to create the second-admission-entered event.");
+			CHECK_ERROR(eventReleaseSecondAdmission.CreateManualUnsignal(false), L"Failed to create the second-admission-release event.");
+			CHECK_ERROR(eventReentrantBroadcastReturned.CreateManualUnsignal(false), L"Failed to create the reentrant-broadcast-returned event.");
+		}
+
+		~ChannelAdmissionServer()
+		{
+			try
+			{
+				Stop();
+			}
+			catch (...)
+			{
+			}
+		}
+
+		WaitForClientResult OnClientConnected(vint, const IChannelClient<WString>::ChannelNameList& availableChannels, IChannelClient<WString>*) override
+		{
+			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel admission client should provide the chat channel.");
+			if (++admissionCount == 2)
+			{
+				CHECK_ERROR(eventSecondAdmissionEntered.Signal(), L"Failed to signal the second-admission-entered event.");
+				if (broadcastOnSecondAdmission)
+				{
+					BroadcastError(L"fatal");
+					CHECK_ERROR(eventReentrantBroadcastReturned.Signal(), L"Failed to signal that the reentrant broadcast returned.");
+				}
+				if (blockSecondAdmission)
+				{
+					CHECK_ERROR(eventReleaseSecondAdmission.Wait(), L"Failed to wait for the second-admission release event.");
+				}
+			}
+			return WaitForClientResult::Accept;
+		}
+
+		void EnableReentrantBroadcast()
+		{
+			broadcastOnSecondAdmission = true;
+		}
+
+		void DisableSecondAdmissionBlock()
+		{
+			blockSecondAdmission = false;
+		}
+
+		vint AdmissionCount()
+		{
+			return admissionCount;
+		}
+
+		bool IsProtocolServerStopped()
+		{
+			return ChannelAdmissionProtocolServer::IsStopped();
+		}
+	};
+
 	struct ChannelChatData
 	{
 		EventObject						eventClientsConnected, eventClientIdsReceived, eventServer, eventTom, eventJerry;
@@ -470,6 +782,170 @@ namespace mynamespace
 
 	using NetworkChannelClient = NetworkProtocolChannelClient<WString, WStringListSerializer>;
 	using LocalNetworkChannelClient = NetworkProtocolLocalChannelClient<WString, WStringListSerializer>;
+
+	class ChannelAdmissionLocalClient : public LocalNetworkChannelClient
+	{
+	private:
+		// covers fatalError, fatalErrorCount, connectedCount, disconnectedCount, connectedCompleted, fatalAfterConnected and fatalBeforeDisconnected
+		SpinLock						lockState;
+		IChannelClient<WString>::ChannelMap
+										channelNames;
+		IChannelServer<WString>*			serverToStopOnDisconnected = nullptr;
+		IChannelServer<WString>*			serverToBroadcastOnConnected = nullptr;
+		bool							blockConnected = false;
+		bool							throwOnDisconnected = false;
+		WString							fatalError;
+		vint							fatalErrorCount = 0;
+		vint							connectedCount = 0;
+		vint							disconnectedCount = 0;
+		bool							connectedCompleted = false;
+		bool							fatalAfterConnected = false;
+		bool							fatalBeforeDisconnected = false;
+
+	public:
+		EventObject						eventFatalError;
+		EventObject						eventDisconnected;
+		EventObject						eventConnectedEntered;
+		EventObject						eventReleaseConnected;
+
+		ChannelAdmissionLocalClient(IChannelServer<WString>* _serverToStopOnDisconnected = nullptr, bool _blockConnected = false)
+			: serverToStopOnDisconnected(_serverToStopOnDisconnected)
+			, blockConnected(_blockConnected)
+		{
+			CHECK_ERROR(eventFatalError.CreateManualUnsignal(false), L"Failed to create the local fatal-error event.");
+			CHECK_ERROR(eventDisconnected.CreateManualUnsignal(false), L"Failed to create the local disconnected event.");
+			CHECK_ERROR(eventConnectedEntered.CreateManualUnsignal(false), L"Failed to create the local connected-entered event.");
+			CHECK_ERROR(eventReleaseConnected.CreateManualUnsignal(false), L"Failed to create the local connected-release event.");
+			channelNames.Add(ChatChannelName, nullptr);
+			GetChannels();
+		}
+
+		const IChannelClient<WString>::ChannelNameList& OnGetChannelNames() override
+		{
+			return channelNames.Keys();
+		}
+
+		void OnConnected(vint) override
+		{
+			SPIN_LOCK(lockState)
+			{
+				connectedCount++;
+			}
+			if (blockConnected)
+			{
+				CHECK_ERROR(eventConnectedEntered.Signal(), L"Failed to signal the local connected-entered event.");
+				CHECK_ERROR(eventReleaseConnected.Wait(), L"Failed to wait for the local connected release event.");
+			}
+			SPIN_LOCK(lockState)
+			{
+				connectedCompleted = true;
+			}
+			if (serverToBroadcastOnConnected)
+			{
+				serverToBroadcastOnConnected->BroadcastError(L"fatal");
+				throw Error(L"Expected throwing local OnConnected callback.");
+			}
+		}
+
+		void OnDisconnected() override
+		{
+			SPIN_LOCK(lockState)
+			{
+				disconnectedCount++;
+				fatalBeforeDisconnected = fatalErrorCount > 0;
+			}
+			if (serverToStopOnDisconnected)
+			{
+				serverToStopOnDisconnected->Stop();
+			}
+			CHECK_ERROR(eventDisconnected.Signal(), L"Failed to signal the local disconnected event.");
+			if (throwOnDisconnected)
+			{
+				throw Error(L"Expected throwing local OnDisconnected callback.");
+			}
+		}
+
+		void OnReadError(const WString& errorMessage) override
+		{
+			SPIN_LOCK(lockState)
+			{
+				fatalError = errorMessage;
+				fatalErrorCount++;
+				fatalAfterConnected = connectedCompleted;
+			}
+			CHECK_ERROR(eventFatalError.Signal(), L"Failed to signal the local fatal-error event.");
+		}
+
+		WString GetFatalError()
+		{
+			WString result;
+			SPIN_LOCK(lockState)
+			{
+				result = fatalError;
+			}
+			return result;
+		}
+
+		vint GetFatalErrorCount()
+		{
+			vint result = 0;
+			SPIN_LOCK(lockState)
+			{
+				result = fatalErrorCount;
+			}
+			return result;
+		}
+
+		vint GetConnectedCount()
+		{
+			vint result = 0;
+			SPIN_LOCK(lockState)
+			{
+				result = connectedCount;
+			}
+			return result;
+		}
+
+		vint GetDisconnectedCount()
+		{
+			vint result = 0;
+			SPIN_LOCK(lockState)
+			{
+				result = disconnectedCount;
+			}
+			return result;
+		}
+
+		bool IsFatalBeforeDisconnected()
+		{
+			bool result = false;
+			SPIN_LOCK(lockState)
+			{
+				result = fatalBeforeDisconnected;
+			}
+			return result;
+		}
+
+		bool IsFatalAfterConnected()
+		{
+			bool result = false;
+			SPIN_LOCK(lockState)
+			{
+				result = fatalAfterConnected;
+			}
+			return result;
+		}
+
+		void EnableBroadcastAndThrowOnConnected(IChannelServer<WString>* server)
+		{
+			serverToBroadcastOnConnected = server;
+		}
+
+		void EnableThrowOnDisconnected()
+		{
+			throwOnDisconnected = true;
+		}
+	};
 
 	template<typename TBase>
 	class ChannelClientBase
@@ -1799,11 +2275,12 @@ namespace mynamespace
 			));
 	}
 
-	enum class PollScriptNotFoundRoute
+	enum class PollScriptFailure
 	{
 		None,
-		Request,
-		Response,
+		RequestNotFound,
+		RequestInvalidContentType,
+		ResponseNotFound,
 	};
 
 	class PollScriptServer : public async_tcp_socket::SocketHttpServerApi
@@ -1811,12 +2288,29 @@ namespace mynamespace
 	private:
 		WString							requestPath = WString::Unmanaged(HttpServerUrl_Request) + L"/focused-token";
 		WString							responsePath = WString::Unmanaged(HttpServerUrl_Response) + L"/focused-token";
-		PollScriptNotFoundRoute			notFoundRoute = PollScriptNotFoundRoute::None;
+		PollScriptFailure				failure = PollScriptFailure::None;
+		bool							channelHandshake = false;
 		SpinLock						lockContexts;
 		Ptr<async_tcp_socket::SocketHttpRequestContext>
 									firstPoll;
 		Ptr<async_tcp_socket::SocketHttpRequestContext>
 									replacementPoll;
+
+		bool RespondRequestFailure(Ptr<async_tcp_socket::SocketHttpRequestContext> context)
+		{
+			if (failure == PollScriptFailure::RequestNotFound)
+			{
+				return context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+			}
+			if (failure == PollScriptFailure::RequestInvalidContentType)
+			{
+				auto response = Ptr(new async_tcp_socket::HttpResponse);
+				response->statusCode = 200;
+				response->reason = L"OK";
+				return context->Respond(response);
+			}
+			return false;
+		}
 
 	protected:
 		void OnHttpRequestReceived(Ptr<async_tcp_socket::SocketHttpRequestContext> context) override
@@ -1830,9 +2324,13 @@ namespace mynamespace
 			else if (path == requestPath)
 			{
 				auto index = ++pollCount;
-				if (notFoundRoute == PollScriptNotFoundRoute::Request)
+				if (
+					index == 1 &&
+					!channelHandshake &&
+					(failure == PollScriptFailure::RequestNotFound || failure == PollScriptFailure::RequestInvalidContentType)
+					)
 				{
-					context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+					RespondRequestFailure(context);
 					return;
 				}
 				if (index == 1)
@@ -1854,17 +2352,25 @@ namespace mynamespace
 			}
 			else if (path == responsePath)
 			{
-				responseCount++;
+				auto index = ++responseCount;
 				responseBody = ReadSocketHttpBody(context->GetRequest()->body);
-				if (notFoundRoute == PollScriptNotFoundRoute::Response)
+				if (failure == PollScriptFailure::ResponseNotFound && index == 1)
 				{
 					context->Respond(CreateSocketHttpResponse(404, WString::Empty));
+				}
+				else if (channelHandshake)
+				{
+					context->Respond(CreateSocketHttpResponse(200, NetworkPackage::ToString(NetworkPackage::Create(1, WString::Empty, WString::Empty))));
 				}
 				else
 				{
 					context->Respond(CreateSocketHttpResponse(200, L"piggyback-reply"));
 				}
 				eventResponse.Signal();
+				if (index > 1)
+				{
+					eventReplacementResponse.Signal();
+				}
 			}
 			else
 			{
@@ -1876,6 +2382,7 @@ namespace mynamespace
 		EventObject						eventFirstPoll;
 		EventObject						eventReplacementPoll;
 		EventObject						eventResponse;
+		EventObject						eventReplacementResponse;
 		atomic_vint					connectCount = 0;
 		atomic_vint					pollCount = 0;
 		atomic_vint					responseCount = 0;
@@ -1884,14 +2391,17 @@ namespace mynamespace
 		PollScriptServer(
 			Ptr<async_tcp_socket::IAsyncSocketServer> socketServer,
 			const WString& _baseUrl,
-			PollScriptNotFoundRoute _notFoundRoute = PollScriptNotFoundRoute::None
+			PollScriptFailure _failure = PollScriptFailure::None,
+			bool _channelHandshake = false
 			)
 			: SocketHttpServerApi(socketServer, _baseUrl, false)
-			, notFoundRoute(_notFoundRoute)
+			, failure(_failure)
+			, channelHandshake(_channelHandshake)
 		{
 			CHECK_ERROR(eventFirstPoll.CreateManualUnsignal(false), L"Failed to create the first-poll event.");
 			CHECK_ERROR(eventReplacementPoll.CreateManualUnsignal(false), L"Failed to create the replacement-poll event.");
 			CHECK_ERROR(eventResponse.CreateManualUnsignal(false), L"Failed to create the scripted response event.");
+			CHECK_ERROR(eventReplacementResponse.CreateManualUnsignal(false), L"Failed to create the scripted replacement-response event.");
 		}
 
 		~PollScriptServer()
@@ -1908,6 +2418,17 @@ namespace mynamespace
 				firstPoll = nullptr;
 			}
 			return context && context->Respond(CreateSocketHttpResponse(200, body));
+		}
+
+		bool RespondFirstPollFailure()
+		{
+			Ptr<async_tcp_socket::SocketHttpRequestContext> context;
+			SPIN_LOCK(lockContexts)
+			{
+				context = firstPoll;
+				firstPoll = nullptr;
+			}
+			return context && RespondRequestFailure(context);
 		}
 	};
 
@@ -2089,13 +2610,17 @@ namespace mynamespace
 	class RetryClientCallback : public FocusedProtocolCallback
 	{
 	public:
+		EventObject						eventLocalError;
 		EventObject						eventFatalError;
 		atomic_vint					localErrors = 0;
+		atomic_vint					nonfatalErrors = 0;
 		atomic_vint					fatalErrors = 0;
 		bool						fatalBeforeDisconnected = false;
+		bool						promoteLocalErrors = false;
 
 		RetryClientCallback()
 		{
+			CHECK_ERROR(eventLocalError.CreateManualUnsignal(false), L"Failed to create the local-error event.");
 			CHECK_ERROR(eventFatalError.CreateManualUnsignal(false), L"Failed to create the fatal-error event.");
 		}
 
@@ -2104,7 +2629,7 @@ namespace mynamespace
 			readCount++;
 		}
 
-		void OnLocalError(const WString&, bool fatal) override
+		bool OnLocalError(const WString&, bool fatal) override
 		{
 			localErrors++;
 			if (fatal)
@@ -2112,12 +2637,60 @@ namespace mynamespace
 				fatalErrors++;
 				eventFatalError.Signal();
 			}
+			else
+			{
+				nonfatalErrors++;
+			}
+			eventLocalError.Signal();
+			return promoteLocalErrors;
 		}
 
 		void OnDisconnected() override
 		{
 			fatalBeforeDisconnected = fatalErrors == 1;
 			FocusedProtocolCallback::OnDisconnected();
+		}
+	};
+
+	class PromotingChannelClient : public NetworkChannelClient
+	{
+	private:
+		IChannelClient<WString>::ChannelNameList
+										channelNames;
+
+	public:
+		EventObject						eventLocalError;
+		EventObject						eventDisconnected;
+		atomic_vint					localErrors = 0;
+		atomic_vint					fatalErrors = 0;
+		atomic_vint					disconnectedCount = 0;
+
+		PromotingChannelClient(Ptr<INetworkProtocolClient> client)
+			: NetworkChannelClient(client)
+		{
+			CHECK_ERROR(eventLocalError.CreateManualUnsignal(false), L"Failed to create the promoted channel local-error event.");
+			CHECK_ERROR(eventDisconnected.CreateManualUnsignal(false), L"Failed to create the promoted channel disconnected event.");
+		}
+
+		void OnLocalError(const WString&, bool fatal) override
+		{
+			localErrors++;
+			if (fatal)
+			{
+				fatalErrors++;
+			}
+			eventLocalError.Signal();
+		}
+
+		void OnDisconnected() override
+		{
+			disconnectedCount++;
+			eventDisconnected.Signal();
+		}
+
+		const IChannelClient<WString>::ChannelNameList& OnGetChannelNames() override
+		{
+			return channelNames;
 		}
 	};
 
@@ -2399,6 +2972,17 @@ void RunSocketHttpNetworkProtocolTestCases()
 }
 
 #ifdef VCZH_MSVC
+class ObservableWindowsHttpClient : public HttpClient
+{
+public:
+	using HttpClient::HttpClient;
+
+	bool WaitForLocalErrorPublished()
+	{
+		return eventWaitForServer.WaitForTime(SocketHttpFocusedTimeout);
+	}
+};
+
 void RunSocketHttpWindowsInteropTestCases()
 {
 	TEST_CASE(L"SocketHttpServer with Windows HttpClient (NetworkProtocol)")
@@ -2449,6 +3033,108 @@ void RunSocketHttpWindowsInteropTestCases()
 		client->WaitForServer();
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
 		TEST_ASSERT(callback.Connection() == client->GetConnection());
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"Windows HttpClient reports each Request failure as nonfatal before retrying")
+	{
+		PollScriptFailure failures[] =
+		{
+			PollScriptFailure::RequestNotFound,
+			PollScriptFailure::RequestInvalidContentType,
+		};
+		for (vint i = 0; i < 2; i++)
+		{
+			const vint port = 39634 + i;
+			const WString baseUrl = L"/VlppOSTestWinClientRequestFailure";
+			auto server = Ptr(new PollScriptServer(
+				async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+				baseUrl,
+				failures[i]
+				));
+			server->Start();
+
+			RetryClientCallback callback;
+			auto client = Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port));
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(callback.eventLocalError.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(server->eventReplacementPoll.WaitForTime(SocketHttpFocusedTimeout));
+
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->pollCount == 2);
+			TEST_ASSERT(callback.localErrors == 1);
+			TEST_ASSERT(callback.nonfatalErrors == 1);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 0);
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+			client->GetConnection()->Stop();
+			server->Stop();
+		}
+	});
+
+	TEST_CASE(L"Windows HttpClient stops before retry when its Request failure is promoted")
+	{
+		const vint port = 39638;
+		const WString baseUrl = L"/VlppOSTestWinClientRequestPromotion";
+		auto server = Ptr(new PollScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl,
+			PollScriptFailure::RequestInvalidContentType
+			));
+		server->Start();
+
+		RetryClientCallback callback;
+		callback.promoteLocalErrors = true;
+		auto client = Ptr(new ObservableWindowsHttpClient(baseUrl, port));
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(callback.eventLocalError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(client->WaitForLocalErrorPublished());
+
+		TEST_ASSERT(server->connectCount == 1);
+		TEST_ASSERT(server->pollCount == 1);
+		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.nonfatalErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 0);
+		TEST_ASSERT(callback.disconnectedCount == 0);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"Windows HttpClient delivers bounded Connect exhaustion as fatal")
+	{
+		const vint port = 39639;
+		const WString baseUrl = L"/VlppOSTestWinClientConnectExhaustion";
+		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
+		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl + HttpServerUrl_Connect,
+			responses
+			));
+		server->Start();
+
+		RetryClientCallback callback;
+		auto client = Ptr<INetworkProtocolClient>(new HttpClient(baseUrl, port));
+		client->GetConnection()->InstallCallback(&callback);
+		client->WaitForServer();
+
+		TEST_ASSERT(server->ResponseCount() == 3);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.localErrors == 3);
+		TEST_ASSERT(callback.nonfatalErrors == 2);
+		TEST_ASSERT(callback.fatalErrors == 1);
+		TEST_ASSERT(callback.disconnectedCount == 0);
+		TEST_ASSERT(callback.eventFatalError.WaitForTime(0));
 		client->GetConnection()->Stop();
 		server->Stop();
 	});
@@ -2910,11 +3596,13 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ERROR(createClient(exactClientBaseUrl + L"a"));
 	});
 
-	TEST_CASE(L"SocketHttp treats Connect 404 as one fatal local error without retry")
+	TEST_CASE(L"SocketHttp retries Connect 404 and becomes fatal only at normal exhaustion")
 	{
 		const vint port = 39631;
 		const WString baseUrl = L"/VlppOSTestSocketHttpMissing";
 		List<Ptr<async_tcp_socket::HttpResponse>> responses;
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
+		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
 		responses.Add(CreateSocketHttpScriptResponse(404, WString::Empty));
 		auto server = Ptr(new SocketHttpConnectResponseScriptServer(
 			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
@@ -2928,9 +3616,10 @@ void RunSocketHttpFocusedTestCases()
 		client->GetConnection()->InstallCallback(&callback);
 		client->WaitForServer();
 
-		TEST_ASSERT(server->ResponseCount() == 1);
+		TEST_ASSERT(server->ResponseCount() == 3);
 		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
-		TEST_ASSERT(callback.localErrors == 1);
+		TEST_ASSERT(callback.localErrors == 3);
+		TEST_ASSERT(callback.nonfatalErrors == 2);
 		TEST_ASSERT(callback.fatalErrors == 1);
 		TEST_ASSERT(callback.disconnectedCount == 1);
 		TEST_ASSERT(callback.fatalBeforeDisconnected);
@@ -2938,46 +3627,54 @@ void RunSocketHttpFocusedTestCases()
 		server->Stop();
 	});
 
-	TEST_CASE(L"SocketHttp treats Request 404 as one fatal local error without retry")
+	TEST_CASE(L"SocketHttp reports each Request 404 or invalid response once as nonfatal and retries")
 	{
-		const vint port = 39632;
-		const WString baseUrl = L"/VlppOSTestSocketHttpRequestMissing";
-		auto server = Ptr(new PollScriptServer(
-			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
-			baseUrl,
-			PollScriptNotFoundRoute::Request
-			));
-		server->Start();
+		PollScriptFailure failures[] =
+		{
+			PollScriptFailure::RequestNotFound,
+			PollScriptFailure::RequestInvalidContentType,
+		};
+		vint ports[] = { 39632, 39636 };
+		for (vint i = 0; i < 2; i++)
+		{
+			const WString baseUrl = L"/VlppOSTestSocketHttpRequestFailure";
+			auto server = Ptr(new PollScriptServer(
+				async_tcp_socket::CreateDefaultAsyncSocketServer(ports[i]),
+				baseUrl,
+				failures[i]
+				));
+			server->Start();
 
-		RetryClientCallback callback;
-		auto client = CreateSocketHttpProtocolClient(baseUrl, port);
-		client->GetConnection()->InstallCallback(&callback);
-		client->WaitForServer();
-		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
-		client->GetConnection()->BeginReadingLoopUnsafe();
-		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+			RetryClientCallback callback;
+			auto client = CreateSocketHttpProtocolClient(baseUrl, ports[i]);
+			client->GetConnection()->InstallCallback(&callback);
+			client->WaitForServer();
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+			client->GetConnection()->BeginReadingLoopUnsafe();
+			TEST_ASSERT(callback.eventLocalError.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(server->eventReplacementPoll.WaitForTime(SocketHttpFocusedTimeout));
 
-		TEST_ASSERT(server->connectCount == 1);
-		TEST_ASSERT(server->pollCount == 1);
-		TEST_ASSERT(server->responseCount == 0);
-		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
-		TEST_ASSERT(callback.localErrors == 1);
-		TEST_ASSERT(callback.fatalErrors == 1);
-		TEST_ASSERT(callback.disconnectedCount == 1);
-		TEST_ASSERT(callback.fatalBeforeDisconnected);
-		TEST_ASSERT(callback.eventFatalError.WaitForTime(0));
-		client->GetConnection()->Stop();
-		server->Stop();
+			TEST_ASSERT(server->connectCount == 1);
+			TEST_ASSERT(server->pollCount == 2);
+			TEST_ASSERT(server->responseCount == 0);
+			TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
+			TEST_ASSERT(callback.localErrors == 1);
+			TEST_ASSERT(callback.nonfatalErrors == 1);
+			TEST_ASSERT(callback.fatalErrors == 0);
+			TEST_ASSERT(callback.disconnectedCount == 0);
+			client->GetConnection()->Stop();
+			server->Stop();
+		}
 	});
 
-	TEST_CASE(L"SocketHttp treats Response 404 as one fatal local error without retry")
+	TEST_CASE(L"SocketHttp reports Response 404 as nonfatal and retries the queued message")
 	{
 		const vint port = 39633;
 		const WString baseUrl = L"/VlppOSTestSocketHttpResponseMissing";
 		auto server = Ptr(new PollScriptServer(
 			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
 			baseUrl,
-			PollScriptNotFoundRoute::Response
+			PollScriptFailure::ResponseNotFound
 			));
 		server->Start();
 
@@ -2989,18 +3686,58 @@ void RunSocketHttpFocusedTestCases()
 		client->GetConnection()->BeginReadingLoopUnsafe();
 		TEST_ASSERT(server->eventFirstPoll.WaitForTime(SocketHttpFocusedTimeout));
 		client->GetConnection()->SendString(L"not-found-response");
-		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.eventLocalError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(server->eventReplacementResponse.WaitForTime(SocketHttpFocusedTimeout));
 
 		TEST_ASSERT(server->connectCount == 1);
 		TEST_ASSERT(server->pollCount == 1);
-		TEST_ASSERT(server->responseCount == 1);
-		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(server->responseCount == 2);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Connected);
 		TEST_ASSERT(callback.localErrors == 1);
-		TEST_ASSERT(callback.fatalErrors == 1);
-		TEST_ASSERT(callback.disconnectedCount == 1);
-		TEST_ASSERT(callback.fatalBeforeDisconnected);
-		TEST_ASSERT(callback.eventFatalError.WaitForTime(0));
+		TEST_ASSERT(callback.nonfatalErrors == 1);
+		TEST_ASSERT(callback.fatalErrors == 0);
+		TEST_ASSERT(callback.disconnectedCount == 0);
 		client->GetConnection()->Stop();
+		server->Stop();
+	});
+
+	TEST_CASE(L"Connected channel promotes a raw Request failure to fatal and stops before retry")
+	{
+		const vint port = 39637;
+		const WString baseUrl = L"/VlppOSTestSocketHttpChannelPromotion";
+		auto server = Ptr(new PollScriptServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl,
+			PollScriptFailure::RequestInvalidContentType,
+			true
+			));
+		server->Start();
+
+		auto rawClient = CreateSocketHttpProtocolClient(baseUrl, port);
+		auto channelClient = Ptr(new PromotingChannelClient(rawClient));
+		channelClient->WaitForServer();
+		TEST_ASSERT(channelClient->GetStatus() == ClientStatus::Connected);
+		TEST_ASSERT(rawClient->GetStatus() == ClientStatus::Connected);
+		TEST_ASSERT(server->eventFirstPoll.WaitForTime(SocketHttpFocusedTimeout));
+
+		auto stopState = Ptr(new SocketHttpFatalStopRaceState);
+		SocketHttpFatalStopHookScope stopHook(
+			Func<void()>(),
+			Func<void()>([stopState]() { stopState->StopStarted(); })
+			);
+		TEST_ASSERT(server->RespondFirstPollFailure());
+		TEST_ASSERT(channelClient->eventLocalError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(channelClient->eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(stopState->eventStopStarted.WaitForTime(SocketHttpFocusedTimeout));
+		rawClient->GetConnection()->Stop();
+
+		TEST_ASSERT(channelClient->localErrors == 1);
+		TEST_ASSERT(channelClient->fatalErrors == 1);
+		TEST_ASSERT(channelClient->disconnectedCount == 1);
+		TEST_ASSERT(channelClient->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(rawClient->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(stopState->stopStartedCount == 1);
+		TEST_ASSERT(server->pollCount == 1);
 		server->Stop();
 	});
 
@@ -3613,6 +4350,445 @@ TEST_FILE
 		TEST_ASSERT(!emptyPackage.extraClientIds);
 		TEST_ASSERT(emptyPackage.channelName == ChatChannelName);
 		TEST_ASSERT(emptyPackage.messageBody == L"Message");
+	});
+
+	TEST_CASE(L"Channel fatal broadcast covers in-flight admission and rejects later admission")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto acceptedConnection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto admittingConnection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		EventObject eventAdmissionFinished;
+		EventObject eventBroadcastFinished;
+		EventObject eventConcurrentStopStarted;
+		EventObject eventConcurrentStopFinished;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventAdmissionFinished.CreateManualUnsignal(false), L"Failed to create the admission-finished event.");
+		CHECK_ERROR(eventBroadcastFinished.CreateManualUnsignal(false), L"Failed to create the broadcast-finished event.");
+		CHECK_ERROR(eventConcurrentStopStarted.CreateManualUnsignal(false), L"Failed to create the concurrent-stop-started event.");
+		CHECK_ERROR(eventConcurrentStopFinished.CreateManualUnsignal(false), L"Failed to create the concurrent-stop-finished event.");
+
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(acceptedConnection.Obj()) == WaitForClientResult::Accept);
+		acceptedConnection->ReadString(handshake);
+		TEST_ASSERT(server->GetClientIds().Count() == 1);
+		TEST_ASSERT(acceptedConnection->GetSentMessageCount() == 1);
+
+		TEST_ASSERT(server->OnClientConnected(admittingConnection.Obj()) == WaitForClientResult::Accept);
+		ThreadPoolLite::QueueLambda([admittingConnection, handshake, &threadErrors, &eventAdmissionFinished]()
+		{
+			try
+			{
+				admittingConnection->ReadString(handshake);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventAdmissionFinished.Signal();
+		});
+		auto admissionEntered = server->eventSecondAdmissionEntered.WaitForTime(timeout);
+
+		ThreadPoolLite::QueueLambda([server, &threadErrors, &eventBroadcastFinished]()
+		{
+			try
+			{
+				server->BroadcastError(L"fatal");
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventBroadcastFinished.Signal();
+		});
+		auto fatalSendEntered = acceptedConnection->eventFatalSendEntered.WaitForTime(timeout);
+		auto broadcastFinishedBeforeRelease = eventBroadcastFinished.WaitForTime(1000);
+		auto lateConnection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto lateAdmissionResult = server->OnClientConnected(lateConnection.Obj());
+		auto admissionCountDuringBroadcast = server->AdmissionCount();
+		server->BroadcastError(L"ignored");
+		ThreadPoolLite::QueueLambda([server, &threadErrors, &eventConcurrentStopStarted, &eventConcurrentStopFinished]()
+		{
+			eventConcurrentStopStarted.Signal();
+			try
+			{
+				server->Stop();
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventConcurrentStopFinished.Signal();
+		});
+		auto concurrentStopStarted = eventConcurrentStopStarted.WaitForTime(timeout);
+		auto concurrentStopFinishedBeforeRelease = eventConcurrentStopFinished.WaitForTime(1000);
+		auto protocolStoppedBeforeRelease = server->IsProtocolServerStopped();
+
+		server->eventReleaseSecondAdmission.Signal();
+		auto admissionFinished = eventAdmissionFinished.WaitForTime(timeout);
+		auto broadcastFinished = eventBroadcastFinished.WaitForTime(timeout);
+		auto concurrentStopFinished = eventConcurrentStopFinished.WaitForTime(timeout);
+		auto clientCountAfterBroadcast = server->GetClientIds().Count();
+		auto admittingMessageCount = admittingConnection->GetSentMessageCount();
+		auto admittingMessage =
+			admittingMessageCount == 1
+			? admittingConnection->GetSentMessage(0)
+			: WString::Empty;
+		auto admittingStopped = admittingConnection->IsStopped();
+
+		acceptedConnection->InstallCallback(nullptr);
+		admittingConnection->InstallCallback(nullptr);
+		server->Stop();
+
+		TEST_ASSERT(admissionEntered);
+		TEST_ASSERT(fatalSendEntered);
+		TEST_ASSERT(!broadcastFinishedBeforeRelease);
+		TEST_ASSERT(concurrentStopStarted);
+		TEST_ASSERT(!concurrentStopFinishedBeforeRelease);
+		TEST_ASSERT(!protocolStoppedBeforeRelease);
+		TEST_ASSERT(lateAdmissionResult == WaitForClientResult::Reject);
+		TEST_ASSERT(admissionCountDuringBroadcast == 2);
+		TEST_ASSERT(admissionFinished);
+		TEST_ASSERT(broadcastFinished);
+		TEST_ASSERT(concurrentStopFinished);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(clientCountAfterBroadcast == 0);
+		TEST_ASSERT(admittingMessageCount == 1);
+		TEST_ASSERT(admittingMessage == NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), L"fatal")));
+		TEST_ASSERT(admittingStopped);
+		TEST_ASSERT(server->IsStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast covers in-flight local admission and rejects later admission")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto acceptedClient = Ptr(new ChannelAdmissionLocalClient(server.Obj()));
+		auto admittingClient = Ptr(new ChannelAdmissionLocalClient);
+		auto lateClient = Ptr(new ChannelAdmissionLocalClient);
+		EventObject eventAdmissionFinished;
+		atomic_vint admittingClientId = -2;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventAdmissionFinished.CreateManualUnsignal(false), L"Failed to create the local-admission-finished event.");
+
+		server->Start();
+		auto acceptedClientId = server->ConnectLocalClient(acceptedClient);
+		server->EnableReentrantBroadcast();
+		ThreadPoolLite::QueueLambda([server, admittingClient, &admittingClientId, &threadErrors, &eventAdmissionFinished]()
+		{
+			try
+			{
+				admittingClientId = server->ConnectLocalClient(admittingClient);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventAdmissionFinished.Signal();
+		});
+		auto admissionEntered = server->eventSecondAdmissionEntered.WaitForTime(timeout);
+		auto reentrantBroadcastReturned = server->eventReentrantBroadcastReturned.WaitForTime(timeout);
+		auto acceptedFatalReceived = acceptedClient->eventFatalError.WaitForTime(timeout);
+		auto admissionFinishedBeforeRelease = eventAdmissionFinished.WaitForTime(0);
+		auto protocolStoppedBeforeRelease = server->IsProtocolServerStopped();
+		auto lateClientId = server->ConnectLocalClient(lateClient);
+		auto admissionCountDuringBroadcast = server->AdmissionCount();
+		server->BroadcastError(L"ignored");
+
+		server->eventReleaseSecondAdmission.Signal();
+		auto admissionFinished = eventAdmissionFinished.WaitForTime(timeout);
+		auto admittingFatalReceived = admittingClient->eventFatalError.WaitForTime(timeout);
+		auto admittingDisconnected = admittingClient->eventDisconnected.WaitForTime(timeout);
+		auto acceptedDisconnected = acceptedClient->eventDisconnected.WaitForTime(timeout);
+		server->Stop();
+
+		TEST_ASSERT(acceptedClientId > 0);
+		TEST_ASSERT(admissionEntered);
+		TEST_ASSERT(reentrantBroadcastReturned);
+		TEST_ASSERT(acceptedFatalReceived);
+		TEST_ASSERT(!admissionFinishedBeforeRelease);
+		TEST_ASSERT(!protocolStoppedBeforeRelease);
+		TEST_ASSERT(lateClientId == -1);
+		TEST_ASSERT(admissionCountDuringBroadcast == 2);
+		TEST_ASSERT(admissionFinished);
+		TEST_ASSERT(admittingFatalReceived);
+		TEST_ASSERT(admittingDisconnected);
+		TEST_ASSERT(acceptedDisconnected);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(admittingClientId == -1);
+		TEST_ASSERT(acceptedClient->GetFatalError() == L"fatal");
+		TEST_ASSERT(acceptedClient->GetFatalErrorCount() == 1);
+		TEST_ASSERT(acceptedClient->GetConnectedCount() == 1);
+		TEST_ASSERT(acceptedClient->GetDisconnectedCount() == 1);
+		TEST_ASSERT(acceptedClient->IsFatalBeforeDisconnected());
+		TEST_ASSERT(admittingClient->GetFatalError() == L"fatal");
+		TEST_ASSERT(admittingClient->GetFatalErrorCount() == 1);
+		TEST_ASSERT(admittingClient->GetConnectedCount() == 0);
+		TEST_ASSERT(admittingClient->GetDisconnectedCount() == 1);
+		TEST_ASSERT(admittingClient->IsFatalBeforeDisconnected());
+		TEST_ASSERT(admittingClient->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(lateClient->GetFatalErrorCount() == 0);
+		TEST_ASSERT(lateClient->GetConnectedCount() == 0);
+		TEST_ASSERT(lateClient->GetDisconnectedCount() == 0);
+		TEST_ASSERT(lateClient->GetStatus() == ClientStatus::Ready);
+		TEST_ASSERT(server->IsProtocolServerStopped());
+		TEST_ASSERT(server->IsStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast orders client id before retained network fatal")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto acceptedConnection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto admittingConnection = Ptr(new ChannelAdmissionConnection(server.Obj(), false, true));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		EventObject eventAdmissionFinished;
+		EventObject eventBroadcastFinished;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventAdmissionFinished.CreateManualUnsignal(false), L"Failed to create the ordered-network-admission-finished event.");
+		CHECK_ERROR(eventBroadcastFinished.CreateManualUnsignal(false), L"Failed to create the ordered-network-broadcast-finished event.");
+
+		server->DisableSecondAdmissionBlock();
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(acceptedConnection.Obj()) == WaitForClientResult::Accept);
+		acceptedConnection->ReadString(handshake);
+		TEST_ASSERT(server->OnClientConnected(admittingConnection.Obj()) == WaitForClientResult::Accept);
+		ThreadPoolLite::QueueLambda([admittingConnection, handshake, &threadErrors, &eventAdmissionFinished]()
+		{
+			try
+			{
+				admittingConnection->ReadString(handshake);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventAdmissionFinished.Signal();
+		});
+		auto clientIdSendEntered = admittingConnection->eventClientIdSendEntered.WaitForTime(timeout);
+
+		ThreadPoolLite::QueueLambda([server, &threadErrors, &eventBroadcastFinished]()
+		{
+			try
+			{
+				server->BroadcastError(L"fatal");
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventBroadcastFinished.Signal();
+		});
+		auto acceptedFatalReceived = acceptedConnection->eventFatalSendEntered.WaitForTime(timeout);
+		auto admittingFatalBeforeClientId = admittingConnection->eventFatalSendEntered.WaitForTime(0);
+		admittingConnection->eventReleaseClientIdSend.Signal();
+		auto admissionFinished = eventAdmissionFinished.WaitForTime(timeout);
+		auto broadcastFinished = eventBroadcastFinished.WaitForTime(timeout);
+		auto admittingMessageCount = admittingConnection->GetSentMessageCount();
+		auto clientIdMessage = admittingMessageCount == 2 ? admittingConnection->GetSentMessage(0) : WString::Empty;
+		auto fatalMessage = admittingMessageCount == 2 ? admittingConnection->GetSentMessage(1) : WString::Empty;
+		NetworkPackage clientIdPackage;
+		if (clientIdMessage != WString::Empty)
+		{
+			NetworkPackage::Parse(clientIdMessage, clientIdPackage);
+		}
+		acceptedConnection->InstallCallback(nullptr);
+		admittingConnection->InstallCallback(nullptr);
+		server->Stop();
+
+		TEST_ASSERT(clientIdSendEntered);
+		TEST_ASSERT(acceptedFatalReceived);
+		TEST_ASSERT(!admittingFatalBeforeClientId);
+		TEST_ASSERT(admissionFinished);
+		TEST_ASSERT(broadcastFinished);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(admittingMessageCount == 2);
+		TEST_ASSERT(clientIdPackage.clientId);
+		TEST_ASSERT(clientIdPackage.clientId.Value() > 0);
+		TEST_ASSERT(clientIdPackage.channelName == WString::Empty);
+		TEST_ASSERT(clientIdPackage.messageBody == WString::Empty);
+		TEST_ASSERT(fatalMessage == NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), L"fatal")));
+		TEST_ASSERT(admittingConnection->IsStopped());
+		TEST_ASSERT(server->IsProtocolServerStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast orders local OnConnected before retained fatal")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto acceptedClient = Ptr(new ChannelAdmissionLocalClient);
+		auto admittingClient = Ptr(new ChannelAdmissionLocalClient(nullptr, true));
+		EventObject eventAdmissionFinished;
+		EventObject eventBroadcastFinished;
+		atomic_vint admittingClientId = -1;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventAdmissionFinished.CreateManualUnsignal(false), L"Failed to create the ordered-local-admission-finished event.");
+		CHECK_ERROR(eventBroadcastFinished.CreateManualUnsignal(false), L"Failed to create the ordered-local-broadcast-finished event.");
+
+		server->DisableSecondAdmissionBlock();
+		server->Start();
+		TEST_ASSERT(server->ConnectLocalClient(acceptedClient) > 0);
+		ThreadPoolLite::QueueLambda([server, admittingClient, &admittingClientId, &threadErrors, &eventAdmissionFinished]()
+		{
+			try
+			{
+				admittingClientId = server->ConnectLocalClient(admittingClient);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventAdmissionFinished.Signal();
+		});
+		auto connectedEntered = admittingClient->eventConnectedEntered.WaitForTime(timeout);
+
+		ThreadPoolLite::QueueLambda([server, &threadErrors, &eventBroadcastFinished]()
+		{
+			try
+			{
+				server->BroadcastError(L"fatal");
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventBroadcastFinished.Signal();
+		});
+		auto acceptedFatalReceived = acceptedClient->eventFatalError.WaitForTime(timeout);
+		auto admittingFatalBeforeConnected = admittingClient->eventFatalError.WaitForTime(0);
+		admittingClient->eventReleaseConnected.Signal();
+		auto admissionFinished = eventAdmissionFinished.WaitForTime(timeout);
+		auto admittingFatalReceived = admittingClient->eventFatalError.WaitForTime(timeout);
+		auto admittingDisconnected = admittingClient->eventDisconnected.WaitForTime(timeout);
+		auto broadcastFinished = eventBroadcastFinished.WaitForTime(timeout);
+		server->Stop();
+
+		TEST_ASSERT(connectedEntered);
+		TEST_ASSERT(acceptedFatalReceived);
+		TEST_ASSERT(!admittingFatalBeforeConnected);
+		TEST_ASSERT(admissionFinished);
+		TEST_ASSERT(admittingFatalReceived);
+		TEST_ASSERT(admittingDisconnected);
+		TEST_ASSERT(broadcastFinished);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(admittingClientId > 0);
+		TEST_ASSERT(admittingClient->GetConnectedCount() == 1);
+		TEST_ASSERT(admittingClient->GetFatalErrorCount() == 1);
+		TEST_ASSERT(admittingClient->IsFatalAfterConnected());
+		TEST_ASSERT(admittingClient->IsFatalBeforeDisconnected());
+		TEST_ASSERT(admittingClient->GetDisconnectedCount() == 1);
+		TEST_ASSERT(admittingClient->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(server->IsProtocolServerStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast survives throwing local OnConnected")
+	{
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto client = Ptr(new ChannelAdmissionLocalClient);
+		bool connectionFailed = false;
+
+		client->EnableBroadcastAndThrowOnConnected(server.Obj());
+		server->Start();
+		try
+		{
+			server->ConnectLocalClient(client);
+		}
+		catch (...)
+		{
+			connectionFailed = true;
+		}
+		server->Stop();
+
+		TEST_ASSERT(connectionFailed);
+		TEST_ASSERT(client->GetConnectedCount() == 1);
+		TEST_ASSERT(client->GetFatalError() == L"fatal");
+		TEST_ASSERT(client->GetFatalErrorCount() == 1);
+		TEST_ASSERT(client->IsFatalAfterConnected());
+		TEST_ASSERT(client->IsFatalBeforeDisconnected());
+		TEST_ASSERT(client->GetDisconnectedCount() == 1);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(server->IsProtocolServerStopped());
+		TEST_ASSERT(server->IsStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast defers protocol stop until the raw callback returns")
+	{
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto connection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		auto fatal = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), L"fatal"));
+
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		connection->ReadString(handshake);
+		connection->ReadString(fatal);
+		server->Stop();
+		connection->InstallCallback(nullptr);
+
+		TEST_ASSERT(!server->StopCalledFromCallback());
+		TEST_ASSERT(server->IsProtocolServerStopped());
+		TEST_ASSERT(server->IsStopped());
+	});
+
+	TEST_CASE(L"Channel Stop reports a completion exception only once")
+	{
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto client = Ptr(new ChannelAdmissionLocalClient);
+		bool firstStopFailed = false;
+		bool secondStopFailed = false;
+
+		client->EnableThrowOnDisconnected();
+		server->Start();
+		TEST_ASSERT(server->ConnectLocalClient(client) > 0);
+		try
+		{
+			server->Stop();
+		}
+		catch (...)
+		{
+			firstStopFailed = true;
+		}
+		try
+		{
+			server->Stop();
+		}
+		catch (...)
+		{
+			secondStopFailed = true;
+		}
+
+		TEST_ASSERT(firstStopFailed);
+		TEST_ASSERT(!secondStopFailed);
+		TEST_ASSERT(client->GetDisconnectedCount() == 1);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(server->IsProtocolServerStopped());
+		TEST_ASSERT(server->IsStopped());
+	});
+
+	TEST_CASE(L"Channel fatal broadcast completes shutdown after recipient delivery throws")
+	{
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto connection = Ptr(new ChannelAdmissionConnection(server.Obj(), true));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		bool deliveryFailed = false;
+
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		connection->ReadString(handshake);
+		try
+		{
+			server->BroadcastError(L"fatal");
+		}
+		catch (...)
+		{
+			deliveryFailed = true;
+		}
+		connection->InstallCallback(nullptr);
+
+		TEST_ASSERT(deliveryFailed);
+		TEST_ASSERT(server->IsProtocolServerStopped());
+		TEST_ASSERT(server->IsStopped());
 	});
 
 	RunSocketHttpNetworkProtocolTestCases();
