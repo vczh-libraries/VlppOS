@@ -126,6 +126,7 @@ void HttpServerConnection::BeginReadingLoopUnsafe()
 
 void HttpServerConnection::SendString(const WString& str)
 {
+	bool reportLostPoll = false;
 	SPIN_LOCK(pendingRequestLock)
 	{
 		if (submittingResponse)
@@ -143,6 +144,7 @@ void HttpServerConnection::SendString(const WString& str)
 			{
 				httpPendingRequestId = HTTP_NULL_ID;
 				pendingRequestsToSend.Add(str);
+				reportLostPoll = true;
 			}
 			else
 			{
@@ -152,6 +154,21 @@ void HttpServerConnection::SendString(const WString& str)
 		else
 		{
 			pendingRequestsToSend.Add(str);
+		}
+	}
+	if (reportLostPoll && callback)
+	{
+		try
+		{
+			if (callback->OnLocalError(L"HttpServerConnection failed to respond to /Request because the polling connection was lost.", false))
+			{
+				Stop();
+			}
+		}
+		catch (...)
+		{
+			Stop();
+			throw;
 		}
 	}
 }

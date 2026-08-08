@@ -172,6 +172,7 @@ namespace vl::inter_process::async_tcp_socket
 			vint								activeCallbacks = 0;
 			bool								callbackInstalling = false;
 			bool								pollRegistrationProcessing = false;
+			bool								pollFailureReporting = false;
 			bool								accepted = false;
 			bool								stopStarted = false;
 			bool								stopCancellationFinished = false;
@@ -530,6 +531,7 @@ namespace vl::inter_process::async_tcp_socket
 				state->stopStarted ||
 				!state->accepted ||
 				state->inFlightPoll ||
+				state->pollFailureReporting ||
 				!state->pendingPoll ||
 				state->queuedOutbound.Count() == 0
 				)
@@ -574,6 +576,8 @@ namespace vl::inter_process::async_tcp_socket
 		void SocketHttpServerConnection::FinishPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, Ptr<SocketHttpRequestContext> context, bool succeeded)
 		{
 			PollWork next;
+			INetworkProtocolCallback* installed = nullptr;
+			SocketHttpServerConnection* owner = nullptr;
 			bool completed = false;
 			CS_LOCK(state->lockState)
 			{
@@ -585,13 +589,60 @@ namespace vl::inter_process::async_tcp_socket
 					}
 					state->inFlightPoll = nullptr;
 					state->inFlightMessage = nullptr;
-					ClaimPollUnsafe(state, next);
+					if (!succeeded && !state->stopStarted && state->callback && !state->callbackInstalling)
+					{
+						state->pollFailureReporting = true;
+						installed = state->callback;
+						owner = state->owner;
+						state->activeCallbacks++;
+					}
+					else
+					{
+						ClaimPollUnsafe(state, next);
+					}
 					state->cvState.WakeAllPendings();
 					completed = true;
 				}
 			}
 			if (!completed) return;
 			InvokePollCompleted(state->token, succeeded);
+			if (installed)
+			{
+				bool promoted = false;
+				try
+				{
+					CallbackFrame frame(state);
+					promoted = installed->OnLocalError(L"SocketHttpServerConnection failed to respond to /Request because the polling connection was lost.", false);
+					if (promoted)
+					{
+						CS_LOCK(state->lockState)
+						{
+							state->pollFailureReporting = false;
+							state->cvState.WakeAllPendings();
+						}
+						owner->Stop();
+					}
+				}
+				catch (...)
+				{
+					CS_LOCK(state->lockState)
+					{
+						state->pollFailureReporting = false;
+						state->cvState.WakeAllPendings();
+					}
+					owner->Stop();
+					throw;
+				}
+				if (!promoted)
+				{
+					CS_LOCK(state->lockState)
+					{
+						state->pollFailureReporting = false;
+						ClaimPollUnsafe(state, next);
+						state->cvState.WakeAllPendings();
+					}
+				}
+			}
 			StartPollResponse(state, next);
 		}
 

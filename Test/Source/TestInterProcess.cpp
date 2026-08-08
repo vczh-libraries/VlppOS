@@ -609,6 +609,19 @@ namespace mynamespace
 			protocolServer->EndCallback(previous);
 		}
 
+		bool ReportLocalError(const WString& error, bool fatal = false)
+		{
+			INetworkProtocolCallback* installedCallback = nullptr;
+			{
+				SPIN_LOCK(lockState)
+				{
+					installedCallback = callback;
+				}
+			}
+			CHECK_ERROR(installedCallback, L"ChannelAdmissionConnection needs an installed callback.");
+			return installedCallback->OnLocalError(error, fatal);
+		}
+
 		vint GetSentMessageCount()
 		{
 			vint result = 0;
@@ -1491,14 +1504,17 @@ namespace mynamespace
 		EventObject						eventInstalled;
 		EventObject						eventRead;
 		EventObject						eventDisconnected;
+		EventObject						eventRecoverableError;
 		atomic_vint					readCount = 0;
 		atomic_vint					disconnectedCount = 0;
+		atomic_vint					recoverableErrorCount = 0;
 
 		FocusedProtocolCallback()
 		{
 			CHECK_ERROR(eventInstalled.CreateManualUnsignal(false), L"Failed to create the SocketHttp installed event.");
 			CHECK_ERROR(eventRead.CreateManualUnsignal(false), L"Failed to create the SocketHttp read event.");
 			CHECK_ERROR(eventDisconnected.CreateManualUnsignal(false), L"Failed to create the SocketHttp disconnected event.");
+			CHECK_ERROR(eventRecoverableError.CreateManualUnsignal(false), L"Failed to create the SocketHttp recoverable-error event.");
 		}
 
 		void OnInstalled(INetworkProtocolConnection* value) override
@@ -1510,6 +1526,16 @@ namespace mynamespace
 		INetworkProtocolConnection* Connection()
 		{
 			return connection;
+		}
+
+		bool OnLocalError(const WString&, bool fatal) override
+		{
+			if (!fatal)
+			{
+				recoverableErrorCount++;
+				eventRecoverableError.Signal();
+			}
+			return false;
 		}
 
 		void OnDisconnected() override
@@ -4045,6 +4071,8 @@ void RunSocketHttpFocusedTestCases()
 		TEST_ASSERT(firstPollState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
 		TEST_ASSERT(firstPollState->Failed());
 		TEST_ASSERT(hookState->eventFirstCompletion.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.eventRecoverableError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.recoverableErrorCount == 1);
 
 		auto replacementPoll = CreateFocusedSocketHttpApi(port);
 		replacementPoll->WaitForServer();
@@ -4350,6 +4378,21 @@ TEST_FILE
 		TEST_ASSERT(!emptyPackage.extraClientIds);
 		TEST_ASSERT(emptyPackage.channelName == ChatChannelName);
 		TEST_ASSERT(emptyPackage.messageBody == L"Message");
+	});
+
+	TEST_CASE(L"Channel server promotes raw local errors only after admission")
+	{
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto connection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(!connection->ReportLocalError(L"pre-handshake"));
+		connection->ReadString(handshake);
+		TEST_ASSERT(connection->ReportLocalError(L"accepted"));
+		connection->Stop();
+		server->Stop();
 	});
 
 	TEST_CASE(L"Channel fatal broadcast covers in-flight admission and rejects later admission")

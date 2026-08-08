@@ -188,7 +188,7 @@ channels[L"Events"]->BroadcastFromClient(package);
 channels[L"Events"]->BatchWrite(disconnected);
 ```
 
-The derived client can also handle `OnConnected`, `OnDisconnected`, `OnReadError` and `OnLocalError`. A raw protocol callback returns `true` from `INetworkProtocolCallback::OnLocalError` when it needs to promote a recoverable transport error to fatal; the protocol then stops only after the callback returns. `NetworkProtocolChannelClient` uses this hook after its channel reaches `Connected`: it reports every local error to its `IChannelClient` user with `fatal == true`, transitions the channel to disconnected, and asks the raw transport to stop. Before the channel is connected, raw retry policy remains in control.
+The derived client can also handle `OnConnected`, `OnDisconnected`, `OnReadError` and `OnLocalError`. A raw protocol callback returns `true` from `INetworkProtocolCallback::OnLocalError` when it needs to promote a recoverable transport error to fatal; the protocol then stops only after the callback returns. `NetworkProtocolChannelClient` uses this hook after its channel reaches `Connected`: it reports every local error to its `IChannelClient` user with `fatal == true`, transitions the channel to disconnected, and asks the raw transport to stop. `NetworkProtocolChannelServer` likewise promotes a server response-delivery error after that connection has been admitted, because the accepted channel can no longer guarantee delivery. Before either channel boundary is reached, raw retry policy remains in control.
 
 `IChannelServer<TPackage>` routes messages but is not itself a channel participant. When server-side code must send ordinary channel messages, connect a `NetworkProtocolLocalChannelClient<TPackage, TSerialization>` with `ConnectLocalClient`; this gives the local participant a normal positive client id.
 
@@ -222,7 +222,7 @@ These helpers let another implementation reproduce the established wire facts wi
 
 The client uses two physical `async_tcp_socket::SocketHttpClientApi` lanes for one logical token. One lane keeps the receive poll alive; the other serializes connection control and client sends. Replacing a failed physical lane does not replace the logical `INetworkProtocolConnection` unless the transport reports final disconnection.
 
-The server maps the token to its logical connection, queues server messages when no receive request is available, and dispatches client messages through `INetworkProtocolCallback::OnReadString`. The channel bridge above this layer is unaware of the HTTP routes and physical lanes.
+The server maps the token to its logical connection, queues server messages when no receive request is available, and dispatches client messages through `INetworkProtocolCallback::OnReadString`. If a pending `/Request` response cannot be delivered, the server first restores its message to the FIFO head and reports a nonfatal local error. A raw callback may decline promotion and let a replacement poll receive that message; an admitted `NetworkProtocolChannelServer` connection promotes the error and stops instead. There is no heartbeat or explicit disconnect exchange, so an idle HTTP peer loss can remain unknown until this first attempted response.
 
 ## Starting on Windows, Linux and macOS
 

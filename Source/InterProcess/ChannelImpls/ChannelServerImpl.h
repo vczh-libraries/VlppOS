@@ -65,8 +65,9 @@ NetworkProtocolChannelServer
 
 			bool OnLocalError(const WString& error, bool fatal) override
 			{
-				// Server-side transport errors are finalized by OnDisconnected.
-				return false;
+				// Before admission, let the raw transport apply its retry policy.
+				// Afterwards, a failed delivery makes the channel unreliable.
+				return fatal || accepted;
 			}
 
 			void OnConnected() override
