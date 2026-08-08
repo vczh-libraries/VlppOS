@@ -10,6 +10,7 @@ Async Socket HTTP/1.1 Connection
 #define VCZH_INTERPROCESS_ASYNCSOCKET_HTTPREQUESTIMPL
 
 #include "HttpRequest.h"
+#include "../NetworkProtocolHttp.h"
 
 namespace vl::inter_process::async_tcp_socket
 {
@@ -18,16 +19,6 @@ namespace vl::inter_process::async_tcp_socket
 		Server,
 		Client,
 	};
-
-	class IHttpRequestTimeoutController : public virtual Interface
-	{
-	public:
-		virtual void						Arm(vint milliseconds, const Func<void()>& callback) = 0;
-		virtual void						Refresh() = 0;
-		virtual void						CancelAndWait() = 0;
-	};
-
-	extern Ptr<IHttpRequestTimeoutController>	CreateHttpRequestTimeoutController();
 
 	class HttpRequestCallbackDomain : public Object
 	{

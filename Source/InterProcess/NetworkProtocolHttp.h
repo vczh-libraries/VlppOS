@@ -41,6 +41,17 @@ namespace vl::inter_process
 	constexpr const wchar_t* HttpServerUrl_Response = L"/VlppInterProcess/Response";
 
 	constexpr const wchar_t* HttpNetworkProtocolContentType = L"application/json; charset=utf8";
+	constexpr vint HttpNetworkProtocolPollAcknowledgementTimeout = 5 * 1000;
+
+	class IHttpRequestTimeoutController : public virtual Interface
+	{
+	public:
+		virtual void Arm(vint milliseconds, const Func<void()>& callback) = 0;
+		virtual void Refresh() = 0;
+		virtual void CancelAndWait() = 0;
+	};
+
+	extern Ptr<IHttpRequestTimeoutController> CreateHttpRequestTimeoutController();
 
 	extern WString HttpUrlEncodeQuery(const WString& query);
 	extern WString HttpUrlDecodeQuery(const WString& query);

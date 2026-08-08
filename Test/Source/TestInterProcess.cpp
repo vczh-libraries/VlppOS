@@ -1508,6 +1508,7 @@ namespace mynamespace
 		atomic_vint					readCount = 0;
 		atomic_vint					disconnectedCount = 0;
 		atomic_vint					recoverableErrorCount = 0;
+		bool						promoteRecoverableErrors = false;
 
 		FocusedProtocolCallback()
 		{
@@ -1535,7 +1536,7 @@ namespace mynamespace
 				recoverableErrorCount++;
 				eventRecoverableError.Signal();
 			}
-			return false;
+			return promoteRecoverableErrors;
 		}
 
 		void OnDisconnected() override
@@ -1652,6 +1653,32 @@ namespace mynamespace
 			return WaitForClientResult::Accept;
 		}
 	};
+
+#ifdef VCZH_MSVC
+	class SingleConnectionWindowsHttpServer : public HttpServer
+	{
+	private:
+		INetworkProtocolCallback*		callback = nullptr;
+
+	public:
+		SingleConnectionWindowsHttpServer(const WString& baseUrl, vint port, INetworkProtocolCallback* _callback)
+			: HttpServer(baseUrl, port)
+			, callback(_callback)
+		{
+		}
+
+		~SingleConnectionWindowsHttpServer()
+		{
+			Stop();
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			connection->InstallCallback(callback);
+			return WaitForClientResult::Accept;
+		}
+	};
+#endif
 
 	class SocketHttpStopRaceState : public Object
 	{
@@ -2190,6 +2217,7 @@ namespace mynamespace
 		SpinLock						lock;
 		bool							failed = false;
 		vint							statusCode = 0;
+		vuint32_t						errorCode = 0;
 		WString							body;
 		Array<char>						bodyBytes;
 
@@ -2216,6 +2244,8 @@ namespace mynamespace
 				else
 				{
 					failed = true;
+					auto error = result.TryGet<windows_http::HttpError>();
+					errorCode = error->errorCode;
 				}
 			}
 			callbackCount++;
@@ -2236,6 +2266,15 @@ namespace mynamespace
 			SPIN_LOCK(lock)
 			{
 				return statusCode;
+			}
+			return 0;
+		}
+
+		vuint32_t ErrorCode()
+		{
+			SPIN_LOCK(lock)
+			{
+				return errorCode;
 			}
 			return 0;
 		}
@@ -2299,6 +2338,62 @@ namespace mynamespace
 			async_tcp_socket::CreateDefaultAsyncSocketClient(port),
 			L"localhost"
 			));
+	}
+
+	void VerifyMissingPollAcknowledgement(
+		INetworkProtocolServer* server,
+		FocusedProtocolCallback& callback,
+		const WString& baseUrl,
+		vint port,
+		bool verifyDeliveredResponse
+		)
+	{
+		callback.promoteRecoverableErrors = true;
+		server->Start();
+		auto client = CreateFocusedSocketHttpApi(port);
+		client->WaitForServer();
+
+		auto connectState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(client, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
+		TEST_ASSERT(connectState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(!connectState->Failed());
+		TEST_ASSERT(connectState->StatusCode() == 200);
+		TEST_ASSERT(callback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+		auto connectBody = connectState->Body();
+		auto separator = connectBody.IndexOf(L';');
+		TEST_ASSERT(separator > 0);
+		auto requestPath = connectBody.Left(separator);
+
+		auto pollState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(client, L"POST", baseUrl + requestPath, WString::Empty, 0, pollState);
+		TEST_ASSERT(!pollState->eventCompleted.WaitForTime(HttpNetworkProtocolPollAcknowledgementTimeout + 1000));
+		TEST_ASSERT(callback.recoverableErrorCount == 0);
+		TEST_ASSERT(callback.disconnectedCount == 0);
+
+		callback.Connection()->SendString(L"unacknowledged-message");
+		if (verifyDeliveredResponse)
+		{
+			TEST_ASSERT(pollState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!pollState->Failed());
+			TEST_ASSERT(pollState->StatusCode() == 200);
+			TEST_ASSERT(pollState->Body() == L"unacknowledged-message");
+		}
+		TEST_ASSERT(callback.eventRecoverableError.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(callback.recoverableErrorCount == 1);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+
+		auto lateClient = CreateFocusedSocketHttpApi(port);
+		lateClient->WaitForServer();
+		auto latePollState = Ptr(new SocketHttpQueryState);
+		SubmitSocketHttpQuery(lateClient, L"POST", baseUrl + requestPath, WString::Empty, SocketHttpFocusedTimeout, latePollState);
+		TEST_ASSERT(latePollState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(latePollState->Failed());
+		TEST_ASSERT(latePollState->ErrorCode() == (vuint32_t)async_tcp_socket::SocketHttpClientErrorCode::ResponseNotFound);
+
+		lateClient->Stop();
+		client->Stop();
+		server->Stop();
 	}
 
 	enum class PollScriptFailure
@@ -4026,6 +4121,30 @@ void RunSocketHttpFocusedTestCases()
 		client->GetConnection()->Stop();
 		server->Stop();
 	});
+
+	TEST_CASE(L"SocketHttp disconnects when a successful server delivery is not acknowledged by a replacement poll")
+	{
+		const vint port = 39640;
+		const WString baseUrl = L"/VlppOSTestSocketHttpPollAcknowledgement";
+		ExactMessageCallback callback(L"unused");
+		auto server = Ptr(new SingleConnectionSocketHttpServer(
+			async_tcp_socket::CreateDefaultAsyncSocketServer(port),
+			baseUrl,
+			&callback
+			));
+		VerifyMissingPollAcknowledgement(server.Obj(), callback, baseUrl, port, true);
+	});
+
+#ifdef VCZH_MSVC
+	TEST_CASE(L"Windows HttpServer disconnects when a successful server delivery is not acknowledged by a replacement poll")
+	{
+		const vint port = 39641;
+		const WString baseUrl = L"/VlppOSTestWindowsHttpPollAcknowledgement";
+		ExactMessageCallback callback(L"unused");
+		auto server = Ptr(new SingleConnectionWindowsHttpServer(baseUrl, port, &callback));
+		VerifyMissingPollAcknowledgement(server.Obj(), callback, baseUrl, port, false);
+	});
+#endif
 
 	TEST_CASE(L"SocketHttp failed poll delivery is requeued before a replacement poll")
 	{

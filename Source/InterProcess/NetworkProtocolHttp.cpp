@@ -6,9 +6,168 @@
 #include "../Stream/MemoryStream.h"
 #include "../Stream/MemoryWrapperStream.h"
 
+#include <chrono>
+#include <limits>
+
 namespace vl::inter_process
 {
 	using namespace vl::collections;
+
+	namespace http_network_protocol_helper
+	{
+		class HttpRequestTimeoutController : public Object, public virtual IHttpRequestTimeoutController
+		{
+		private:
+			class State : public Object
+			{
+			public:
+				CriticalSection					lock;
+				ConditionVariable				cv;
+				Func<void()>					callback;
+				std::chrono::steady_clock::time_point
+										deadline;
+				vint							duration = 0;
+				bool							armed = false;
+				bool							workerRunning = false;
+				vint							activeCallbacks = 0;
+			};
+
+			static thread_local State*		currentCallbackState;
+			Ptr<State>						state = Ptr(new State);
+
+			static void Run(Ptr<State> state)
+			{
+				while (true)
+				{
+					Func<void()> callback;
+					state->lock.Enter();
+					while (state->armed)
+					{
+						auto now = std::chrono::steady_clock::now();
+						if (now >= state->deadline)
+						{
+							callback = state->callback;
+							state->callback = {};
+							state->armed = false;
+							state->activeCallbacks++;
+							break;
+						}
+						auto remaining = std::chrono::ceil<std::chrono::milliseconds>(state->deadline - now).count();
+						auto wait = remaining > (std::numeric_limits<vint>::max)()
+							? (std::numeric_limits<vint>::max)()
+							: (vint)remaining;
+						state->cv.SleepWithForTime(state->lock, wait);
+					}
+					if (!callback)
+					{
+						state->workerRunning = false;
+						state->cv.WakeAllPendings();
+						state->lock.Leave();
+						return;
+					}
+					state->lock.Leave();
+
+					auto previous = currentCallbackState;
+					currentCallbackState = state.Obj();
+					try
+					{
+						callback();
+					}
+					catch (...)
+					{
+					}
+					currentCallbackState = previous;
+
+					CS_LOCK(state->lock)
+					{
+						state->activeCallbacks--;
+						state->cv.WakeAllPendings();
+					}
+				}
+			}
+
+		public:
+			~HttpRequestTimeoutController()
+			{
+				CancelAndWait();
+			}
+
+			void Arm(vint milliseconds, const Func<void()>& callback) override
+			{
+				CHECK_ERROR(milliseconds > 0, L"The HTTP timeout controller requires a positive duration.");
+				bool queueWorker = false;
+				CS_LOCK(state->lock)
+				{
+					CHECK_ERROR(!state->armed, L"The HTTP timeout controller is already armed.");
+					state->callback = callback;
+					state->duration = milliseconds;
+					state->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+					state->armed = true;
+					if (!state->workerRunning)
+					{
+						state->workerRunning = true;
+						queueWorker = true;
+					}
+					state->cv.WakeAllPendings();
+				}
+				if (queueWorker)
+				{
+					auto captured = state;
+					auto queued = ThreadPoolLite::Queue(Func<void()>([captured]()
+					{
+						Run(captured);
+					}));
+					if (!queued)
+					{
+						CS_LOCK(state->lock)
+						{
+							state->callback = {};
+							state->armed = false;
+							state->workerRunning = false;
+							state->cv.WakeAllPendings();
+						}
+						CHECK_ERROR(false, L"The HTTP timeout controller could not queue its deadline worker.");
+					}
+				}
+			}
+
+			void Refresh() override
+			{
+				CS_LOCK(state->lock)
+				{
+					if (state->armed)
+					{
+						state->deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(state->duration);
+						state->cv.WakeAllPendings();
+					}
+				}
+			}
+
+			void CancelAndWait() override
+			{
+				auto nestedCallback = currentCallbackState == state.Obj();
+				state->lock.Enter();
+				state->armed = false;
+				state->callback = {};
+				state->cv.WakeAllPendings();
+				if (!nestedCallback)
+				{
+					while (state->workerRunning || state->activeCallbacks > 0)
+					{
+						state->cv.SleepWith(state->lock);
+					}
+				}
+				state->lock.Leave();
+			}
+		};
+
+		thread_local HttpRequestTimeoutController::State* HttpRequestTimeoutController::currentCallbackState = nullptr;
+	}
+
+	Ptr<IHttpRequestTimeoutController> CreateHttpRequestTimeoutController()
+	{
+		return Ptr(new http_network_protocol_helper::HttpRequestTimeoutController);
+	}
 
 	namespace
 	{

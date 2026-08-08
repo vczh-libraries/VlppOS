@@ -126,6 +126,9 @@
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp">
+      <Filter>Common\InterProcess</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.Linux.cpp">
       <Filter>Common\InterProcess\AsyncSocket</Filter>
     </ClCompile>

@@ -169,10 +169,14 @@ namespace vl::inter_process::async_tcp_socket
 			Ptr<SocketHttpRequestContext>		inFlightPoll;
 			Ptr<SocketHttpServerOutboundMessage>
 										inFlightMessage;
+			Ptr<IHttpRequestTimeoutController>
+										pollAcknowledgementTimeout = CreateHttpRequestTimeoutController();
 			vint								activeCallbacks = 0;
 			bool								callbackInstalling = false;
 			bool								pollRegistrationProcessing = false;
 			bool								pollFailureReporting = false;
+			bool								pollAcknowledgementPending = false;
+			bool								pollAcknowledgementReporting = false;
 			bool								accepted = false;
 			bool								stopStarted = false;
 			bool								stopCancellationFinished = false;
@@ -224,6 +228,7 @@ namespace vl::inter_process::async_tcp_socket
 			static bool ClaimPollUnsafe(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork& work);
 			static void StartPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork work);
 			static void FinishPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, Ptr<SocketHttpRequestContext> context, bool succeeded);
+			static void ReportPollAcknowledgementTimeout(Ptr<SocketHttpServerConnectionLifecycle> state);
 			static void ProcessPollRegistrations(Ptr<SocketHttpServerConnectionLifecycle> state);
 			void StopCore(bool removeFromServer, bool waitForPoll);
 
@@ -532,6 +537,7 @@ namespace vl::inter_process::async_tcp_socket
 				!state->accepted ||
 				state->inFlightPoll ||
 				state->pollFailureReporting ||
+				state->pollAcknowledgementReporting ||
 				!state->pendingPoll ||
 				state->queuedOutbound.Count() == 0
 				)
@@ -589,6 +595,14 @@ namespace vl::inter_process::async_tcp_socket
 					}
 					state->inFlightPoll = nullptr;
 					state->inFlightMessage = nullptr;
+					if (succeeded && !state->stopStarted)
+					{
+						state->pollAcknowledgementPending = true;
+						state->pollAcknowledgementTimeout->Arm(
+							HttpNetworkProtocolPollAcknowledgementTimeout,
+							Func<void()>([state]() { ReportPollAcknowledgementTimeout(state); })
+							);
+					}
 					if (!succeeded && !state->stopStarted && state->callback && !state->callbackInstalling)
 					{
 						state->pollFailureReporting = true;
@@ -644,6 +658,61 @@ namespace vl::inter_process::async_tcp_socket
 				}
 			}
 			StartPollResponse(state, next);
+		}
+
+		void SocketHttpServerConnection::ReportPollAcknowledgementTimeout(Ptr<SocketHttpServerConnectionLifecycle> state)
+		{
+			INetworkProtocolCallback* installed = nullptr;
+			SocketHttpServerConnection* owner = nullptr;
+			CS_LOCK(state->lockState)
+			{
+				if (state->pollAcknowledgementPending && !state->stopStarted)
+				{
+					state->pollAcknowledgementPending = false;
+					if (state->callback && !state->callbackInstalling)
+					{
+						state->pollAcknowledgementReporting = true;
+						installed = state->callback;
+						owner = state->owner;
+						state->activeCallbacks++;
+					}
+				}
+			}
+			if (!installed) return;
+
+			bool promoted = false;
+			try
+			{
+				CallbackFrame frame(state);
+				promoted = installed->OnLocalError(L"SocketHttpServerConnection did not receive the replacement /Request after delivering a server message.", false);
+				if (promoted)
+				{
+					CS_LOCK(state->lockState)
+					{
+						state->pollAcknowledgementReporting = false;
+						state->cvState.WakeAllPendings();
+					}
+					owner->Stop();
+				}
+			}
+			catch (...)
+			{
+				CS_LOCK(state->lockState)
+				{
+					state->pollAcknowledgementReporting = false;
+					state->cvState.WakeAllPendings();
+				}
+				owner->Stop();
+				throw;
+			}
+			if (!promoted)
+			{
+				CS_LOCK(state->lockState)
+				{
+					state->pollAcknowledgementReporting = false;
+					state->cvState.WakeAllPendings();
+				}
+			}
 		}
 
 		void SocketHttpServerConnection::ProcessPollRegistrations(Ptr<SocketHttpServerConnectionLifecycle> state)
@@ -765,6 +834,18 @@ namespace vl::inter_process::async_tcp_socket
 		bool SocketHttpServerConnection::RegisterPoll(Ptr<SocketHttpRequestContext> context)
 		{
 			auto state = lifecycle;
+			bool cancelAcknowledgement = false;
+			CS_LOCK(state->lockState)
+			{
+				if (state->stopStarted || !state->accepted) return false;
+				cancelAcknowledgement = state->pollAcknowledgementPending || state->pollAcknowledgementReporting;
+				state->pollAcknowledgementPending = false;
+			}
+			if (cancelAcknowledgement)
+			{
+				state->pollAcknowledgementTimeout->CancelAndWait();
+			}
+
 			bool process = false;
 			CS_LOCK(state->lockState)
 			{
@@ -864,6 +945,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 				if (state->pendingPoll) cancelling.Add(state->pendingPoll);
 				state->pendingPoll = nullptr;
+				state->pollAcknowledgementPending = false;
 				for (auto context : state->queuedPollRegistrations) cancelling.Add(context);
 				state->queuedPollRegistrations.Clear();
 				state->queuedInbound.Clear();
@@ -908,6 +990,7 @@ namespace vl::inter_process::async_tcp_socket
 					state->stopCancellationFinished = true;
 					state->cvState.WakeAllPendings();
 				}
+				state->pollAcknowledgementTimeout->CancelAndWait();
 			}
 
 			INetworkProtocolCallback* disconnected = nullptr;
