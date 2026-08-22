@@ -31,8 +31,15 @@
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
 - Store semantic TUI state and derive each frame [1]
 - Use one general information overlay for TUI help and errors [1]
+- `stdio_redirection` keeps Base64 framing transport-opaque [1]
 
 # Refinements
+
+## `stdio_redirection` keeps Base64 framing transport-opaque
+
+Reserve redirected stdin/stdout exclusively for the protocol and keep diagnostics on stderr. Frame every ordinary `WString` as strict UTF-8 followed by standard padded Base64 and one newline; serialized channel-error packages remain ordinary strings that only the channel adapter interprets. Exact `!Exit` is the sole raw control line. Ignore malformed Base64/UTF-8 and unknown controls without changing connection state, and treat exact `!Exit`, EOF, peer exit, or local stop as a one-shot disconnection.
+
+Keep process and pipe mechanics platform-specific while shared code owns framing, connection state, callback installation and draining, launch admission, and multi-child ownership. Invoke callbacks outside locks, and make server `Stop()` bar launches, send `!Exit`, drain callbacks and readers, wait, and reap every owned child before returning. This concrete protocol belongs to testing infrastructure, not production inter-process communication.
 
 ## `NetworkProtocolChannel` queues should stay grouped for `BatchWrite`
 

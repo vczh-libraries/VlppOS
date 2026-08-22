@@ -34,3 +34,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpServerApi.cpp"
 #include "..\..\Source\InterProcess\NetworkProtocolHttp.cpp"
 #include "..\..\Source\TUI\TUI.cpp"
+#include "..\..\Source\InterProcess\StdioRedirection\StdioRedirection.cpp"

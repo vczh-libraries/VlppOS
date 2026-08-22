@@ -5,6 +5,7 @@ CPP_REMOVES=(
     "../../../Import/Vlpp.Windows.cpp"
     "../../../Source/FileSystem.Windows.cpp"
     "../../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.cpp"
+    "../../../Source/InterProcess/StdioRedirection/StdioRedirection.Windows.cpp"
     "../../../Source/InterProcess/Windows/HttpClientApi.Windows.cpp"
     "../../../Source/InterProcess/Windows/HttpServerApi.Windows.cpp"
     "../../../Source/InterProcess/Windows/HttpClient.Windows.cpp"

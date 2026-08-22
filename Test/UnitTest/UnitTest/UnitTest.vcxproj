@@ -183,6 +183,14 @@
     </ClCompile>
     <ClCompile Include="..\..\..\Source\FileSystem.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.cpp" />
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.Linux.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.Windows.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.cpp" />
     <ClCompile Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.cpp" />
@@ -294,6 +302,7 @@
     <ClInclude Include="..\..\..\Source\Encoding\Encoding.h" />
     <ClInclude Include="..\..\..\Source\FileSystem.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.h" />
+    <ClInclude Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.h" />
     <ClInclude Include="..\..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClientApi.h" />

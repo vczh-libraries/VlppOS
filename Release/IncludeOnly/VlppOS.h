@@ -46,3 +46,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket_HttpClient.h"
 #include "..\..\Source\TUI\TUI.h"
 #include "..\..\Source\TUI\TUI.Internal.h"
+#include "..\..\Source\InterProcess\StdioRedirection\StdioRedirection.h"

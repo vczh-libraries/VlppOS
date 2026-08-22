@@ -9,6 +9,8 @@
 ../../../Source/FileSystem.Injectable.cpp
 ../../../Source/FileSystem.Linux.cpp
 ../../../Source/InterProcess/NetworkProtocolHttp.cpp
+../../../Source/InterProcess/StdioRedirection/StdioRedirection.cpp
+../../../Source/InterProcess/StdioRedirection/StdioRedirection.Linux.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClientApi.cpp
@@ -34,6 +36,8 @@
 ../../../Source/Stream/MemoryWrapperStream.cpp
 ../../../Source/Stream/RecorderStream.cpp
 ../../../Source/Threading.cpp
+../../../Source/TUI/TUI.cpp
+../../../Source/TUI/TUI.Linux.cpp
 ../../../Source/Threading.Linux.cpp
 ../../Source/TestInterProcess.cpp
 ../../Source/TestInterProcess_AsyncSocket.cpp
@@ -48,4 +52,5 @@
 ../../Source/TestStreamLzw.cpp
 ../../Source/TestStreamReaderWriter.cpp
 ../../Source/TestThread.cpp
+../../Source/TestTui.cpp
 Main.cpp

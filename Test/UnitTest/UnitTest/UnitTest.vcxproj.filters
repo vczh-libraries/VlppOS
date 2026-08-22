@@ -37,6 +37,9 @@
     <Filter Include="Common\InterProcess\ChannelImpls">
       <UniqueIdentifier>{0fb445ad-8934-4c8e-b6bd-ef844579bd04}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Common\InterProcess\StdioRedirection">
+      <UniqueIdentifier>{7b73bdee-8040-47d8-ad8b-f4462044a89c}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Common\InterProcess\Windows">
       <UniqueIdentifier>{acd69f45-d653-4117-9ee5-abd6e07259d7}</UniqueIdentifier>
     </Filter>
@@ -252,6 +255,15 @@
     <ClCompile Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.cpp">
       <Filter>Common\InterProcess</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.cpp">
+      <Filter>Common\InterProcess\StdioRedirection</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.Linux.cpp">
+      <Filter>Common\InterProcess\StdioRedirection</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.Windows.cpp">
+      <Filter>Common\InterProcess\StdioRedirection</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Source\TestTui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -379,6 +391,9 @@
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolHttp.h">
       <Filter>Common\InterProcess</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Source\InterProcess\StdioRedirection\StdioRedirection.h">
+      <Filter>Common\InterProcess\StdioRedirection</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Source\InterProcess\NetworkProtocolChannel.h">
       <Filter>Common\InterProcess</Filter>
