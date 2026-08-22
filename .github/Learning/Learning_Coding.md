@@ -11,6 +11,7 @@
 - Do not invoke inter-process user callbacks while holding internal locks [2]
 - Split remote channel errors from local transport errors [2]
 - Treat fatal channel broadcast as an admission barrier [2]
+- `stdio_redirection` belongs to testing-only VlppOS inter-process [2]
 - Template `NetworkProtocolChannelServer` over the protocol server base [1]
 - Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
@@ -31,11 +32,12 @@
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
 - Store semantic TUI state and derive each frame [1]
 - Use one general information overlay for TUI help and errors [1]
-- `stdio_redirection` keeps Base64 framing transport-opaque [1]
 
 # Refinements
 
-## `stdio_redirection` keeps Base64 framing transport-opaque
+## `stdio_redirection` belongs to testing-only VlppOS inter-process
+
+Keep this concrete transport under `VlppOS/Source/InterProcess` in `vl::inter_process::stdio_redirection`, not in a downstream UI repository. It is convenient testing infrastructure rather than a production transport, so downstream projects should consume it through the ordinary VlppOS release surface instead of maintaining duplicate helper sources.
 
 Reserve redirected stdin/stdout exclusively for the protocol and keep diagnostics on stderr. Frame every ordinary `WString` as strict UTF-8 followed by standard padded Base64 and one newline; serialized channel-error packages remain ordinary strings that only the channel adapter interprets. Exact `!Exit` is the sole raw control line. Ignore malformed Base64/UTF-8 and unknown controls without changing connection state, and treat exact `!Exit`, EOF, peer exit, or local stop as a one-shot disconnection.
 
