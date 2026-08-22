@@ -1,6 +1,8 @@
 #include "StdioRedirection.h"
 #include "../AsyncSocket/HttpRequest.h"
 #include "../../Encoding/Base64Encoding.h"
+#include "../../Encoding/CharFormat/UtfEncoding.h"
+#include "../../Encoding/LzwEncoding.h"
 #include "../../Stream/Accessor.h"
 #include "../../Stream/EncodingStream.h"
 #include "../../Stream/MemoryWrapperStream.h"
