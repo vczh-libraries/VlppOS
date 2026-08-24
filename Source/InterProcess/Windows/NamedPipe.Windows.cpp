@@ -157,6 +157,7 @@ RESTART_LOOP:
 				context->callbackStarted = 1;
 
 				auto self = context->connection;
+				self->readCallbackThreadId = (vint)GetCurrentThreadId();
 				ReadWaitContext* expectedContext = context;
 				bool ownsContext = self->readWaitContext.compare_exchange_strong(expectedContext, nullptr);
 
@@ -167,6 +168,7 @@ RESTART_LOOP:
 						context->eventRegistrationFinished.Wait();
 						UnregisterWait(context->hWaitHandle);
 					}
+					self->readCallbackThreadId = 0;
 					self->EndPendingCallback();
 					if (ownsContext)
 					{
@@ -395,6 +397,10 @@ void NamedPipeConnection::Stop()
 		{
 			CancelIoEx(hPipe, NULL);
 		}
+	}
+	if (readCallbackThreadId == (vint)GetCurrentThreadId())
+	{
+		return;
 	}
 
 	ReadWaitContext* context = readWaitContext.exchange(nullptr);

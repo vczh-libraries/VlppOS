@@ -151,13 +151,16 @@ ClientStatus HttpClient::GetStatus()
 HttpClient (Writing)
 ***********************************************************************/
 
-bool HttpClient::SendHttpRequest(HttpRequestType requestType, const WString& url, const WString& body, vint attempt)
+bool HttpClient::SendHttpRequest(HttpRequestType requestType, const WString& url, const WString& body, vint attempt, Ptr<ResponseUploadState> responseUploadState)
 {
 	Ptr<HttpClientApi> api;
 	{
 		SPIN_LOCK(lockState)
 		{
-			if (state == State::Stopping) return false;
+			if (state == State::Stopping)
+			{
+				if (requestType != HttpRequestType::Response || !drainResponseUploads) return false;
+			}
 			switch (requestType)
 			{
 			case HttpRequestType::Connect:
@@ -167,7 +170,7 @@ bool HttpClient::SendHttpRequest(HttpRequestType requestType, const WString& url
 				CHECK_ERROR(state == State::Running, L"/Request can only be called when client is running.");
 				break;
 			case HttpRequestType::Response:
-				CHECK_ERROR(state == State::Running, L"/Response can only be called when client is running.");
+				CHECK_ERROR(state == State::Running || (state == State::Stopping && drainResponseUploads), L"/Response can only be called when client is running.");
 				break;
 			}
 			api = httpClientApi;
@@ -198,17 +201,44 @@ bool HttpClient::SendHttpRequest(HttpRequestType requestType, const WString& url
 		break;
 	}
 
-	api->HttpQuery(request, [this, requestType, body, attempt](Variant<HttpResponse, HttpError> result)
+	Func<void()> requestSentCallback;
+	if (responseUploadState)
 	{
-		OnHttpRequestCompleted(requestType, body, attempt, std::move(result));
-	});
+		requestSentCallback = [this, responseUploadState]()
+		{
+			if (responseUploadState->advanced.exchange(1) == 0)
+			{
+				OnHttpResponseRequestSent();
+			}
+		};
+	}
+
+	api->HttpQuery(request, [this, requestType, body, attempt, responseUploadState](Variant<HttpResponse, HttpError> result)
+	{
+		if (responseUploadState)
+		{
+			OnHttpResponseRequestCompleted(body, attempt, responseUploadState, std::move(result));
+		}
+		else
+		{
+			OnHttpRequestCompleted(requestType, body, attempt, responseUploadState, std::move(result));
+		}
+	}, requestSentCallback);
 	return true;
 }
 
-void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, const WString& errorMessage)
+bool HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString& body, vint attempt, Ptr<ResponseUploadState> responseUploadState, const WString& errorMessage)
 {
-	if (IsStopping()) return;
+	if (IsStopping())
+	{
+		if (responseUploadState && responseUploadState->advanced.exchange(1) == 0)
+		{
+			OnHttpResponseRequestSent();
+		}
+		return true;
+	}
 
+	bool retrying = false;
 	switch (requestType)
 	{
 	case HttpRequestType::Connect:
@@ -217,7 +247,7 @@ void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString&
 			RaiseLocalError(errorMessage, fatal);
 			if (!fatal && !IsStopping())
 			{
-				SendHttpRequest(HttpRequestType::Connect, urlConnect, WString::Empty, attempt + 1);
+				retrying = SendHttpRequest(HttpRequestType::Connect, urlConnect, WString::Empty, attempt + 1);
 			}
 		}
 		break;
@@ -225,7 +255,7 @@ void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString&
 		RaiseLocalError(errorMessage, false);
 		if (!IsStopping())
 		{
-			SendHttpRequest(HttpRequestType::Request, urlRequest, WString::Empty, attempt + 1);
+			retrying = SendHttpRequest(HttpRequestType::Request, urlRequest, WString::Empty, attempt + 1);
 		}
 		break;
 	case HttpRequestType::Response:
@@ -234,30 +264,27 @@ void HttpClient::OnHttpRequestFailed(HttpRequestType requestType, const WString&
 			RaiseLocalError(errorMessage, fatal);
 			if (!fatal && !IsStopping())
 			{
-				SendHttpRequest(HttpRequestType::Response, urlResponse, body, attempt + 1);
+				retrying = SendHttpRequest(HttpRequestType::Response, urlResponse, body, attempt + 1, responseUploadState);
 			}
 		}
 		break;
 	}
+	return !retrying;
 }
 
-void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Variant<HttpResponse, HttpError> result)
+bool HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString body, vint attempt, Ptr<ResponseUploadState> responseUploadState, Variant<HttpResponse, HttpError> result)
 {
 	if (auto error = result.TryGet<HttpError>())
 	{
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Connect failed: " + error->message);
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Connect failed: " + error->message);
 		case HttpRequestType::Request:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Request failed: " + error->message);
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Request failed: " + error->message);
 		case HttpRequestType::Response:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Response failed: " + error->message);
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Response failed: " + error->message);
 		}
-		return;
 	}
 
 	auto&& response = result.Get<HttpResponse>();
@@ -266,16 +293,12 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString bod
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Connect returned status code: ") + itow(response.statusCode) + L".");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, WString::Unmanaged(L"/Connect returned status code: ") + itow(response.statusCode) + L".");
 		case HttpRequestType::Request:
-			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Request returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, WString::Unmanaged(L"/Request returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
 		case HttpRequestType::Response:
-			OnHttpRequestFailed(requestType, body, attempt, WString::Unmanaged(L"/Response returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, WString::Unmanaged(L"/Response returned status code: ") + itow(response.statusCode) + L", another renderer may have connected to the core.");
 		}
-		return;
 	}
 
 	if (response.contentType != HttpNetworkProtocolContentType)
@@ -283,16 +306,12 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString bod
 		switch (requestType)
 		{
 		case HttpRequestType::Connect:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Connect response did not return content type: application/json; charset=utf8.");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Connect response did not return content type: application/json; charset=utf8.");
 		case HttpRequestType::Request:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Request response did not return content type: application/json; charset=utf8.");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Request response did not return content type: application/json; charset=utf8.");
 		case HttpRequestType::Response:
-			OnHttpRequestFailed(requestType, body, attempt, L"/Response response did not return content type: application/json; charset=utf8.");
-			break;
+			return OnHttpRequestFailed(requestType, body, attempt, responseUploadState, L"/Response response did not return content type: application/json; charset=utf8.");
 		}
-		return;
 	}
 
 	auto responseBody = response.GetBodyUtf8();
@@ -318,11 +337,117 @@ void HttpClient::OnHttpRequestCompleted(HttpRequestType requestType, WString bod
 		}
 		break;
 	}
+	return true;
+}
+
+void HttpClient::OnHttpResponseRequestCompleted(WString body, vint attempt, Ptr<ResponseUploadState> responseUploadState, Variant<HttpResponse, HttpError> result)
+{
+	auto completion = Ptr(new ResponseCompletion(std::move(body), attempt, responseUploadState, std::move(result)));
+	bool drain = false;
+	SPIN_LOCK(lockResponseCompletions)
+	{
+		CHECK_ERROR(!pendingResponseCompletions.Keys().Contains(responseUploadState->sequence), L"HttpClient received duplicate /Response completion sequence.");
+		pendingResponseCompletions.Add(responseUploadState->sequence, completion);
+		if (!responseCompletionDraining)
+		{
+			responseCompletionDraining = true;
+			drain = true;
+		}
+	}
+	if (drain)
+	{
+		DrainHttpResponseCompletions();
+	}
+}
+
+void HttpClient::DrainHttpResponseCompletions()
+{
+	while (true)
+	{
+		Ptr<ResponseCompletion> completion;
+		SPIN_LOCK(lockResponseCompletions)
+		{
+			auto index = pendingResponseCompletions.Keys().IndexOf(nextResponseCompletion);
+			if (index == -1)
+			{
+				responseCompletionDraining = false;
+				return;
+			}
+			completion = pendingResponseCompletions.Values()[index];
+			pendingResponseCompletions.Remove(nextResponseCompletion);
+		}
+
+		if (OnHttpRequestCompleted(
+			HttpRequestType::Response,
+			std::move(completion->body),
+			completion->attempt,
+			completion->responseUploadState,
+			std::move(completion->result)))
+		{
+			nextResponseCompletion++;
+		}
+	}
 }
 
 void HttpClient::SendString(const WString& str)
 {
-	SendHttpRequest(HttpRequestType::Response, urlResponse, str);
+	WString body;
+	Ptr<ResponseUploadState> responseUploadState;
+	bool send = false;
+	SPIN_LOCK(lockState)
+	{
+		if (state == State::Stopping) return;
+		CHECK_ERROR(state == State::Running, L"HttpClient::SendString can only be called when the client is running.");
+		queuedResponseBodies.Add(str);
+		if (!responseUploadPending)
+		{
+			eventResponseUploadsCompleted.Unsignal();
+			responseUploadPending = true;
+			body = queuedResponseBodies[0];
+			queuedResponseBodies.RemoveAt(0);
+			responseUploadState = Ptr(new ResponseUploadState);
+			responseUploadState->sequence = nextResponseSequence++;
+			send = true;
+		}
+	}
+	if (send)
+	{
+		SendHttpRequest(HttpRequestType::Response, urlResponse, body, 1, responseUploadState);
+	}
+}
+
+void HttpClient::OnHttpResponseRequestSent()
+{
+	WString body;
+	Ptr<ResponseUploadState> responseUploadState;
+	bool send = false;
+	SPIN_LOCK(lockState)
+	{
+		responseUploadPending = false;
+		if (state == State::Stopping && !drainResponseUploads)
+		{
+			queuedResponseBodies.Clear();
+			eventResponseUploadsCompleted.Signal();
+			return;
+		}
+		if (queuedResponseBodies.Count() > 0)
+		{
+			responseUploadPending = true;
+			body = queuedResponseBodies[0];
+			queuedResponseBodies.RemoveAt(0);
+			responseUploadState = Ptr(new ResponseUploadState);
+			responseUploadState->sequence = nextResponseSequence++;
+			send = true;
+		}
+		else
+		{
+			eventResponseUploadsCompleted.Signal();
+		}
+	}
+	if (send)
+	{
+		SendHttpRequest(HttpRequestType::Response, urlResponse, body, 1, responseUploadState);
+	}
 }
 
 /***********************************************************************
@@ -333,6 +458,7 @@ HttpClient::HttpClient(const WString _baseUrl, vint port)
 	: baseUrl(_baseUrl)
 {
 	CHECK_ERROR(eventWaitForServer.CreateAutoUnsignal(false), L"HttpClient initialization failed on eventWaitForServer.CreateAutoUnsignal.");
+	CHECK_ERROR(eventResponseUploadsCompleted.CreateManualUnsignal(true), L"HttpClient initialization failed on eventResponseUploadsCompleted.CreateManualUnsignal.");
 
 	httpClientApi = Ptr(new HttpClientApi(L"localhost", port));
 	urlConnect = baseUrl + HttpServerUrl_Connect;
@@ -355,15 +481,18 @@ void HttpClient::Stop()
 {
 	Ptr<HttpClientApi> stoppingApi;
 	bool notifyDisconnected = false;
+	bool waitForResponseUploads = false;
+	bool first = false;
 	{
 		SPIN_LOCK(lockState)
 		{
-			if (httpClientApi)
+			if (httpClientApi && !stopDrainingStarted)
 			{
 				state = State::Stopping;
-				stoppingApi = httpClientApi;
-				httpClientApi = nullptr;
-				notifyDisconnected = true;
+				drainResponseUploads = true;
+				stopDrainingStarted = true;
+				waitForResponseUploads = responseUploadPending;
+				first = true;
 			}
 			else
 			{
@@ -373,6 +502,22 @@ void HttpClient::Stop()
 	}
 
 	eventWaitForServer.Signal();
+	if (!first) return;
+	if (waitForResponseUploads)
+	{
+		eventResponseUploadsCompleted.Wait();
+	}
+	{
+		SPIN_LOCK(lockState)
+		{
+			drainResponseUploads = false;
+			queuedResponseBodies.Clear();
+			responseUploadPending = false;
+			stoppingApi = httpClientApi;
+			httpClientApi = nullptr;
+			notifyDisconnected = true;
+		}
+	}
 	if (stoppingApi)
 	{
 		stoppingApi->Stop();

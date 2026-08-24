@@ -33,6 +33,7 @@ private:
 	collections::Array<BYTE>						bufferReadFile;
 	stream::MemoryStream							streamReadFile;
 	std::atomic<ReadWaitContext*>					readWaitContext = nullptr;
+	atomic_vint										readCallbackThreadId = 0;
 	OVERLAPPED										overlappedReadFile;
 	HANDLE											hEventReadFile = INVALID_HANDLE_VALUE;
 	atomic_vint										pendingCallbacks = 0;

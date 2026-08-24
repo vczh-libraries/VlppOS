@@ -1654,6 +1654,57 @@ namespace mynamespace
 		}
 	};
 
+	class OrderedMessagesCallback : public FocusedProtocolCallback
+	{
+	private:
+		SpinLock						lockMessages;
+		List<WString>				messages;
+		vint						expectedCount = 0;
+		bool						reply = false;
+
+	public:
+		EventObject					eventAllMessages;
+
+		OrderedMessagesCallback(vint _expectedCount, bool _reply = false)
+			: expectedCount(_expectedCount)
+			, reply(_reply)
+		{
+			CHECK_ERROR(eventAllMessages.CreateManualUnsignal(false), L"Failed to create the ordered-messages event.");
+		}
+
+		void OnReadString(const WString& value) override
+		{
+			bool completed = false;
+			SPIN_LOCK(lockMessages)
+			{
+				messages.Add(value);
+				completed = messages.Count() == expectedCount;
+			}
+			readCount++;
+			if (reply)
+			{
+				connection->SendString(value);
+			}
+			if (completed)
+			{
+				eventAllMessages.Signal();
+			}
+		}
+
+		bool IsOrdered()
+		{
+			SPIN_LOCK(lockMessages)
+			{
+				if (messages.Count() != expectedCount) return false;
+				for (vint i = 0; i < expectedCount; i++)
+				{
+					if (messages[i] != itow(i)) return false;
+				}
+			}
+			return true;
+		}
+	};
+
 #ifdef VCZH_MSVC
 	class SingleConnectionWindowsHttpServer : public HttpServer
 	{
@@ -2962,6 +3013,26 @@ namespace mynamespace
 		}
 	};
 
+	class SingleConnectionNamedPipeServer : public NamedPipeServer
+	{
+	private:
+		INetworkProtocolCallback*		callback = nullptr;
+
+	public:
+		SingleConnectionNamedPipeServer(const WString& pipeName, INetworkProtocolCallback* _callback)
+			: NamedPipeServer(pipeName)
+			, callback(_callback)
+		{
+		}
+
+		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		{
+			connection->InstallCallback(callback);
+			connection->BeginReadingLoopUnsafe();
+			return WaitForClientResult::Accept;
+		}
+	};
+
 	class HttpTextServer : protected TextServerCallbackHost, public HttpServer
 	{
 	public:
@@ -3195,6 +3266,35 @@ void RunSocketHttpWindowsInteropTestCases()
 			client->GetConnection()->Stop();
 			server->Stop();
 		}
+	});
+
+	TEST_CASE(L"Windows HttpClient preserves bidirectional burst Response message order")
+	{
+		const vint port = 39642;
+		const vint messageCount = 64;
+		const WString baseUrl = L"/VlppOSTestWinClientOrderedResponses";
+		OrderedMessagesCallback serverCallback(messageCount, true);
+		auto server = Ptr(new SingleConnectionWindowsHttpServer(baseUrl, port, &serverCallback));
+		server->Start();
+
+		OrderedMessagesCallback clientCallback(messageCount);
+		auto client = Ptr(new HttpClient(baseUrl, port));
+		client->GetConnection()->InstallCallback(&clientCallback);
+		client->WaitForServer();
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		TEST_ASSERT(serverCallback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+
+		for (vint i = 0; i < messageCount; i++)
+		{
+			client->GetConnection()->SendString(itow(i));
+		}
+		TEST_ASSERT(serverCallback.eventAllMessages.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.IsOrdered());
+		TEST_ASSERT(clientCallback.eventAllMessages.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(clientCallback.IsOrdered());
+
+		client->GetConnection()->Stop();
+		server->Stop();
 	});
 
 	TEST_CASE(L"Windows HttpClient stops before retry when its Request failure is promoted")
@@ -4972,6 +5072,31 @@ TEST_FILE
 				[]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(L"VlppOSTestPipe")); }
 			);
 		}
+	});
+
+	TEST_CASE(L"NamedPipe connection Stop is callback-reentrant")
+	{
+		const WString pipeName = L"VlppOSTestPipeCallbackStop";
+		StopActionCallback serverCallback(L"trigger-server-connection-stop");
+		auto server = Ptr(new SingleConnectionNamedPipeServer(pipeName, &serverCallback));
+		serverCallback.SetStopAction(Func<void()>([&serverCallback]()
+		{
+			serverCallback.Connection()->Stop();
+		}));
+		server->Start();
+
+		ExactMessageCallback clientCallback(L"unused");
+		auto client = Ptr<INetworkProtocolClient>(new NamedPipeClient(pipeName));
+		client->GetConnection()->InstallCallback(&clientCallback);
+		client->WaitForServer();
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		client->GetConnection()->SendString(L"trigger-server-connection-stop");
+
+		TEST_ASSERT(serverCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.exact);
+		TEST_ASSERT(serverCallback.stopReturned);
+		server->Stop();
+		client->GetConnection()->Stop();
 	});
 
 	TEST_CASE(L"HttpServer (NetworkProtocol)")

@@ -26,6 +26,7 @@ class HttpClientApi : public Object
 		HttpClientApi*									api = nullptr;
 		HINTERNET										httpRequest = NULL;
 		Func<void(Variant<HttpResponse, HttpError>)>	callback;
+		Func<void()>									requestSentCallback;
 		collections::Array<char>						requestBody;
 		HttpResponse									response;
 		DWORD											bodyBufferWriting = 0;
@@ -70,7 +71,7 @@ public:
 	HttpClientApi& operator=(const HttpClientApi&) = delete;
 	HttpClientApi& operator=(HttpClientApi&&) = delete;
 
-	void												HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback);
+	void												HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback, Func<void()> requestSentCallback = {});
 	void												Stop();
 
 	static WString										UrlEncodeQuery(const WString& query);

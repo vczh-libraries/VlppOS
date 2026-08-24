@@ -172,6 +172,18 @@ void CALLBACK HttpClientApi::HttpStatusCallback(HINTERNET httpRequest, DWORD_PTR
 
 			BOOL httpResult = WinHttpReceiveResponse(httpRequest, NULL);
 			DWORD lastError = GetLastError();
+
+			Func<void()> requestSentCallback;
+			SPIN_LOCK(context->lockContext)
+			{
+				requestSentCallback = context->requestSentCallback;
+				context->requestSentCallback = {};
+			}
+			if (requestSentCallback)
+			{
+				requestSentCallback();
+			}
+
 			if (httpResult == FALSE)
 			{
 				self->CompleteRequestWithLastError(context, L"WinHttpReceiveResponse", lastError);
@@ -380,7 +392,7 @@ HttpClientApi::~HttpClientApi()
 	Stop();
 }
 
-void HttpClientApi::HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback)
+void HttpClientApi::HttpQuery(const HttpRequest& request, Func<void(Variant<HttpResponse, HttpError>)> callback, Func<void()> requestSentCallback)
 {
 	bool rejected = false;
 	{
@@ -457,6 +469,7 @@ void HttpClientApi::HttpQuery(const HttpRequest& request, Func<void(Variant<Http
 	context->api = this;
 	context->httpRequest = httpRequest;
 	context->callback = callback;
+	context->requestSentCallback = requestSentCallback;
 	context->keepAliveOnStop = request.keepAliveOnStop;
 
 	if (request.body.Count() > 0)

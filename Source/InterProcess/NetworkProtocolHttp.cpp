@@ -76,6 +76,7 @@ namespace vl::inter_process
 					catch (...)
 					{
 					}
+					callback = {};
 					currentCallbackState = previous;
 
 					CS_LOCK(state->lock)
