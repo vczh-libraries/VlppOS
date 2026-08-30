@@ -27,3 +27,15 @@ The captured stack was:
 `Finish` had copied `connection == 0x0085e950` from `ConnectionState::connection` under the lock and called it after releasing the lock. The object still had the `HttpRequestConnection` vtable, but its `lifecycle` `Ptr` storage referred to memory whose destructor was `ReferenceCounterOperator<HttpRequestTimeoutController::State>::DeleteReference`. This proves the raw connection pointer was used after the `HttpRequestConnection` adapter had been destroyed and its storage reused. No GFlags, elevation, UAC prompt, or machine-wide debugger setting was used.
 
 # PROPOSALS
+
+- No.1 Preserve the original HTTP adapter ownership through connection admission
+
+## No.1 Preserve the original HTTP adapter ownership through connection admission
+
+The use-after-free is not fixed safely by constructing a new `Ptr<IHttpRequestConnection>` from the raw callback argument. `HttpRequestConnection` is an `Object`, so a second raw-pointer-to-`Ptr` conversion would create an independent reference counter and eventually double-delete the same object.
+
+Instead, change `HttpRequestServer::OnClientConnected` to receive `Ptr<IHttpRequestConnection>` converted from the already-existing `Ptr<HttpRequestConnection>`. This preserves the adapter's original reference counter through the admission callback. `SharedServer` then passes that `Ptr` into `SocketHttpServerApiDispatcher`, whose `ConnectionState` stores it. Every operation copies the `Ptr` under `ConnectionState::lock` before releasing the lock and calling `SendResponse` or `Stop`; `OnDisconnected` clears the stored `Ptr`. This covers the asynchronous handoff without relying on the server's independently changing connection list and without creating a callback ownership cycle.
+
+Update the HTTP request server overrides and the HTTP/Mini HTTP knowledge-base contract to reflect the owning admission argument. Verify the existing focused Release reproduction, the full Debug x64 suite and repeated focused runs.
+
+### CODE CHANGE
