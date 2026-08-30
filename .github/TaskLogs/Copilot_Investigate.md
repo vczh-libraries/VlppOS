@@ -113,3 +113,17 @@ Confirm the stale-release and downstream-compatibility problem structurally, the
 The problem is confirmed before regeneration: current VlppOS source declarations already use `Ptr<IAsyncSocketConnection>`, `Ptr<IHttpRequestConnection>`, `Ptr<INetworkProtocolConnection>`, and `Ptr<IChannelClient<TPackage>>`, while the tracked root release still exposes the corresponding raw-pointer callbacks and forwards `.Obj()`. The specified Workflow and GacUI source overrides also still use raw callback parameters. This proves the generated release/import surfaces and downstream consumers have not yet propagated the completed ownership change.
 
 # PROPOSALS
+
+- No.1 Regenerate the owning API and repair every downstream source consumer
+
+## No.1 Regenerate the owning API and repair every downstream source consumer
+
+Use the repository generators and importers as the only path for propagating the completed VlppOS ownership contract. First run the documented Tools release gate for VlppOS and audit all root and `IncludeOnly` amalgamations. Then update the Workflow source overrides to accept the owning local-client `Ptr`, run the complete Workflow gate and explicit stdio suite, and allow its release to regenerate only after those checks pass. Import both verified releases through the GacUI Tools gate after updating the two GacUI source overrides, and audit the regenerated helper pairs.
+
+Exercise the resulting contract in the actual consumers rather than treating compilation as sufficient: run the GacJS import/code-generation/build/test/stdio sequence, GacUI Debug x64 unit tests, every included Windows and current cross-platform `/RVMT` combination, and the ordinary and fatal regression behaviors required by the current job prompts and SOP. Preserve the accepted host's ownership across renderer replacement, reject duplicate non-CLI hosts without displacing it, and verify graceful and fatal teardown.
+
+Update the three canonical website XML sources to describe the owning callback arguments and unchanged wire protocol, publish and verify the live site, regenerate the Markdown knowledge base, and synchronize the five affected Tools/source-repository pages through the documented publication workflow. Audit GacJS documentation without changing it unless an independently observable wire or behavior change is found.
+
+This proposal preserves the producer's existing reference counter end to end, avoids forbidden raw-pointer `Ptr` reconstruction, keeps generated artifacts attributable to their generators, and uses every downstream runtime boundary named in the request as evidence.
+
+### CODE CHANGE
