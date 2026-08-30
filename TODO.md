@@ -19,5 +19,8 @@
 ### TUI
 
 - Move key definitions and convertions from GacUI/iGac/wGac to VlppOS.
+- Make sure key operations, mouse operations, wheel operations, typing operations are all complete.
+- Verify on Linux
+- Verify on macOS
 
 ## Optional
