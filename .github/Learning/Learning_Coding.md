@@ -12,6 +12,7 @@
 - Split remote channel errors from local transport errors [2]
 - Treat fatal channel broadcast as an admission barrier [2]
 - `stdio_redirection` belongs to testing-only VlppOS inter-process [2]
+- `vl::inter_process` admission callbacks preserve producer-owned `Ptr` values [2]
 - Template `NetworkProtocolChannelServer` over the protocol server base [1]
 - Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
@@ -160,6 +161,10 @@ Normalize a trailing slash from each origin-form prefix and route only the exact
 Keep `HttpRequestConnection` permissive so it can parse and deliver an ordinary 404 response. `HttpRequestClient`, which owns the physical socket client, applies the stricter policy: classify 404 as `HttpResponseFailure::NotFound`, skip normal response delivery, report the structured failure, and stop the connection.
 
 Map that physical-lane failure through `SocketHttpClientApi` as `SocketHttpClientErrorCode::ResponseNotFound`. The logical `SocketHttpClient` reports it as a nonfatal endpoint error and follows the same retry or lane-replacement policy as other transport failures. Fatality at a connected channel belongs to `NetworkProtocolChannelClient`, which promotes the callback result and stops the logical transport after notification.
+
+## `vl::inter_process` admission callbacks preserve producer-owned `Ptr` values
+
+Keep connection admission owning from its concrete producer through `IAsyncSocketServerCallback::OnClientConnected`, `HttpRequestServer::OnClientConnected`, `INetworkProtocolServer::OnClientConnected`, and the local-client argument of `IChannelServer::OnClientConnected`. Adapter state that uses an admitted connection after the callback must store that same `Ptr`, copy it while holding the state lock, and invoke the connection only after unlocking. Do not reconstruct ownership from a raw callback argument.
 
 ## Keep active TUI state inside the `TUI` lifecycle
 
