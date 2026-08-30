@@ -90,7 +90,7 @@ namespace vl::inter_process::async_tcp_socket
 	class IAsyncSocketServerCallback : public virtual Interface
 	{
 	public:
-		virtual WaitForClientResult			OnClientConnected(IAsyncSocketConnection* connection) = 0;
+		virtual WaitForClientResult			OnClientConnected(Ptr<IAsyncSocketConnection> connection) = 0;
 		/// <summary>Called exactly once when a started listener stops unexpectedly.</summary>
 		virtual void							OnServerStopped();
 	};
@@ -319,7 +319,7 @@ NetworkProtocolServer
 				}
 			}
 
-			WaitForClientResult OnClientConnected(IAsyncSocketConnection* connection) override
+			WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection> connection) override
 			{
 				Ptr<SocketServerBridge> self;
 				CS_LOCK(lockSelf)
@@ -393,7 +393,7 @@ NetworkProtocolServer
 			});
 		}
 
-		WaitForClientResult OnSocketClientConnected(IAsyncSocketConnection* connection)
+		WaitForClientResult OnSocketClientConnected(Ptr<IAsyncSocketConnection> connection)
 		{
 			auto state = lifecycle;
 			NetworkProtocolCallbackDomain::CallbackFrame callbackFrame(state->callbackDomain);
@@ -407,13 +407,13 @@ NetworkProtocolServer
 				return WaitForClientResult::Reject;
 			}
 
-			auto protocolConnection = Ptr(new NetworkProtocolConnection(connection, state->callbackDomain));
+			auto protocolConnection = Ptr(new NetworkProtocolConnection(connection.Obj(), state->callbackDomain));
 			CS_LOCK(state->lockState)
 			{
 				state->connections.Add(protocolConnection);
 				acceptCallback = !state->stopStarted;
 			}
-			return acceptCallback ? OnClientConnected(protocolConnection.Obj()) : WaitForClientResult::Reject;
+			return acceptCallback ? OnClientConnected(protocolConnection) : WaitForClientResult::Reject;
 		}
 
 	public:
@@ -437,7 +437,7 @@ NetworkProtocolServer
 			}
 		}
 
-		virtual WaitForClientResult OnClientConnected(INetworkProtocolConnection*) override
+		virtual WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection>) override
 		{
 			return WaitForClientResult::Accept;
 		}

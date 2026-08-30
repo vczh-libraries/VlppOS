@@ -34,7 +34,7 @@ namespace vl::inter_process::async_tcp_socket
 		/// <remarks>A derived destructor must call <see cref="Stop"/> before destroying any state accessed by <see cref="OnClientConnected"/>.</remarks>
 		virtual ~HttpRequestServer();
 
-		virtual WaitForClientResult			OnClientConnected(IHttpRequestConnection* connection);
+		virtual WaitForClientResult			OnClientConnected(Ptr<IHttpRequestConnection> connection);
 		void							Start();
 		void							Stop();
 		bool							IsStopped();

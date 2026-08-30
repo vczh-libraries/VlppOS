@@ -551,13 +551,17 @@ namespace vl::inter_process::async_tcp_socket
 		public:
 			CriticalSection					lock;
 			Ptr<RegistryEntry>				entry;
-			IHttpRequestConnection*			connection = nullptr;
+			Ptr<IHttpRequestConnection>		connection;
 			Ptr<SocketHttpRequestContext>	context;
 			bool automaticWrite = false;
 			bool closeAfterWrite = false;
 			bool terminal = false;
 
-			ConnectionState(Ptr<RegistryEntry> _entry) : entry(_entry) {}
+			ConnectionState(Ptr<RegistryEntry> _entry, Ptr<IHttpRequestConnection> _connection)
+				: entry(_entry)
+				, connection(_connection)
+			{
+			}
 		};
 	}
 
@@ -598,7 +602,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			if (!won) return false;
 			auto completionReserved = registration->ReserveCompletion(callback);
-			IHttpRequestConnection* connection = nullptr;
+			Ptr<IHttpRequestConnection> connection;
 			CS_LOCK(connectionState->lock)
 			{
 				if (connectionState->context.Obj() == owner) connectionState->context = nullptr;
@@ -622,7 +626,10 @@ namespace vl::inter_process::async_tcp_socket
 		void Process(Ptr<HttpRequest> request);
 
 	public:
-		SocketHttpServerApiDispatcher(Ptr<RegistryEntry> entry) : state(Ptr(new ConnectionState(entry))) {}
+		SocketHttpServerApiDispatcher(Ptr<RegistryEntry> entry, Ptr<IHttpRequestConnection> connection)
+			: state(Ptr(new ConnectionState(entry, connection)))
+		{
+		}
 		void InitializeSelf(Ptr<SocketHttpServerApiDispatcher> self) { CS_LOCK(lockSelf) { selfReference = self; } }
 		void OnReadRequest(Ptr<HttpRequest> request) override;
 		void OnReadRequestFailure(HttpRequestFailure failure) override;
@@ -655,7 +662,7 @@ namespace vl::inter_process::async_tcp_socket
 			{
 			}
 			void InitializeSelf(Ptr<SharedServer> self) { CS_LOCK(lock) { selfReference = self; } }
-			WaitForClientResult OnClientConnected(IHttpRequestConnection* connection) override;
+			WaitForClientResult OnClientConnected(Ptr<IHttpRequestConnection> connection) override;
 			void StopAndRelease();
 		};
 
@@ -941,14 +948,14 @@ namespace vl::inter_process::async_tcp_socket
 
 	void ResetSocketHttpServerTimeoutControllerFactoryForTesting() { SetSocketHttpServerTimeoutControllerFactoryForTesting({}); }
 
-	WaitForClientResult SharedServer::OnClientConnected(IHttpRequestConnection* connection)
+	WaitForClientResult SharedServer::OnClientConnected(Ptr<IHttpRequestConnection> connection)
 	{
 		Ptr<RegistryEntry> retained;
 		CS_LOCK(lock) { retained = entry; }
 		if (!retained) return WaitForClientResult::Reject;
 		try
 		{
-			auto dispatcher = Ptr(new SocketHttpServerApiDispatcher(retained));
+			auto dispatcher = Ptr(new SocketHttpServerApiDispatcher(retained, connection));
 			dispatcher->InitializeSelf(dispatcher);
 			connection->InstallCallback(dispatcher.Obj());
 			return WaitForClientResult::Accept;
@@ -989,7 +996,7 @@ namespace vl::inter_process::async_tcp_socket
 	void SocketHttpServerApiDispatcher::SendAutomatic(vint code, bool close, bool preflight)
 	{
 		auto response = Normalize(Automatic(code, close, preflight), L"GET");
-		IHttpRequestConnection* connection = nullptr;
+		Ptr<IHttpRequestConnection> connection;
 		CS_LOCK(state->lock)
 		{
 			if (state->terminal || state->automaticWrite || state->context) return;
@@ -1195,7 +1202,7 @@ namespace vl::inter_process::async_tcp_socket
 
 		if (close)
 		{
-			IHttpRequestConnection* stopping = nullptr;
+			Ptr<IHttpRequestConnection> stopping;
 			CS_LOCK(state->lock)
 			{
 				state->terminal = true;
@@ -1210,7 +1217,7 @@ namespace vl::inter_process::async_tcp_socket
 		auto retained = Retain();
 		if (!retained) return;
 		Ptr<SocketHttpRequestContext> context;
-		IHttpRequestConnection* connection = nullptr;
+		Ptr<IHttpRequestConnection> connection;
 		CS_LOCK(state->lock)
 		{
 			context = state->context;
@@ -1242,7 +1249,9 @@ namespace vl::inter_process::async_tcp_socket
 
 	void SocketHttpServerApiDispatcher::OnInstalled(IHttpRequestConnection* connection)
 	{
-		CS_LOCK(state->lock) { state->connection = connection; }
+		bool valid = false;
+		CS_LOCK(state->lock) { valid = state->connection.Obj() == connection; }
+		CHECK_ERROR(valid, L"SocketHttpServerApiDispatcher was installed on an unexpected HTTP request connection.");
 		connection->BeginReadingLoopUnsafe();
 	}
 
@@ -1265,7 +1274,7 @@ namespace vl::inter_process::async_tcp_socket
 	bool SocketHttpRequestContext::Respond(Ptr<HttpResponse> response, Func<void(bool)> completion)
 	{
 		Ptr<HttpResponse> normalized;
-		IHttpRequestConnection* connection = nullptr;
+		Ptr<IHttpRequestConnection> connection;
 		CS_LOCK(impl->lock)
 		{
 			if (impl->state != Impl::State::Pending) return false;

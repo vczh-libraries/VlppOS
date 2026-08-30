@@ -1451,7 +1451,7 @@ ServerState
 			{
 				try
 				{
-					result = installedCallback->OnClientConnected(wrapper.Obj());
+					result = installedCallback->OnClientConnected(wrapper);
 				}
 				catch (...)
 				{

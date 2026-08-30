@@ -13,7 +13,7 @@ namespace async_socket_test
 	constexpr vint TransferTimeout = 30000;
 	constexpr vint RetryMilestoneTimeout = 3000;
 
-	using AcceptHandler = Func<WaitForClientResult(IAsyncSocketConnection*)>;
+	using AcceptHandler = Func<WaitForClientResult(Ptr<IAsyncSocketConnection>)>;
 	using CreateServer = Func<Ptr<IAsyncSocketServer>(vint)>;
 	using CreateClient = Func<Ptr<IAsyncSocketClient>(vint)>;
 	using WaitForEvent = Func<bool(EventObject&, vint)>;
@@ -46,7 +46,7 @@ namespace async_socket_test
 		{
 		}
 
-		WaitForClientResult OnClientConnected(IAsyncSocketConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection> connection) override
 		{
 			return acceptHandler(connection);
 		}
@@ -671,9 +671,9 @@ namespace async_socket_test
 			ClientSeed
 		);
 
-		AcceptHandler acceptHandler([&](IAsyncSocketConnection* connection)
+		AcceptHandler acceptHandler([&](Ptr<IAsyncSocketConnection> connection)
 		{
-			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection, &serverCallback);
+			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection.Obj(), &serverCallback);
 		});
 
 		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
@@ -765,7 +765,7 @@ namespace async_socket_test
 		atomic_vint acceptedCount = 0;
 		NoDataCallback clientCallback(state, false, true);
 
-		AcceptHandler acceptHandler([&](IAsyncSocketConnection*)
+		AcceptHandler acceptHandler([&](Ptr<IAsyncSocketConnection>)
 		{
 			acceptedCount++;
 			state.eventAccepted.Signal();
@@ -835,9 +835,9 @@ namespace async_socket_test
 		TolerantWriteCallback serverCallback(state, PayloadSize, PayloadSeed);
 		StopInReadCallback clientCallback(state);
 
-		AcceptHandler acceptHandler([&](IAsyncSocketConnection* connection)
+		AcceptHandler acceptHandler([&](Ptr<IAsyncSocketConnection> connection)
 		{
-			return InstallAcceptedConnection(state, acceptedCount, serverConnection, connection, &serverCallback);
+			return InstallAcceptedConnection(state, acceptedCount, serverConnection, connection.Obj(), &serverCallback);
 		});
 
 		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
@@ -926,9 +926,9 @@ namespace async_socket_test
 			true
 		);
 
-		AcceptHandler acceptHandler([&](IAsyncSocketConnection* connection)
+		AcceptHandler acceptHandler([&](Ptr<IAsyncSocketConnection> connection)
 		{
-			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection, &serverCallback);
+			return InstallAcceptedConnection(state, state.acceptedCount, state.serverConnection, connection.Obj(), &serverCallback);
 		});
 
 		auto acceptCallback = Ptr(new TestServerCallback(acceptHandler));
@@ -1097,7 +1097,7 @@ namespace async_socket_test
 			state->eventCallbackDestroyed.Signal();
 		}
 
-		WaitForClientResult OnClientConnected(IAsyncSocketConnection*) override
+		WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection>) override
 		{
 			SignalOnExit signalCallbackReturned(state->eventCallbackReturned);
 			state->callbackCount++;
@@ -1264,7 +1264,7 @@ namespace async_socket_test
 			server = _server;
 		}
 
-		WaitForClientResult OnClientConnected(IAsyncSocketConnection*) override
+		WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection>) override
 		{
 			SignalOnExit signalCallbackReturned(state->eventCallbackReturned);
 			auto count = ++state->callbackCount;

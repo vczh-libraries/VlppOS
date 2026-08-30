@@ -74,7 +74,7 @@ HttpRequestServer::Impl
 				}
 			}
 
-			WaitForClientResult OnClientConnected(IAsyncSocketConnection* connection) override
+			WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection> connection) override
 			{
 				Ptr<SocketServerCallback> self;
 				CS_LOCK(lockSelf)
@@ -182,7 +182,7 @@ HttpRequestServer::Impl
 			}
 		}
 
-		static WaitForClientResult OnSocketClientConnected(Ptr<Lifecycle> state, IAsyncSocketConnection* connection)
+		static WaitForClientResult OnSocketClientConnected(Ptr<Lifecycle> state, Ptr<IAsyncSocketConnection> connection)
 		{
 			HttpRequestCallbackDomain::CallbackFrame callbackFrame(state->callbackDomain);
 			HttpRequestServer* owner = nullptr;
@@ -213,7 +213,7 @@ HttpRequestServer::Impl
 			}
 
 			auto httpConnection = Ptr(new HttpRequestConnection(
-				connection,
+				connection.Obj(),
 				HttpRequestConnectionDirection::Server,
 				state->callbackDomain,
 				timeoutController
@@ -245,7 +245,7 @@ HttpRequestServer::Impl
 			auto result = WaitForClientResult::Reject;
 			try
 			{
-				result = owner->OnClientConnected(httpConnection.Obj());
+				result = owner->OnClientConnected(httpConnection);
 			}
 			catch (...)
 			{
@@ -482,7 +482,7 @@ HttpRequestServer
 		impl->Destroy();
 	}
 
-	WaitForClientResult HttpRequestServer::OnClientConnected(IHttpRequestConnection*)
+	WaitForClientResult HttpRequestServer::OnClientConnected(Ptr<IHttpRequestConnection>)
 	{
 		return WaitForClientResult::Accept;
 	}

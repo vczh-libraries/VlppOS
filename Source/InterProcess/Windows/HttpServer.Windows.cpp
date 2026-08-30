@@ -356,7 +356,7 @@ void HttpServer::OnHttpRequestReceived(PHTTP_REQUEST pRequest)
 		{
 			connections.Add(newGuid, connection);
 		}
-		auto result = OnClientConnected(connection.Obj());
+		auto result = OnClientConnected(connection);
 		if (result == WaitForClientResult::Reject)
 		{
 			SPIN_LOCK(lockConnections)
@@ -437,7 +437,7 @@ HttpServer::~HttpServer()
 	Stop();
 }
 
-WaitForClientResult HttpServer::OnClientConnected(INetworkProtocolConnection* connection)
+WaitForClientResult HttpServer::OnClientConnected(Ptr<INetworkProtocolConnection> connection)
 {
 	return WaitForClientResult::Accept;
 }

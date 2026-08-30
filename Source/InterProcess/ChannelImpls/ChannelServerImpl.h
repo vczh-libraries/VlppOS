@@ -43,7 +43,7 @@ NetworkProtocolChannelServer
 			NetworkProtocolChannelServer*					server = nullptr;
 
 		public:
-			INetworkProtocolConnection*						connection = nullptr;
+			Ptr<INetworkProtocolConnection>					connection;
 			vint											clientId = -1;
 			bool											accepted = false;
 			bool											readyForBroadcast = false;
@@ -81,7 +81,7 @@ NetworkProtocolChannelServer
 
 			void OnInstalled(INetworkProtocolConnection* _connection) override
 			{
-				connection = _connection;
+				CHECK_ERROR(connection.Obj() == _connection, L"NetworkProtocolChannelServer was installed on an unexpected connection.");
 			}
 		};
 
@@ -740,7 +740,7 @@ NetworkProtocolChannelServer
 
 	public:
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
 			CHECK_ERROR(connection, L"NetworkProtocolChannelServer::OnClientConnected needs a valid connection.");
 			if (!TryBeginNetworkProtocolCallback())
@@ -781,7 +781,7 @@ NetworkProtocolChannelServer
 			TServerBase::Start();
 		}
 
-		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels, IChannelClient<TPackage>* localClient) override
+		WaitForClientResult OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels, Ptr<IChannelClient<TPackage>> localClient) override
 		{
 			// default implementation allows all clients to connect
 			return WaitForClientResult::Accept;
@@ -875,7 +875,7 @@ NetworkProtocolChannelServer
 			}
 			StopBarrierGuard stopBarrierGuard(this);
 
-			if (OnClientConnected(assignedClientId, channels.Keys(), localClient.Obj()) == WaitForClientResult::Reject)
+			if (OnClientConnected(assignedClientId, channels.Keys(), localClient) == WaitForClientResult::Reject)
 			{
 				return -1;
 			}

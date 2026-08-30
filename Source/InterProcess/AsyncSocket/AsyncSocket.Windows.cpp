@@ -1593,7 +1593,7 @@ AsyncSocketServer::Impl
 				WaitForClientResult result = WaitForClientResult::Reject;
 				try
 				{
-					result = installed->OnClientConnected(connection.Obj());
+					result = installed->OnClientConnected(connection);
 				}
 				catch (...)
 				{

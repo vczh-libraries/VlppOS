@@ -450,7 +450,7 @@ namespace mynamespace
 			}
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection*) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection>) override
 		{
 			return WaitForClientResult::Reject;
 		}
@@ -688,7 +688,7 @@ namespace mynamespace
 			}
 		}
 
-		WaitForClientResult OnClientConnected(vint, const IChannelClient<WString>::ChannelNameList& availableChannels, IChannelClient<WString>*) override
+		WaitForClientResult OnClientConnected(vint, const IChannelClient<WString>::ChannelNameList& availableChannels, Ptr<IChannelClient<WString>>) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel admission client should provide the chat channel.");
 			if (++admissionCount == 2)
@@ -775,7 +775,7 @@ namespace mynamespace
 		{
 		}
 
-		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels, IChannelClient<WString>* localClient) override
+		WaitForClientResult OnClientConnected(vint clientId, const IChannelClient<WString>::ChannelNameList& availableChannels, Ptr<IChannelClient<WString>> localClient) override
 		{
 			CHECK_ERROR(availableChannels.Contains(ChatChannelName), L"Channel client should provide the chat channel.");
 			SPIN_LOCK(chatData->lockServer)
@@ -1473,9 +1473,9 @@ namespace mynamespace
 			Stop();
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
-			return AcceptTextConnection(connection);
+			return AcceptTextConnection(connection.Obj());
 		}
 	};
 
@@ -1646,7 +1646,7 @@ namespace mynamespace
 			Stop();
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
 			connection->InstallCallback(callback);
 			connection->BeginReadingLoopUnsafe();
@@ -1723,7 +1723,7 @@ namespace mynamespace
 			Stop();
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
 			connection->InstallCallback(callback);
 			return WaitForClientResult::Accept;
@@ -1947,7 +1947,7 @@ namespace mynamespace
 			Stop();
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
 			auto index = connectionCount++;
 			if (index >= 2) return WaitForClientResult::Reject;
@@ -2089,7 +2089,7 @@ namespace mynamespace
 		}
 	};
 
-	Ptr<async_tcp_socket::HttpResponse> SubmitSocketHttpRawQuery(vint port, Ptr<async_tcp_socket::HttpRequest> request)
+	Ptr<async_tcp_socket::HttpResponse> SubmitSocketHttpRawQuery(vint port, Ptr<async_tcp_socket::HttpRequest> request, EventObject* responseCompleted = nullptr)
 	{
 		SocketHttpRawQueryCallback callback;
 		auto nativeClient = async_tcp_socket::CreateDefaultAsyncSocketClient(port);
@@ -2104,6 +2104,10 @@ namespace mynamespace
 		CHECK_ERROR(callback.eventCompleted.WaitForTime(SocketHttpFocusedTimeout), L"The raw SocketHttp query timed out.");
 		auto response = callback.GetResponse();
 		auto failure = callback.GetFailure();
+		if (responseCompleted)
+		{
+			CHECK_ERROR(responseCompleted->WaitForTime(SocketHttpFocusedTimeout), L"The raw SocketHttp poll response did not complete on the server.");
+		}
 		connection->Stop();
 		connection->InstallCallback(nullptr);
 		auto failureMessage = L"The raw SocketHttp query failed: " + failure;
@@ -2249,7 +2253,7 @@ namespace mynamespace
 			return 0;
 		}
 
-		WaitForClientResult OnClientConnected(async_tcp_socket::IHttpRequestConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<async_tcp_socket::IHttpRequestConnection> connection) override
 		{
 			auto callback = Ptr(new Callback(this));
 			CS_LOCK(lockState)
@@ -3007,9 +3011,9 @@ namespace mynamespace
 		{
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
-			return AcceptTextConnection(connection);
+			return AcceptTextConnection(connection.Obj());
 		}
 	};
 
@@ -3025,7 +3029,7 @@ namespace mynamespace
 		{
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
 			connection->InstallCallback(callback);
 			connection->BeginReadingLoopUnsafe();
@@ -3042,9 +3046,9 @@ namespace mynamespace
 		{
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
-			return AcceptTextConnection(connection);
+			return AcceptTextConnection(connection.Obj());
 		}
 	};
 
@@ -3082,9 +3086,9 @@ namespace mynamespace
 		{
 		}
 
-		WaitForClientResult OnClientConnected(INetworkProtocolConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<INetworkProtocolConnection> connection) override
 		{
-			return AcceptTextConnection(connection);
+			return AcceptTextConnection(connection.Obj());
 		}
 	};
 
@@ -3396,6 +3400,15 @@ void RunSocketHttpFocusedTestCases()
 	{
 		const vint port = 39611;
 		const WString baseUrl = L"/VlppOSTestSocketHttpFocusedWireServer";
+		EventObject eventPollResponseCompleted;
+		CHECK_ERROR(eventPollResponseCompleted.CreateAutoUnsignal(false), L"Failed to create the strict-wire poll-completion event.");
+		SocketHttpPollHookScope pollHooks(
+			{},
+			Func<void(const WString&, bool)>([&eventPollResponseCompleted](const WString&, bool)
+			{
+				eventPollResponseCompleted.Signal();
+			})
+			);
 		SocketHttpRecordingCallback callback;
 		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &callback));
 		server->Start();
@@ -3403,6 +3416,12 @@ void RunSocketHttpFocusedTestCases()
 		auto expectStatus = [port](Ptr<async_tcp_socket::HttpRequest> request, vint statusCode)
 		{
 			auto response = SubmitSocketHttpRawQuery(port, request);
+			TEST_ASSERT(response->statusCode == statusCode);
+			return response;
+		};
+		auto expectPollStatus = [port, &eventPollResponseCompleted](Ptr<async_tcp_socket::HttpRequest> request, vint statusCode)
+		{
+			auto response = SubmitSocketHttpRawQuery(port, request, &eventPollResponseCompleted);
 			TEST_ASSERT(response->statusCode == statusCode);
 			return response;
 		};
@@ -3434,13 +3453,13 @@ void RunSocketHttpFocusedTestCases()
 
 		connection->SendString(L"poll-without-length");
 		auto pollWithoutLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + requestPath);
-		auto pollWithoutLengthResponse = expectStatus(pollWithoutLength, 200);
+		auto pollWithoutLengthResponse = expectPollStatus(pollWithoutLength, 200);
 		TEST_ASSERT(ReadSocketHttpBody(pollWithoutLengthResponse->body) == L"poll-without-length");
 
 		connection->SendString(L"poll-with-zero-length");
 		auto pollWithZeroLength = CreateSocketHttpRawRequest(port, L"POST", baseUrl + requestPath);
 		pollWithZeroLength->headers.Add(async_tcp_socket::CreateAsciiHttpField(L"content-length", L"0"));
-		auto pollWithZeroLengthResponse = expectStatus(pollWithZeroLength, 200);
+		auto pollWithZeroLengthResponse = expectPollStatus(pollWithZeroLength, 200);
 		TEST_ASSERT(ReadSocketHttpBody(pollWithZeroLengthResponse->body) == L"poll-with-zero-length");
 
 		auto addSubmittedBody = [](Ptr<async_tcp_socket::HttpRequest> request, const WString& contentLength, const WString& body)
@@ -4606,7 +4625,7 @@ TEST_FILE
 		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
 
 		server->Start();
-		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(connection) == WaitForClientResult::Accept);
 		TEST_ASSERT(!connection->ReportLocalError(L"pre-handshake"));
 		connection->ReadString(handshake);
 		TEST_ASSERT(connection->ReportLocalError(L"accepted"));
@@ -4632,12 +4651,12 @@ TEST_FILE
 		CHECK_ERROR(eventConcurrentStopFinished.CreateManualUnsignal(false), L"Failed to create the concurrent-stop-finished event.");
 
 		server->Start();
-		TEST_ASSERT(server->OnClientConnected(acceptedConnection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(acceptedConnection) == WaitForClientResult::Accept);
 		acceptedConnection->ReadString(handshake);
 		TEST_ASSERT(server->GetClientIds().Count() == 1);
 		TEST_ASSERT(acceptedConnection->GetSentMessageCount() == 1);
 
-		TEST_ASSERT(server->OnClientConnected(admittingConnection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(admittingConnection) == WaitForClientResult::Accept);
 		ThreadPoolLite::QueueLambda([admittingConnection, handshake, &threadErrors, &eventAdmissionFinished]()
 		{
 			try
@@ -4667,7 +4686,7 @@ TEST_FILE
 		auto fatalSendEntered = acceptedConnection->eventFatalSendEntered.WaitForTime(timeout);
 		auto broadcastFinishedBeforeRelease = eventBroadcastFinished.WaitForTime(1000);
 		auto lateConnection = Ptr(new ChannelAdmissionConnection(server.Obj()));
-		auto lateAdmissionResult = server->OnClientConnected(lateConnection.Obj());
+		auto lateAdmissionResult = server->OnClientConnected(lateConnection);
 		auto admissionCountDuringBroadcast = server->AdmissionCount();
 		server->BroadcastError(L"ignored");
 		ThreadPoolLite::QueueLambda([server, &threadErrors, &eventConcurrentStopStarted, &eventConcurrentStopFinished]()
@@ -4813,9 +4832,9 @@ TEST_FILE
 
 		server->DisableSecondAdmissionBlock();
 		server->Start();
-		TEST_ASSERT(server->OnClientConnected(acceptedConnection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(acceptedConnection) == WaitForClientResult::Accept);
 		acceptedConnection->ReadString(handshake);
-		TEST_ASSERT(server->OnClientConnected(admittingConnection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(admittingConnection) == WaitForClientResult::Accept);
 		ThreadPoolLite::QueueLambda([admittingConnection, handshake, &threadErrors, &eventAdmissionFinished]()
 		{
 			try
@@ -4982,7 +5001,7 @@ TEST_FILE
 		auto fatal = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Unmanaged(ErrorChannel), L"fatal"));
 
 		server->Start();
-		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(connection) == WaitForClientResult::Accept);
 		connection->ReadString(handshake);
 		connection->ReadString(fatal);
 		server->Stop();
@@ -5036,7 +5055,7 @@ TEST_FILE
 		bool deliveryFailed = false;
 
 		server->Start();
-		TEST_ASSERT(server->OnClientConnected(connection.Obj()) == WaitForClientResult::Accept);
+		TEST_ASSERT(server->OnClientConnected(connection) == WaitForClientResult::Accept);
 		connection->ReadString(handshake);
 		try
 		{

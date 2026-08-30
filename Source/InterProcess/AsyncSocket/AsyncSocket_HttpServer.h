@@ -35,7 +35,7 @@ namespace vl::inter_process::async_tcp_socket
 		SocketHttpServer& operator=(const SocketHttpServer&) = delete;
 		SocketHttpServer& operator=(SocketHttpServer&&) = delete;
 
-		virtual WaitForClientResult			OnClientConnected(INetworkProtocolConnection* connection) override;
+		virtual WaitForClientResult			OnClientConnected(Ptr<INetworkProtocolConnection> connection) override;
 		void								Start() override;
 		void								Stop() override;
 		bool								IsStopped() override;

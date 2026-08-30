@@ -308,7 +308,7 @@ namespace http_request_test
 			return stopped;
 		}
 
-		WaitForClientResult Accept(IAsyncSocketConnection* connection)
+		WaitForClientResult Accept(Ptr<IAsyncSocketConnection> connection)
 		{
 			CHECK_ERROR(callback != nullptr && !stopped, L"The fake async socket server is not accepting clients.");
 			return callback->OnClientConnected(connection);
@@ -709,7 +709,7 @@ namespace http_request_test
 		bool						acceptClients = false;
 		vint						acceptCallbackCount = 0;
 		vint						unexpectedStopCount = 0;
-		IHttpRequestConnection*			acceptedConnection = nullptr;
+		Ptr<IHttpRequestConnection>		acceptedConnection;
 		RecordingHttpCallback			acceptedCallback;
 
 		FakeHttpRequestServer(Ptr<IAsyncSocketServer> server, bool accept)
@@ -723,7 +723,7 @@ namespace http_request_test
 			HttpRequestServer::Stop();
 		}
 
-		WaitForClientResult OnClientConnected(IHttpRequestConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<IHttpRequestConnection> connection) override
 		{
 			acceptCallbackCount++;
 			acceptedConnection = connection;
@@ -1954,7 +1954,7 @@ namespace http_request_test
 				auto socket = Ptr(new FakeAsyncSocketConnection);
 				server.Start();
 
-				TEST_ASSERT(nativeServer->Accept(socket.Obj()) == WaitForClientResult::Accept);
+				TEST_ASSERT(nativeServer->Accept(socket) == WaitForClientResult::Accept);
 				TEST_ASSERT(server.acceptCallbackCount == 1);
 				TEST_ASSERT(server.acceptedConnection != nullptr);
 				TEST_ASSERT(socket->HasCallback());
@@ -1981,7 +1981,7 @@ namespace http_request_test
 				auto socket = Ptr(new FakeAsyncSocketConnection);
 				server.Start();
 
-				TEST_ASSERT(nativeServer->Accept(socket.Obj()) == WaitForClientResult::Reject);
+				TEST_ASSERT(nativeServer->Accept(socket) == WaitForClientResult::Reject);
 				TEST_ASSERT(server.acceptCallbackCount == 1);
 				TEST_ASSERT(socket->stopCount >= 1);
 				TEST_ASSERT(socket->uninstalledCallbackCount >= 1);
@@ -3005,7 +3005,7 @@ namespace http_request_test
 			HttpRequestServer::Stop();
 		}
 
-		WaitForClientResult OnClientConnected(IHttpRequestConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<IHttpRequestConnection> connection) override
 		{
 			try
 			{
@@ -3298,7 +3298,7 @@ namespace http_request_test
 			HttpRequestServer::Stop();
 		}
 
-		WaitForClientResult OnClientConnected(IHttpRequestConnection* connection) override
+		WaitForClientResult OnClientConnected(Ptr<IHttpRequestConnection> connection) override
 		{
 			try
 			{

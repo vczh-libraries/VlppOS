@@ -791,7 +791,7 @@ StdioRedirectionServer
 		}
 	}
 
-	WaitForClientResult StdioRedirectionServer::OnClientConnected(INetworkProtocolConnection*)
+	WaitForClientResult StdioRedirectionServer::OnClientConnected(Ptr<INetworkProtocolConnection>)
 	{
 		return WaitForClientResult::Accept;
 	}
@@ -911,7 +911,7 @@ StdioRedirectionServer
 				CHECK_ERROR(false, ERROR_MESSAGE_PREFIX L"The server stopped while launching the client.");
 			}
 
-			auto accepted = OnClientConnected(connection.Obj()) == WaitForClientResult::Accept;
+			auto accepted = OnClientConnected(connection) == WaitForClientResult::Accept;
 			if (!accepted)
 			{
 				connection->Stop();

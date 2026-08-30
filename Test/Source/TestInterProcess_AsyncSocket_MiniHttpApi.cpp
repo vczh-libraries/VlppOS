@@ -693,7 +693,7 @@ namespace mini_http_api_test
 	class RejectingServerCallback : public Object, public virtual IAsyncSocketServerCallback
 	{
 	public:
-		WaitForClientResult OnClientConnected(IAsyncSocketConnection*) override
+		WaitForClientResult OnClientConnected(Ptr<IAsyncSocketConnection>) override
 		{
 			return WaitForClientResult::Reject;
 		}
@@ -998,7 +998,7 @@ namespace mini_http_api_test
 			responses.Add(response);
 		}
 
-		WaitForClientResult OnClientConnected(IHttpRequestConnection* value) override
+		WaitForClientResult OnClientConnected(Ptr<IHttpRequestConnection> value) override
 		{
 			try
 			{

@@ -240,7 +240,7 @@ namespace vl::inter_process::async_tcp_socket
 			bool IsAccepted();
 			bool HasCurrentCallback();
 			WString GetToken();
-			WaitForClientResult InvokeClientConnected(SocketHttpServer* server);
+			WaitForClientResult InvokeClientConnected(SocketHttpServer* server, Ptr<SocketHttpServerConnection> connection);
 			bool RegisterPoll(Ptr<SocketHttpRequestContext> context);
 			bool DispatchInbound(const WString& message, Ptr<SocketHttpServerOutboundMessage>& response);
 			void StopFromServer();
@@ -803,8 +803,9 @@ namespace vl::inter_process::async_tcp_socket
 			return lifecycle->token;
 		}
 
-		WaitForClientResult SocketHttpServerConnection::InvokeClientConnected(SocketHttpServer* server)
+		WaitForClientResult SocketHttpServerConnection::InvokeClientConnected(SocketHttpServer* server, Ptr<SocketHttpServerConnection> connection)
 		{
+			CHECK_ERROR(connection.Obj() == this, L"SocketHttpServerConnection received an unexpected owning connection.");
 			auto state = lifecycle;
 			bool invoke = false;
 			CS_LOCK(state->lockState)
@@ -820,7 +821,7 @@ namespace vl::inter_process::async_tcp_socket
 			WaitForClientResult result;
 			{
 				CallbackFrame frame(state);
-				result = server->OnClientConnected(this);
+				result = server->OnClientConnected(connection);
 			}
 			if (result != WaitForClientResult::Accept) return WaitForClientResult::Reject;
 
@@ -1300,7 +1301,7 @@ namespace vl::inter_process::async_tcp_socket
 				}
 
 				WaitForClientResult result = WaitForClientResult::Reject;
-				try { result = connection->InvokeClientConnected(owner); }
+				try { result = connection->InvokeClientConnected(owner, connection); }
 				catch (...) { result = WaitForClientResult::Reject; }
 				if (result != WaitForClientResult::Accept)
 				{
@@ -1378,7 +1379,7 @@ namespace vl::inter_process::async_tcp_socket
 		CS_LOCK(impl->lifecycle->lockState) { impl->lifecycle->owner = nullptr; }
 	}
 
-	WaitForClientResult SocketHttpServer::OnClientConnected(INetworkProtocolConnection*)
+	WaitForClientResult SocketHttpServer::OnClientConnected(Ptr<INetworkProtocolConnection>)
 	{
 		return WaitForClientResult::Accept;
 	}

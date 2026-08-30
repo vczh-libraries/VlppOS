@@ -137,7 +137,7 @@ INetworkProtocolServer
 		/// </summary>
 		/// <param name="connection">A connection object representing the client.</param>
 		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
-		virtual WaitForClientResult				OnClientConnected(INetworkProtocolConnection* connection) = 0;
+		virtual WaitForClientResult				OnClientConnected(Ptr<INetworkProtocolConnection> connection) = 0;
 
 		/// <summary>
 		/// Start the server.

@@ -1955,7 +1955,7 @@ ServerState::AcceptOperation
 			currentServerCallbackFrame = &frame;
 			try
 			{
-				acceptResult = installedCallback->OnClientConnected(connection.Obj());
+				acceptResult = installedCallback->OnClientConnected(connection);
 			}
 			catch (...)
 			{

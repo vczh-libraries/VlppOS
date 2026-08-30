@@ -676,7 +676,7 @@ void NamedPipeServer::CompletePendingConnection(Ptr<PendingConnection> pendingCo
 
 	if (shouldNotify)
 	{
-		auto result = OnClientConnected(connection.Obj());
+		auto result = OnClientConnected(connection);
 		if (result == WaitForClientResult::Reject)
 		{
 			SPIN_LOCK(lockConnections)
@@ -715,7 +715,7 @@ void NamedPipeServer::CompletePendingConnection(PendingConnection* pendingConnec
 	}
 }
 
-WaitForClientResult NamedPipeServer::OnClientConnected(INetworkProtocolConnection* connection)
+WaitForClientResult NamedPipeServer::OnClientConnected(Ptr<INetworkProtocolConnection> connection)
 {
 	return WaitForClientResult::Accept;
 }
