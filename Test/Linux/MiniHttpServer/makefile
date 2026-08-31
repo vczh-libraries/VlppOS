@@ -16,7 +16,7 @@ clean:
 
 all:pre-build ./Bin/MiniHttpServer
 
-./Bin/MiniHttpServer:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket_HttpServerApi.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/Main.o
+./Bin/MiniHttpServer:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket_HttpServerApi.o ./Obj/NetworkProtocolHttp.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../../Import/Vlpp.cpp
@@ -53,6 +53,9 @@ all:pre-build ./Bin/MiniHttpServer
 	$(CPP_COMPILE)
 
 ./Obj/AsyncSocket_HttpServerApi.o: ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.cpp
+	$(CPP_COMPILE)
+
+./Obj/NetworkProtocolHttp.o: ../../../Source/InterProcess/NetworkProtocolHttp.cpp
 	$(CPP_COMPILE)
 
 ./Obj/AsyncSocket.Linux.o: ../../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp

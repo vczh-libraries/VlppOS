@@ -10,6 +10,7 @@
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequest.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestServer.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServerApi.cpp
+../../../Source/InterProcess/NetworkProtocolHttp.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.Linux.cpp
 ../../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.cpp
 ../../../Source/Locale.cpp
