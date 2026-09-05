@@ -180,7 +180,7 @@ Do not maintain a generated Unicode-width table or its generator for `TUI::Measu
 
 Keep TUI character events aligned with native `wchar_t` consumers. On Windows, enqueue each UTF-16 code unit from `KEY_EVENT_RECORD` unchanged, so a supplementary scalar produces independent high- and low-surrogate callbacks in native event order. On Linux and macOS, retain incremental UTF-8 decoding and enqueue each completed scalar as one UTF-32 `wchar_t`.
 
-Do not combine or replace Windows surrogates in the backend or shared dispatcher. Repeat counts and modifiers apply to each native unit, and the existing stop contract may suppress a queued low surrogate after its high-surrogate callback. Keep `TuiPixel::c`, width measurement, and drawing APIs scalar-based with `char32_t`.
+Do not combine or replace Windows surrogates in the backend or shared dispatcher. Repeat counts and modifiers apply to each native unit, and the existing stop contract may suppress a queued low surrogate after its high-surrogate callback. Keep `TuiPixel::character.c`, width measurement, and drawing APIs scalar-based with `char32_t`.
 
 ## Convert TUI native units to scalars in the consumer
 
@@ -202,6 +202,6 @@ Rebuild each frame from semantic state. Replay commands from logical coordinates
 
 ## Use one general information overlay for TUI help and errors
 
-Represent modal playground information as an ordered `List<U32String>` instead of an error-specific structure. Parse failures populate two items for the original command and reason; `HELP` populates only the concise accepted command shapes. Use the same wrapping, centering, clipping, cursor hiding, and Enter-to-dismiss behavior for both.
+Represent modal playground information as an ordered `List<U32String>` instead of an error-specific structure. Parse failures populate two items for the original command and reason; `HELP` populates only the concise accepted command shapes. Use the same wrapping, clipping, cursor hiding, and Enter-to-dismiss behavior for both. Left-align all rows inside an opaque black box; center the whole box, shrinking to the longest line if nothing wraps and using the available width otherwise. Recompute layout after resize.
 
 Handle exact case-insensitive `HELP` and `EXIT` controls before painting-command parsing and never add them to painting history. `EXIT` is the only application-controlled quit action; ordinary characters such as `q`/`Q` and Escape do not stop the playground.

@@ -78,12 +78,28 @@ namespace vl
 			WideCharContinuation,
 		};
 
+		struct TuiTextStyle
+		{
+			bool							bold = false;
+			bool							italic = false;
+			bool							underline = false;
+			bool							strikeline = false;
+
+			auto operator<=>(const TuiTextStyle&) const = default;
+		};
+
+		struct TuiCharPixel
+		{
+			char32_t						c = 0;
+			TuiTextStyle					style;
+		};
+
 		struct TuiPixel
 		{
 			TuiPixelGlyph					glyph = TuiPixelGlyph::Char;
 			union
 			{
-				char32_t					c = 0;
+				TuiCharPixel				character = {};
 				TuiMergeablePixel			mergeable;
 				TuiUnmergeablePixel			unmergeable;
 			};
@@ -116,6 +132,7 @@ namespace vl
 		{
 			TuiColor						foregroundColor = { 255, 255, 255 };
 			TuiColor						backgroundColor = { 0, 0, 0 };
+			TuiTextStyle					style;
 		};
 
 		struct TuiLineOptions

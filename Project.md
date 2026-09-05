@@ -25,6 +25,8 @@ Run the browser verification project as `MiniHttpServer <WebsiteFolder> <AssetsF
 
 ### TuiPlayground Verification
 
+Windows TUI development targets Windows 10 or newer. Use virtual-terminal output for true color and text styles; their visual appearance depends on the terminal and font.
+
 Follow [DebugTuiPlaygroundSOP.md](.github/Jobs/DebugTuiPlaygroundSOP.md) for production launch, typing, navigation, history, shape preview, resize and terminal-restoration checks. [The TUI specification](.github/KnowledgeBase/KB_VlppOS_TerminalUserInterface.md) defines the shared input and rendering contracts.
 
 When any *.h or *.cpp file is changed, unit test is required to run.

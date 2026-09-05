@@ -161,6 +161,7 @@ Cross-platform owner-thread terminal takeover with input, resize and timer callb
 - Use `TUI::StartTimer` and `TUI::StopTimer` for deadline-driven callbacks on the TUI owner thread.
 - Use `TUI::GetBuffer`, `TUI::GetBufferWidth`, `TUI::GetBufferHeight` and `TUI::RenderBuffer` for retained cell-buffer rendering.
 - Use `TuiPixel`, `TuiPixelGlyph`, `TuiColor` and `TUI::MeasureChar` to represent and validate terminal cells and scalar widths.
+- Use `TuiCharPixel`, `TuiTextStyle` and `TuiPrintOptions` for character cells with bold, italic, underline and strikeline styles.
 - Use `TUI::PrintChar`, `TUI::DrawLineV`, `TUI::DrawLineH`, `TUI::DrawRect` and `TUI::Clear` for clipped drawing on the active buffer or a caller-owned buffer.
 - Use `vl::console::unittest::ScopedTuiBackend` with `vl::console::unittest::ITuiBackend` for deterministic TUI tests.
 

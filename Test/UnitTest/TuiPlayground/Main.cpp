@@ -21,6 +21,11 @@ struct SetBackgroundColorCommand
 	Nullable<TuiColor>				color;
 };
 
+struct SetTextStyleCommand
+{
+	TuiTextStyle					style;
+};
+
 struct DrawLineVCommand
 {
 	TuiMergeableGlyph				glyph = TuiMergeableGlyph::ThinLine;
@@ -66,6 +71,7 @@ struct TypeCommand
 using PaintingCommand = Variant<
 	SetForegroundColorCommand,
 	SetBackgroundColorCommand,
+	SetTextStyleCommand,
 	DrawLineVCommand,
 	DrawLineHCommand,
 	DrawRectCommand,
@@ -265,6 +271,35 @@ bool TryParseCommand(const U32String& text, PaintingCommand& command, U32String&
 	auto firstSpace = FindScalar(text, U' ');
 	auto name = firstSpace == -1 ? text : text.Sub(0, firstSpace);
 
+	if (EqualsAsciiIgnoreCase(name, U"FS"))
+	{
+		SetTextStyleCommand parsed;
+		if (firstSpace != -1)
+		{
+			U32String tokens[2];
+			if (!SplitExactSpaces(text, tokens))
+			{
+				reason = U"Expected FS or FS followed by a combination of BIUS.";
+				return false;
+			}
+			for (vint i = 0; i < tokens[1].Length(); i++)
+			{
+				switch (ToUpperAscii(tokens[1][i]))
+				{
+				case U'B': parsed.style.bold = true; break;
+				case U'I': parsed.style.italic = true; break;
+				case U'U': parsed.style.underline = true; break;
+				case U'S': parsed.style.strikeline = true; break;
+				default:
+					reason = U"Expected FS or FS followed by a combination of BIUS.";
+					return false;
+				}
+			}
+		}
+		command = parsed;
+		return true;
+	}
+
 	if (EqualsAsciiIgnoreCase(name, U"FC"))
 	{
 		U32String tokens[2];
@@ -438,6 +473,7 @@ Information CreateHelpInformation()
 	Information information;
 	information.content.Add(U32String(U"FC RRGGBB"));
 	information.content.Add(U32String(U"BC CLEAR|RRGGBB"));
+	information.content.Add(U32String(U"FS [B][I][U][S]"));
 	information.content.Add(U32String(U"LINEV THIN|THICK|DOUBLE x y1 y2"));
 	information.content.Add(U32String(U"LINEH THIN|THICK|DOUBLE x1 x2 y"));
 	information.content.Add(U32String(U"RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2"));
@@ -485,7 +521,7 @@ WrappedText WrapText(const U32String& text, vint width, bool includeCursor)
 	return result;
 }
 
-void ApplyCommand(TuiPixel* buffer, vint width, vint height, const PaintingCommand& command, TuiColor& foreground, Nullable<TuiColor>& background)
+void ApplyCommand(TuiPixel* buffer, vint width, vint height, const PaintingCommand& command, TuiColor& foreground, Nullable<TuiColor>& background, TuiTextStyle& style)
 {
 	if (auto parsed = command.TryGet<SetForegroundColorCommand>())
 	{
@@ -494,6 +530,10 @@ void ApplyCommand(TuiPixel* buffer, vint width, vint height, const PaintingComma
 	else if (auto parsed = command.TryGet<SetBackgroundColorCommand>())
 	{
 		background = parsed->color;
+	}
+	else if (auto parsed = command.TryGet<SetTextStyleCommand>())
+	{
+		style = parsed->style;
 	}
 	else if (auto parsed = command.TryGet<DrawLineVCommand>())
 	{
@@ -537,6 +577,7 @@ void ApplyCommand(TuiPixel* buffer, vint width, vint height, const PaintingComma
 				TuiPrintOptions options;
 				options.foregroundColor = foreground;
 				options.backgroundColor = buffer[parsed->y * width + x].backgroundColor;
+				options.style = style;
 				TUI::PrintChar(buffer, width, height, options, code, x, parsed->y);
 			}
 			if (x > std::numeric_limits<vint>::max() - charWidth) break;
@@ -588,13 +629,14 @@ void ReplayCommands(TuiPixel* buffer, vint width, vint height, const PlaygroundS
 {
 	auto foreground = TuiColor{ 255, 255, 255 };
 	Nullable<TuiColor> background;
+	TuiTextStyle style;
 	for (auto&& record : state.commands)
 	{
-		ApplyCommand(buffer, width, height, record.command, foreground, background);
+		ApplyCommand(buffer, width, height, record.command, foreground, background, style);
 	}
 	if (auto preview = CurrentShape(state))
 	{
-		ApplyCommand(buffer, width, height, preview.Value().command, foreground, background);
+		ApplyCommand(buffer, width, height, preview.Value().command, foreground, background, style);
 	}
 }
 
@@ -662,29 +704,42 @@ void DrawInformationOverlay(TuiPixel* buffer, vint width, vint height, const Inf
 	auto textWidth = drawBorder ? width - 2 : width;
 	List<WrappedText> wrappedItems;
 	vint textRows = 0;
+	vint longestRow = 0;
+	bool lineWrapped = false;
 	if (textWidth > 0)
 	{
 		for (auto&& item : information.content)
 		{
 			auto wrapped = WrapText(item, textWidth, false);
+			lineWrapped |= wrapped.rowWidths.Count() > 1;
+			for (auto rowWidth : wrapped.rowWidths)
+			{
+				if (rowWidth > longestRow) longestRow = rowWidth;
+			}
 			textRows += wrapped.rowWidths.Count();
 			wrappedItems.Add(std::move(wrapped));
 		}
 	}
+	if (!lineWrapped) textWidth = longestRow;
+	auto overlayWidth = textWidth + (drawBorder ? 2 : 0);
 	auto overlayHeight = drawBorder
 		? (textRows > height - 2 ? height : textRows + 2)
 		: (textRows > height ? height : textRows);
+	if (overlayWidth == 0 || overlayHeight == 0) return;
+	auto left = (width - overlayWidth) / 2;
 	auto top = (height - overlayHeight) / 2;
 	auto contentTop = top;
 	auto contentRows = overlayHeight;
+	TUI::Clear(buffer, width, height, { 0, 0, 0 }, left, top, left + overlayWidth - 1, top + overlayHeight - 1);
 
 	if (drawBorder)
 	{
 		TuiRectOptions options;
 		options.glyph = TuiMergeableGlyph::ThinLine;
 		options.foregroundColor = { 255, 96, 96 };
+		options.backgroundColor = TuiColor{ 0, 0, 0 };
 		options.corner = TuiRectCorner::Round;
-		TUI::DrawRect(buffer, width, height, options, 0, top, width - 1, top + overlayHeight - 1);
+		TUI::DrawRect(buffer, width, height, options, left, top, left + overlayWidth - 1, top + overlayHeight - 1);
 		contentTop++;
 		contentRows -= 2;
 	}
@@ -698,10 +753,8 @@ void DrawInformationOverlay(TuiPixel* buffer, vint width, vint height, const Inf
 		{
 			auto logicalRow = rowOffset + scalar.row;
 			if (logicalRow >= contentRows) continue;
-			auto centered = (textWidth - wrapped.rowWidths[scalar.row]) / 2;
-			auto x = (drawBorder ? 1 : 0) + centered + scalar.x;
+			auto x = left + (drawBorder ? 1 : 0) + scalar.x;
 			auto y = contentTop + logicalRow;
-			options.backgroundColor = buffer[y * width + x].backgroundColor;
 			TUI::PrintChar(buffer, width, height, options, scalar.code, x, y);
 		}
 		rowOffset += wrapped.rowWidths.Count();

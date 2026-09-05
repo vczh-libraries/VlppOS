@@ -223,12 +223,14 @@ The timer:
 
 `TuiPixel` represents one terminal cell. Its `glyph` selects the active union member:
 
-- `TuiPixelGlyph::Char` stores an empty cell (`c == 0`) or one Unicode scalar.
+- `TuiPixelGlyph::Char` selects `character`, a `TuiCharPixel` containing an empty cell (`character.c == 0`) or one Unicode scalar and its `TuiTextStyle style`.
 - `TuiPixelGlyph::Mergeable` stores four independently styled box-drawing arms.
 - `TuiPixelGlyph::Unmergeable` stores a rounded corner and its direction.
 - `TuiPixelGlyph::WideCharContinuation` marks the second cell occupied by a width-two scalar.
 
 Every pixel also contains logical RGB foreground and background colors.
+
+`TuiTextStyle` contains `bold`, `italic`, `underline`, and `strikeline`, all false by default. Only nonempty character glyphs use these flags, including literal spaces. Empty cells and geometric glyphs render with all four effects disabled. A wide character's leading cell owns its style; continuation cells do not emit text or style changes. Direct cell users must migrate the former `TuiPixel::c` access to `TuiPixel::character.c`.
 
 Each arm in `TuiMergeablePixel` is independently `None`, `ThinLine`, `ThickLine`, or `DoubleLine`. `TuiUnmergeablePixel` currently represents a `RoundCorner` with a left-top, right-top, left-bottom, or right-bottom direction.
 
@@ -288,7 +290,7 @@ Buffer-explicit overloads require a non-null buffer and positive dimensions.
 
 ### Printing Characters
 
-`TuiPrintOptions` supplies foreground and background colors.
+`TuiPrintOptions` supplies foreground and background colors plus a default-disabled `TuiTextStyle style`. `PrintChar` copies the complete style into the leading character cell, including when replacing a geometric glyph or differently styled text.
 
 `TUI::PrintChar`:
 
@@ -441,9 +443,9 @@ Pixels retain logical RGB. TrueColor emits RGB SGR. Color16 chooses from these c
 
 Color256 adds a 6×6×6 cube with levels `0,95,135,175,215,255` at `16+36*r+6*g+b`, then grays `8+10*n` at `232+n` for n=0..23. Quantization minimizes squared RGB distance, choosing the lowest index on ties. Windows Color16 uses the saved active palette, reordered between ANSI/Windows bits, when queryable. Customized palettes may differ from canonical approximations.
 
-VT output skips continuation cells, renders empty cells as spaces, positions each row, coalesces equal colors, and emits UTF-16 on Windows/UTF-8 on POSIX. Writes handle partial progress; POSIX retries EINTR. Frames are not guaranteed atomic.
+VT output skips continuation cells, renders empty cells as spaces, positions each row, coalesces equal colors and styles, and emits UTF-16 on Windows/UTF-8 on POSIX. Both renderers enable bold/italic/underline/strikeline using SGR 1/3/4/9 and disable them using 22/23/24/29. Style changes are independent of colors and each frame ends with an SGR reset. Actual appearance depends on the terminal and font; bold can follow the terminal's intensity preference. Writes handle partial progress; POSIX retries EINTR. Frames are not guaranteed atomic.
 
-Windows first tries VT output; Auto chooses TrueColor when available. Otherwise an owned classic buffer selects Color16 even for a higher request. Classic CHAR_INFO output writes one physical entry per cell: width-two or supplementary leading scalars degrade to ASCII ?, and continuation cells become spaces with copied colors. No legacy DBCS flags are used as generic Unicode-width markers.
+Windows development targets Windows 10 or newer. The backend enables `ENABLE_VIRTUAL_TERMINAL_PROCESSING`; Auto chooses TrueColor when available and emits RGB SGR (`38;2;r;g;b` / `48;2;r;g;b`) without palette quantization. Otherwise an owned classic buffer selects Color16 even for a higher request. Classic CHAR_INFO output omits text styles and writes one physical entry per cell: width-two or supplementary leading scalars degrade to ASCII ?, and continuation cells become spaces with copied colors. No legacy DBCS flags are used as generic Unicode-width markers.
 
 POSIX requires an interactive UTF-8 xterm-compatible terminal. Auto chooses TrueColor for COLORTERM containing truecolor/24bit, Color256 for TERM containing 256color, otherwise Color16. Explicit modes override the heuristic.
 
@@ -462,10 +464,10 @@ POSIX saves termios, applies cfmakeraw with VMIN/VTIME zero using TCSANOW, and s
 - Row 0 is exactly ` Canvas ` (8 cells), ` History ` (9), ` Shapes ` (8), clipped on narrow screens. Text is FFFFFF, selected background 000080, unselected 808080.
 - Canvas/History are persistent pages. Shapes is a transient flat menu. Tab/Shift-Tab cycle Canvas/History/Shapes; menu arrows clamp at the first/last of ten entries. Enter accepts; Escape dismisses. Navigation uses KeyDown; Enter/Backspace/Escape use Char once. Tab Char is ignored.
 - Canvas's double border starts on row 1; paper (0,0) is terminal (1,2). The bottom command box has background 404040, wraps complete scalars and grows to at most height-1. Width-two scalars survive one-column screens until they fit. Drafts survive navigation; disabling typing discards incomplete UTF-16.
-- One chronological list stores each parsed command and exact submitted text for both replay and History. Successful drawing/color/clear/type commands append once. HELP/EXIT/errors/canceled previews do not.
+- One chronological list stores each parsed command and exact submitted text for both replay and History. Successful drawing/color/style/clear/type commands append once. `FS [B][I][U][S]` replaces all four current text flags; omitted flags are false and `FS` alone resets them. Flags are case-insensitive and order/duplicates do not matter. Only subsequent `TYPE` drawing consumes this style; geometric drawing and playground UI remain unstyled. HELP/EXIT/errors/canceled previews do not enter History.
 - History wraps exact text by display width below the header and starts at newest content. Vertical wheel scrolls three visual rows per 120 units, retaining partial deltas. Position persists through page switches and clamps on resize. New records do not move a user scrolled above the end. Horizontal wheel does nothing.
 - The ten styles are LINEV THIN/THICK/DOUBLE, LINEH THIN/THICK/DOUBLE, RECT THIN/THICK/DOUBLE/ROUND. Accept switches to Canvas and arms drawing, retaining draft, changing its text to 808080, and hiding the cursor. The selecting mouse gesture is consumed.
 - Only Left acts. Down (or DoubleClick replacing Down) inside paper starts a drag. Each preview replays committed commands plus the same parsed drawing operation, preserving merging/colors/clipping/wide-character repair without ghosts/history changes.
 - Release clamps to paper and commits exactly one canonical command. Lines use the anchor's fixed row/column with inclusive normalized endpoints; one-cell lines are valid. Rectangles need two distinct rows and columns; degenerate release stays armed without committing.
 - Escape, header navigation, Tab, resize or motion showing left released cancels preview/armed mode. Middle/Right never begin, commit or cancel.
-- HELP/errors are modal rounded overlays: only Enter dismisses, without submitting. EXIT is the only application exit command; q/Q are ordinary text.
+- HELP/errors are modal rounded overlays with opaque black border/interior backgrounds and left-aligned text. Lines wrap only when they exceed the available paper width excluding the overlay border. Without wrapping, the text width is the longest original line; with wrapping, the box fills the available width. The whole box is centered and its layout is recalculated on every frame, including resize. Only Enter dismisses, without submitting. EXIT is the only application exit command; q/Q are ordinary text.

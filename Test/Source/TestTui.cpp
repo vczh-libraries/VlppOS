@@ -480,11 +480,11 @@ TEST_FILE
 			TEST_ASSERT(pixel.GetChar32() == 0);
 			TEST_ASSERT(pixel.GetWChar() == 0);
 
-			pixel.c = U'\u2500';
+			pixel.character.c = U'\u2500';
 			TEST_ASSERT(pixel.GetChar32() == U'\u2500');
 			TEST_ASSERT(pixel.GetWChar() == L'\u2500');
 
-			pixel.c = U'\U0001F600';
+			pixel.character.c = U'\U0001F600';
 			TEST_ASSERT(pixel.GetChar32() == U'\U0001F600');
 			if constexpr (sizeof(wchar_t) == 2)
 			{
@@ -498,6 +498,32 @@ TEST_FILE
 			pixel.glyph = TuiPixelGlyph::WideCharContinuation;
 			TEST_ASSERT(pixel.GetChar32() == 0);
 			TEST_ASSERT(pixel.GetWChar() == 0);
+		});
+
+		TEST_CASE(L"Text styles default off and apply only to printable character cells")
+		{
+			TuiPixel pixel;
+			TEST_ASSERT(pixel.character.c == 0);
+			TEST_ASSERT(pixel.character.style == TuiTextStyle{});
+			TEST_ASSERT(TuiPrintOptions{}.style == TuiTextStyle{});
+			TEST_ASSERT(tui_internal::GetTextStyleSequence({}) == L"\x1B[22;23;24;29m");
+			auto all = TuiTextStyle{ true, true, true, true };
+			TEST_ASSERT(tui_internal::GetTextStyleSequence(all) == L"\x1B[1;3;4;9m");
+			TEST_ASSERT(tui_internal::GetTextStyleSequence({ .italic = true }) == L"\x1B[22;3;24;29m");
+			pixel.character = { .c = U'A', .style = all };
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == all);
+			pixel.character.c = U' ';
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == all);
+			pixel.character.c = 0;
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == TuiTextStyle{});
+			pixel.glyph = TuiPixelGlyph::Mergeable;
+			pixel.mergeable = { .left = TuiMergeableGlyph::ThinLine, .right = TuiMergeableGlyph::ThinLine };
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == TuiTextStyle{});
+			pixel.glyph = TuiPixelGlyph::Unmergeable;
+			pixel.unmergeable = {};
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == TuiTextStyle{});
+			pixel.glyph = TuiPixelGlyph::WideCharContinuation;
+			TEST_ASSERT(tui_internal::GetTextStyle(pixel) == TuiTextStyle{});
 		});
 
 		TEST_CASE(L"MeasureChar uses the platform scalar-width policy")
@@ -526,23 +552,44 @@ TEST_FILE
 
 			TEST_ERROR(TUI::PrintChar(buffer, 5, 1, options, (char32_t)0xD800, 0, 0));
 			TUI::PrintChar(buffer, 5, 1, options, U'\u0301', 0, 0);
-			TEST_ASSERT(buffer[0].c == 0);
+			TEST_ASSERT(buffer[0].character.c == 0);
 
 			TUI::PrintChar(buffer, 5, 1, options, U'\u4E00', 1, 0);
 			TEST_ASSERT(buffer[1].glyph == TuiPixelGlyph::Char);
-			TEST_ASSERT(buffer[1].c == U'\u4E00');
+			TEST_ASSERT(buffer[1].character.c == U'\u4E00');
 			TEST_ASSERT(buffer[2].glyph == TuiPixelGlyph::WideCharContinuation);
 			TEST_ASSERT(buffer[2].foregroundColor == options.foregroundColor);
 			TEST_ASSERT(buffer[2].backgroundColor == options.backgroundColor);
 
 			TUI::PrintChar(buffer, 5, 1, options, U'X', 2, 0);
-			TEST_ASSERT(buffer[1].glyph == TuiPixelGlyph::Char && buffer[1].c == 0);
-			TEST_ASSERT(buffer[2].glyph == TuiPixelGlyph::Char && buffer[2].c == U'X');
+			TEST_ASSERT(buffer[1].glyph == TuiPixelGlyph::Char && buffer[1].character.c == 0);
+			TEST_ASSERT(buffer[2].glyph == TuiPixelGlyph::Char && buffer[2].character.c == U'X');
 
 			TUI::PrintChar(buffer, 5, 1, options, U'\u4E00', 4, 0);
-			TEST_ASSERT(buffer[4].c == 0);
+			TEST_ASSERT(buffer[4].character.c == 0);
 			TUI::PrintChar(buffer, 5, 1, options, U'Y', -1, 0);
 			TEST_ASSERT(BufferText(buffer, 5, 1) == U32String::Unmanaged(U"  X  "));
+		});
+
+		TEST_CASE(L"Styled wide text is repaired and overwriting shapes initializes every style flag")
+		{
+			TuiPixel buffer[5];
+			TuiPrintOptions options;
+			options.style = { true, true, true, true };
+			TUI::PrintChar(buffer, 5, 1, options, U'\u4E00', 1, 0);
+			TEST_ASSERT(buffer[1].character.style == options.style);
+			TEST_ASSERT(buffer[2].glyph == TuiPixelGlyph::WideCharContinuation);
+			TEST_ASSERT(tui_internal::GetTextStyle(buffer[2]) == TuiTextStyle{});
+			TUI::DrawLineH(buffer, 5, 1, {}, 2, 2, 0);
+			TEST_ASSERT(buffer[1].character.c == 0 && buffer[1].character.style == TuiTextStyle{});
+			TEST_ASSERT(tui_internal::GetTextStyle(buffer[2]) == TuiTextStyle{});
+			TUI::PrintChar(buffer, 5, 1, { .style = { .italic = true } }, U'A', 2, 0);
+			TEST_ASSERT(buffer[2].character.style == TuiTextStyle({ .italic = true }));
+			TUI::PrintChar(buffer, 5, 1, {}, U'B', 2, 0);
+			TEST_ASSERT(buffer[2].character.style == TuiTextStyle{});
+			TUI::PrintChar(buffer, 5, 1, options, U'C', 3, 0);
+			TUI::Clear(buffer, 5, 1, { 9, 8, 7 }, 3, 0, 3, 0);
+			TEST_ASSERT(buffer[3].character.c == 0 && buffer[3].character.style == TuiTextStyle{});
 		});
 
 		TEST_CASE(L"Lines, sharp rectangles and rounded rectangles are exact")
@@ -603,7 +650,7 @@ TEST_FILE
 			TEST_ERROR(TUI::Clear(buffer, 3, 3, TuiColor{ 0, 0, 0 }, 2, 0, 1, 1));
 
 			TUI::Clear(buffer, 3, 3, TuiColor{ 9, 8, 7 }, 1, 1, 2, 2);
-			TEST_ASSERT(buffer[4].glyph == TuiPixelGlyph::Char && buffer[4].c == 0);
+			TEST_ASSERT(buffer[4].glyph == TuiPixelGlyph::Char && buffer[4].character.c == 0);
 			TEST_ASSERT(buffer[4].foregroundColor == TuiColor({ 255, 255, 255 }));
 			TEST_ASSERT(buffer[4].backgroundColor == TuiColor({ 9, 8, 7 }));
 
@@ -844,7 +891,7 @@ TEST_FILE
 				{
 					TEST_ASSERT(TUI::GetBufferWidth() == 2);
 					TEST_ASSERT(TUI::GetBuffer()[1].glyph == TuiPixelGlyph::Char);
-					TEST_ASSERT(TUI::GetBuffer()[1].c == 0);
+					TEST_ASSERT(TUI::GetBuffer()[1].character.c == 0);
 					TUI::Stop();
 				}
 			};
@@ -1176,15 +1223,15 @@ TEST_FILE
 				TEST_ERROR(TUI::RenderBuffer());
 
 				reset();
-				buffer[0].c = (char32_t)0xD800;
+				buffer[0].character.c = (char32_t)0xD800;
 				TEST_ERROR(TUI::RenderBuffer());
 
 				reset();
-				buffer[0].c = U'\u0301';
+				buffer[0].character.c = U'\u0301';
 				TEST_ERROR(TUI::RenderBuffer());
 
 				reset();
-				buffer[0].c = U'\u4E00';
+				buffer[0].character.c = U'\u4E00';
 				TEST_ERROR(TUI::RenderBuffer());
 
 				reset();
@@ -1834,6 +1881,53 @@ TEST_FILE
 			TEST_ASSERT(parsed == std::numeric_limits<vint>::max());
 		});
 
+		TEST_CASE(L"FS accepts all style combinations and replaces the entire TYPE style")
+		{
+			for (vint mask = 0; mask < 16; mask++)
+			{
+				auto text = U32String(U"FS");
+				if (mask) text += U" ";
+				if (mask & 1) text += U"B";
+				if (mask & 2) text += U"I";
+				if (mask & 4) text += U"U";
+				if (mask & 8) text += U"S";
+				PaintingCommand command;
+				U32String reason;
+				TEST_ASSERT(TryParseCommand(text, command, reason));
+				auto style = command.Get<SetTextStyleCommand>().style;
+				TEST_ASSERT(style.bold == ((mask & 1) != 0));
+				TEST_ASSERT(style.italic == ((mask & 2) != 0));
+				TEST_ASSERT(style.underline == ((mask & 4) != 0));
+				TEST_ASSERT(style.strikeline == ((mask & 8) != 0));
+			}
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 30;
+			backend->height = 12;
+			backend->stopWhenEventsEmpty = true;
+			backend->PushCommand(U"fS suIb");
+			backend->PushCommand(U"TYPE 0 0:A\u4E00");
+			backend->PushCommand(U"LINEH THIN 0 2 1");
+			backend->PushCommand(U"FS I");
+			backend->PushCommand(U"TYPE 4 0:B");
+			backend->PushCommand(U"FS");
+			backend->PushCommand(U"TYPE 6 0:C");
+			backend->PushResize(40, 15);
+			tui_test::ScopedTuiBackend backendScope(backend);
+			PlaygroundCallback callback;
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(callback.state.commands.Count() == 7);
+			TEST_ASSERT(callback.state.commands[0].text == U"fS suIb");
+			TEST_ASSERT(backend->renderedBuffer[2 * 40 + 1].character.style == TuiTextStyle({ true, true, true, true }));
+			TEST_ASSERT(backend->renderedBuffer[2 * 40 + 2].character.style == TuiTextStyle({ true, true, true, true }));
+			TEST_ASSERT(backend->renderedBuffer[2 * 40 + 3].glyph == TuiPixelGlyph::WideCharContinuation);
+			TEST_ASSERT(backend->renderedBuffer[2 * 40 + 5].character.style == TuiTextStyle({ .italic = true }));
+			TEST_ASSERT(backend->renderedBuffer[2 * 40 + 7].character.style == TuiTextStyle{});
+			TEST_ASSERT(tui_internal::GetTextStyle(backend->renderedBuffer[3 * 40 + 1]) == TuiTextStyle{});
+			TEST_ASSERT(backend->renderedBuffer[0].character.style == TuiTextStyle{});
+		});
+
 		TEST_CASE(L"Strict parser rejects malformed commands, whitespace, overflow and ranges")
 		{
 			List<U32String> invalid;
@@ -1844,6 +1938,10 @@ TEST_FILE
 			invalid.Add(U32String(U"FC FFFFF"));
 			invalid.Add(U32String(U"FC GFFFFF"));
 			invalid.Add(U32String(U"BC clear "));
+			invalid.Add(U32String(U"FS "));
+			invalid.Add(U32String(U"FS  B"));
+			invalid.Add(U32String(U"FS B I"));
+			invalid.Add(U32String(U"FS BX"));
 			invalid.Add(U32String(U"LINEV ROUND 0 0 1"));
 			invalid.Add(U32String(U"LINEV THIN 0 2 1"));
 			invalid.Add(U32String(U"LINEH THIN 2 1 0"));
@@ -1874,6 +1972,7 @@ TEST_FILE
 			{
 				U"FC RRGGBB",
 				U"BC CLEAR|RRGGBB",
+				U"FS [B][I][U][S]",
 				U"LINEV THIN|THICK|DOUBLE x y1 y2",
 				U"LINEH THIN|THICK|DOUBLE x1 x2 y",
 				U"RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2",
@@ -2146,6 +2245,71 @@ TEST_FILE
 			for (vint x = 0; x < 14; x++)
 			{
 				TEST_ASSERT(backend->renderedBuffer[8 * 14 + x].backgroundColor == TuiColor({ 64, 64, 64 }));
+			}
+		});
+
+		TEST_CASE(L"Information shrinks around left-aligned text and covers underlying cells")
+		{
+			Array<TuiPixel> buffer(20 * 10);
+			for (vint i = 0; i < buffer.Count(); i++)
+			{
+				buffer[i].character.c = U'X';
+				buffer[i].backgroundColor = { 12, 34, 56 };
+			}
+			Information information;
+			information.content.Add(U32String(U"abcdef"));
+			information.content.Add(U32String(U"z"));
+			DrawInformationOverlay(&buffer[0], 20, 10, information);
+			TEST_ASSERT(buffer[3 * 20 + 6].GetChar32() == U'\u256D');
+			TEST_ASSERT(buffer[3 * 20 + 13].GetChar32() == U'\u256E');
+			TEST_ASSERT(buffer[4 * 20 + 7].GetChar32() == U'a');
+			TEST_ASSERT(buffer[5 * 20 + 7].GetChar32() == U'z');
+			TEST_ASSERT(buffer[5 * 20 + 8].GetChar32() == 0);
+			for (vint y = 3; y <= 6; y++)
+			{
+				for (vint x = 6; x <= 13; x++)
+				{
+					TEST_ASSERT(buffer[y * 20 + x].backgroundColor == TuiColor({ 0, 0, 0 }));
+				}
+			}
+			TEST_ASSERT(buffer[3 * 20 + 5].GetChar32() == U'X');
+		});
+
+		TEST_CASE(L"Information wraps at available width and remeasures the whole box")
+		{
+			Information information;
+			information.content.Add(U32String(U"123456789"));
+			information.content.Add(U32String(U"x"));
+			Array<TuiPixel> narrow(8 * 9);
+			DrawInformationOverlay(&narrow[0], 8, 9, information);
+			TEST_ASSERT(narrow[2 * 8].GetChar32() == U'\u256D');
+			TEST_ASSERT(narrow[2 * 8 + 7].GetChar32() == U'\u256E');
+			TEST_ASSERT(narrow[3 * 8 + 1].GetChar32() == U'1');
+			TEST_ASSERT(narrow[4 * 8 + 1].GetChar32() == U'7');
+			TEST_ASSERT(narrow[5 * 8 + 1].GetChar32() == U'x');
+			Array<TuiPixel> wide(20 * 9);
+			DrawInformationOverlay(&wide[0], 20, 9, information);
+			TEST_ASSERT(wide[2 * 20 + 4].GetChar32() == U'\u256D');
+			TEST_ASSERT(wide[2 * 20 + 14].GetChar32() == U'\u256E');
+			TEST_ASSERT(wide[3 * 20 + 5].GetChar32() == U'1');
+			TEST_ASSERT(wide[4 * 20 + 5].GetChar32() == U'x');
+			information.content.Clear();
+			information.content.Add(U32String(U"\u4E00AB"));
+			information.content.Add(U32String(U"x"));
+			for (vint width = 1; width <= 6; width++)
+			{
+				for (vint height = 1; height <= 5; height++)
+				{
+					Array<TuiPixel> smallBuffer(width * height);
+					DrawInformationOverlay(&smallBuffer[0], width, height, information);
+					for (vint i = 0; i < smallBuffer.Count(); i++)
+					{
+						if (smallBuffer[i].glyph == TuiPixelGlyph::WideCharContinuation)
+						{
+							TEST_ASSERT(i % width > 0 && smallBuffer[i - 1].GetChar32() == U'\u4E00');
+						}
+					}
+				}
 			}
 		});
 

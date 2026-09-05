@@ -21,6 +21,7 @@ This document owns production feature operations and observable results. [Projec
 
 - `FC RRGGBB` changes the foreground color; the initial foreground is `FFFFFF`.
 - `BC CLEAR` preserves destination backgrounds for later lines and rectangles; `BC RRGGBB` replaces them. The initial background mode is `CLEAR`.
+- `FS [B][I][U][S]` replaces the text style for subsequent `TYPE` commands. Include a compact combination of `B` (bold), `I` (italic), `U` (underline), and `S` (strikeline); every omitted flag becomes false. `FS` alone resets all four flags, which are initially false. Flags are case-insensitive, may appear in any order, and repeated flags have the same effect as one occurrence.
 - `LINEV THIN|THICK|DOUBLE x y1 y2` draws a vertical line.
 - `LINEH THIN|THICK|DOUBLE x1 x2 y` draws a horizontal line.
 - `RECT THIN|THICK|DOUBLE|ROUND x1 y1 x2 y2` draws a rectangle. `ROUND` means a thin line with rounded corners.
@@ -31,7 +32,7 @@ This document owns production feature operations and observable results. [Projec
 
 Command names, formats, `CLEAR`, and hexadecimal digits are case-insensitive. Parsing is otherwise strict: use exactly one ASCII space at each displayed separator, six hexadecimal digits, signed decimal coordinates in the platform `vint` range, and ordered ranges. Logical paper `(0,0)` appears at terminal `(1,2)` inside the double-line border; signed off-paper coordinates are accepted and clipped.
 
-The command box wraps complete Unicode scalars by display width, grows upward as needed, keeps its blinking cursor visible, and supports only Backspace editing. Enter submits and clears the box. `HELP` and parse errors display information in a centered rounded overlay; all typing, including Escape, is ignored until Enter dismisses it. `q` and `Q` are ordinary command text. `EXIT` is the only in-application way to quit.
+The command box wraps complete Unicode scalars by display width, grows upward as needed, keeps its blinking cursor visible, and supports only Backspace editing. Enter submits and clears the box. `HELP` and parse errors display left-aligned information in a centered rounded box with an opaque black background. If every original line fits inside the available paper width excluding the box border, the text area shrinks to the longest line. Otherwise lines wrap at the maximum interior width and the box occupies the available paper width. Resize recomputes wrapping, box size and position. All typing, including Escape, is ignored until Enter dismisses it. `q` and `Q` are ordinary command text. `EXIT` is the only in-application way to quit.
 
 
 ## Initial Frame and Typing
@@ -42,6 +43,15 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 4. Type mixed width-one/width-two/supplementary Unicode in a draft. Backspace removes one complete scalar; held text/Backspace keys repeat in order without duplicate control actions.
 5. Grow the draft through wrapped rows. The box grows to at most height-1 and keeps its cursor visible. Shrink to widths 1..4 and restore; retain all scalars/draft without orphan wide cells.
 6. Submit malformed commands and HELP. Require a rounded modal overlay; only Enter dismisses, once, without empty submission. Escape, Tab, arrows, mouse and ordinary text do nothing. q/Q are ordinary command text.
+
+## Text Styles, Colors and Information Layout
+
+1. Submit `FC 123456`, `CLEAR 234567 0 0 40 10`, then `FS B` and `TYPE 0 0:Bold`. Repeat on separate rows with `FS I`, `FS U`, `FS S`, and `FS BIUS`. Require the four individual effects and their combination, with RGB foreground 123456 and background 234567 on a true-color terminal. Bold may use the terminal's intensity preference. `TYPE` preserves the destination background; `BC` controls later geometric drawing.
+2. Submit `FS I` after `FS BIUS`; subsequent `TYPE` text must be italic only. Submit `FS` then `TYPE 0 6:Plain`; require all effects disabled. Earlier text retains its style. Include a literal space and width-two text such as `TYPE 12 0:A一 B` while styled, then overwrite either half of the wide character with a line and with plain text.
+3. Draw lines and rectangles while `FS BIUS` is active. Require ordinary geometric glyphs and empty cells without inherited text effects. Resize and inspect replay; styles, colors and exact history entries must persist. Header, history, command input and information text remain unstyled.
+4. Submit `FS BX` and `FS B I`; require modal parse errors. `FS`, `FS bius` and reordered/duplicate valid flags must succeed. Keep `TYPE`; there is no `TEXT` command.
+5. Paint a bright background and text under the modal area. Open `HELP` in a wide window; require a centered box sized to the longest help line, one common left edge for every line, and solid black backgrounds throughout its border/interior. Underlying text must disappear inside the entire box.
+6. Resize the open HELP box to a narrow window and back. Require wrapping at the available interior width, a full-width box while wrapping, then a centered minimal-width box again. Repeat with a two-line parse error whose lines differ in length. Exercise widths 1 through 4 and restore; require safe clipping and no orphan wide cells. Enter dismisses and restores the original drawing.
 
 ## Navigation and History
 
@@ -73,6 +83,15 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 ## Verification Record
 
 Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
+
+### 2026-09-05 Windows text styles and information layout
+
+- Windows 10 Pro 22H2, build 19045, production Windows ConPTY with xterm.js headless Unicode 11 cell decoding. Native UTF-16 console input/output crossed ConPTY as UTF-8. This run inspected terminal characters, widths, colors and style attributes; it did not assert a particular font's visual appearance. Auto selected RGB emission.
+- Built Debug x64 through `copilotBuild.ps1`: zero warnings/errors. All 16 test files and 297 cases passed through the UnitTest wrapper, with no Debug leak report. The new minimal-width overlay regression first failed against the original implementation, then passed after the fix.
+- Launched the production playground through the CLI wrapper and sent real ConPTY input. Verified `FS B`, `FS I`, `FS U`, `FS S`, `FS BIUS`, and `FS` with separate `TYPE` rows; checked exact decoded flags and RGB foreground 123456/background 234567. Checked styled wide text, unstyled geometric output, and preserved styles after resizing from 100 by 32 to 65 by 24 and back.
+- Opened HELP over colored content. At 100 by 32, the rounded box shrank to its longest line and centered with left-aligned rows. At 30 by 24, it filled the available paper width and wrapped; restoring the size restored the minimal box. Inspected every border/interior background cell as black. Repeated modal layout checks with `FS BX` at 100 by 32 and 45 by 20, then dismissed and exited normally.
+- EXIT returned zero in fresh repeated sessions. Native before/after snapshots around the CLI wrapper's executable invocation matched: 100 by 160 original buffer with a 100 by 32 viewport, window origin, cursor position/size/visibility, attributes, input/output modes, and hashes of every original character/attribute cell. The sentinel `TUI-STYLES-SENTINEL-20260905` returned. A no-op `cmd /C exit 0` established the shell's baseline first: cmd independently clears the mouse-input flag, so this shell effect was separated from TUI restoration.
+- Both Windows and Linux/macOS renderers were updated and their Release artifacts regenerated. Linux/macOS builds and live checks for these new styles/layout changes remain pending manual verification; the earlier platform records below predate this change.
 
 ### 2026-09-05 Linux
 

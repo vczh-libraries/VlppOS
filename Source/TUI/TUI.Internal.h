@@ -17,6 +17,8 @@ namespace vl
 			extern bool IsScalar(char32_t code);
 			extern vint QuantizeColor(TuiColor color, TuiColorMode colorMode, const TuiColor* customColor16 = nullptr);
 			extern TuiColor GetCanonicalColor(vint index);
+			extern TuiTextStyle GetTextStyle(const TuiPixel& pixel);
+			extern WString GetTextStyleSequence(TuiTextStyle style);
 			extern Ptr<unittest::ITuiBackend> CreateTuiBackend();
 		}
 	}
