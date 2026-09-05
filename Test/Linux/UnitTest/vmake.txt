@@ -36,6 +36,7 @@
 ../../../Source/Stream/MemoryWrapperStream.cpp
 ../../../Source/Stream/RecorderStream.cpp
 ../../../Source/Threading.cpp
+../../../Source/TUI/TUI.Input.cpp
 ../../../Source/TUI/TUI.cpp
 ../../../Source/TUI/TUI.Linux.cpp
 ../../../Source/Threading.Linux.cpp

@@ -2,6 +2,7 @@
 ../../../Import/Vlpp.Linux.cpp
 ../../../Source/Threading.cpp
 ../../../Source/Threading.Linux.cpp
+../../../Source/TUI/TUI.Input.cpp
 ../../../Source/TUI/TUI.cpp
 ../../../Source/TUI/TUI.Linux.cpp
 ../../UnitTest/TuiPlayground/Main.cpp

@@ -54,7 +54,7 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 
 ## Shape Menu and Dragging
 
-1. Open Shapes from Canvas and History. Require LINEV THIN/THICK/DOUBLE, LINEH THIN/THICK/DOUBLE, RECT THIN/THICK/DOUBLE/ROUND. Up/Down wrap; highlighted entries remain reachable in clipped layouts.
+1. Open Shapes from Canvas and History. Require LINEV THIN/THICK/DOUBLE, LINEH THIN/THICK/DOUBLE, RECT THIN/THICK/DOUBLE/ROUND. Up/Down clamp at the first/last entry; highlighted entries remain reachable in clipped layouts.
 2. Escape returns to the underlying page. Enter/click accepts once, switches to Canvas, retains draft with text 808080 and hides its cursor. The selecting mouse gesture must not start a drag.
 3. For all ten styles, drag in all four directions. Require live preview, inclusive normalized coordinates and matching typed-command output on release. Lines retain their anchor column/row.
 4. Overlap mixed lines and wide characters under BC CLEAR and BC 000000. Move preview away; require original content restored without ghosts. Release adds one canonical record and restores typing.
@@ -73,3 +73,15 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 ## Verification Record
 
 Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
+
+### 2026-09-05 Linux
+
+- Ubuntu, VTE 0.76, `en_US.UTF-8`, DejaVu Sans Mono 10, `TERM=xterm-256color`, `COLORTERM=truecolor`; initial terminal 100 by 32 cells.
+- Built UnitTest and TuiPlayground through their absolute `.github/Ubuntu/build.sh` entry points. All 14 unit-test files and 263 cases passed, including the production POSIX decoder and playground regressions.
+- Exercised the production executable through VTE's PTY: bracket and mixed-width Unicode typing/Backspace, Tab/Shift-Tab, header clicks, modal HELP/errors, and all ten shape styles in all four drag directions. Each live preview and committed shape matched its equivalent typed command.
+- Exercised overflowing history, both vertical wheel directions, ignored horizontal wheels, and Unicode draft retention across a resize to 30 by 12 cells and back to 100 by 32. Repeated fresh sessions exited with code zero.
+- Also exercised lost-release cancellation, one-cell lines, degenerate rectangles, active-drag resize, and long Unicode drafts at widths 1 through 4. VTE/GTK refuses a one-column window allocation, so that case resized the actual child PTY to one column directly.
+- A separate production-terminal run covered mixed-case FC/BC/CLEAR/TYPE/line/rectangle commands, both background modes, wide-character overlaps, off-paper clipping, Escape/Tab/header cancellation without ghosts, modal input isolation, and identical replay after resizing. Inspected the colored VTE output as well as the terminal text.
+- The original `TUI-PORT-SENTINEL-20260905` returned after alternate-screen exit, and termios matched its saved value immediately after the executable returned, before wrapper output.
+- Corrected stale wrapping wording in this SOP and the specification: the original task and existing implementation/tests require shape selection to clamp at the endpoints.
+- Windows results belong to the earlier implementation run. macOS was not exercised in this Linux verification.

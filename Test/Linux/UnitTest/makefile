@@ -18,7 +18,7 @@ clean:
 
 all:pre-build ./Bin/UnitTest
 
-./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/NetworkProtocolHttp.o ./Obj/StdioRedirection.o ./Obj/StdioRedirection.Linux.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpClient.o ./Obj/AsyncSocket_HttpClientApi.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestClient.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket_HttpServer.o ./Obj/AsyncSocket_HttpServerApi.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/ChannelPackage.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Threading.Linux.o ./Obj/TestInterProcess.o ./Obj/TestInterProcess_AsyncSocket.o ./Obj/TestInterProcess_AsyncSocket_MiniHttpApi.o ./Obj/TestInterProcess_HttpRequest.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/TestTui.o ./Obj/Main.o
+./Bin/UnitTest:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Base64Encoding.o ./Obj/MbcsEncoding.o ./Obj/UtfEncoding.o ./Obj/Encoding.o ./Obj/LzwEncoding.o ./Obj/FileSystem.o ./Obj/FileSystem.Injectable.o ./Obj/FileSystem.Linux.o ./Obj/NetworkProtocolHttp.o ./Obj/StdioRedirection.o ./Obj/StdioRedirection.Linux.o ./Obj/AsyncSocket.o ./Obj/AsyncSocket_HttpClient.o ./Obj/AsyncSocket_HttpClientApi.o ./Obj/AsyncSocket_HttpRequest.o ./Obj/AsyncSocket_HttpRequestClient.o ./Obj/AsyncSocket_HttpRequestServer.o ./Obj/AsyncSocket_HttpServer.o ./Obj/AsyncSocket_HttpServerApi.o ./Obj/AsyncSocket.Linux.o ./Obj/AsyncSocket.macOS.o ./Obj/ChannelPackage.o ./Obj/Locale.o ./Obj/Locale.Linux.o ./Obj/Accessor.o ./Obj/BroadcastStream.o ./Obj/CacheStream.o ./Obj/CharFormat.o ./Obj/CharFormat.Linux.o ./Obj/BomEncoding.o ./Obj/EncodingStream.o ./Obj/FileStream.o ./Obj/MemoryStream.o ./Obj/MemoryWrapperStream.o ./Obj/RecorderStream.o ./Obj/Threading.o ./Obj/TUI.Input.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Threading.Linux.o ./Obj/TestInterProcess.o ./Obj/TestInterProcess_AsyncSocket.o ./Obj/TestInterProcess_AsyncSocket_MiniHttpApi.o ./Obj/TestInterProcess_HttpRequest.o ./Obj/TestStreamBase64.o ./Obj/TestFileSystem.o ./Obj/TestLocaleString.o ./Obj/TestSerialization.o ./Obj/TestStream.o ./Obj/TestStreamEncoding.o ./Obj/TestStreamLzw.o ./Obj/TestStreamReaderWriter.o ./Obj/TestThread.o ./Obj/TestTui.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../../Import/Vlpp.cpp
@@ -133,6 +133,9 @@ all:pre-build ./Bin/UnitTest
 	$(CPP_COMPILE)
 
 ./Obj/Threading.o: ../../../Source/Threading.cpp
+	$(CPP_COMPILE)
+
+./Obj/TUI.Input.o: ../../../Source/TUI/TUI.Input.cpp
 	$(CPP_COMPILE)
 
 ./Obj/TUI.o: ../../../Source/TUI/TUI.cpp

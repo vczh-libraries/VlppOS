@@ -16,7 +16,7 @@ clean:
 
 all:pre-build ./Bin/TuiPlayground
 
-./Bin/TuiPlayground:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Main.o
+./Bin/TuiPlayground:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TUI.Input.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Main.o
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../../Import/Vlpp.cpp
@@ -29,6 +29,9 @@ all:pre-build ./Bin/TuiPlayground
 	$(CPP_COMPILE)
 
 ./Obj/Threading.Linux.o: ../../../Source/Threading.Linux.cpp
+	$(CPP_COMPILE)
+
+./Obj/TUI.Input.o: ../../../Source/TUI/TUI.Input.cpp
 	$(CPP_COMPILE)
 
 ./Obj/TUI.o: ../../../Source/TUI/TUI.cpp
