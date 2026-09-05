@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -245,6 +245,7 @@
     <ClCompile Include="..\..\..\Source\Stream\MemoryWrapperStream.cpp" />
     <ClCompile Include="..\..\..\Source\Stream\RecorderStream.cpp" />
     <ClCompile Include="..\..\..\Source\Threading.cpp" />
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Input.cpp" />
     <ClCompile Include="..\..\..\Source\TUI\TUI.cpp" />
     <ClCompile Include="..\..\..\Source\TUI\TUI.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -345,6 +346,9 @@
     <ClInclude Include="..\..\..\Source\Stream\Serialization.h" />
     <ClInclude Include="..\..\..\Source\Threading.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Input.Windows.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Input.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUITypes.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Internal.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

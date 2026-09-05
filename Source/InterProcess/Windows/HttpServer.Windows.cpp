@@ -198,6 +198,7 @@ WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 	}
 
 	WString responseToClient;
+	bool reportLostPoll = false;
 	SPIN_LOCK(pendingRequestLock)
 	{
 		submittingResponse = false;
@@ -216,6 +217,17 @@ WString HttpServerConnection::SubmitResponse(PHTTP_REQUEST pRequest)
 			responseToClient = pendingRequestsToSend[0];
 			pendingRequestsToSend.RemoveAt(0);
 		}
+		// Excess callback responses must also satisfy a poll that is already waiting.
+		if (httpPendingRequestId != HTTP_NULL_ID && pendingRequestsToSend.Count() > 0)
+		{
+			auto pendingRequest = pendingRequestsToSend[0];
+			pendingRequestsToSend.RemoveAt(0);
+			reportLostPoll = SendPendingRequestUnsafe(pendingRequest);
+		}
+	}
+	if (reportLostPoll)
+	{
+		ReportPollingError(L"HttpServerConnection failed to respond to /Request because the polling connection was lost.");
 	}
 	return responseToClient;
 }

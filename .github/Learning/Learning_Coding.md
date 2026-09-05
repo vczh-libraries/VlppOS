@@ -28,7 +28,7 @@
 - `HttpRequestClient` owns the fatal HTTP 404 policy [1]
 - Keep active TUI state inside the `TUI` lifecycle [1]
 - Measure TUI character width through platform APIs [1]
-- `TuiCharInfo::code` carries one native `wchar_t` unit [1]
+- `NativeWindowCharInfo::code` carries one native `wchar_t` unit [1]
 - Convert TUI native units to scalars in the consumer [1]
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
 - Store semantic TUI state and derive each frame [1]
@@ -176,7 +176,7 @@ Keep only state that intentionally survives runs, such as listener registrations
 
 Do not maintain a generated Unicode-width table or its generator for `TUI::MeasureChar`. Delegate width classification to the operating system in the platform implementation—for example, Win32 character-type APIs on Windows and `wcwidth` on POSIX—while keeping common buffer and drawing rules in shared code.
 
-## `TuiCharInfo::code` carries one native `wchar_t` unit
+## `NativeWindowCharInfo::code` carries one native `wchar_t` unit
 
 Keep TUI character events aligned with native `wchar_t` consumers. On Windows, enqueue each UTF-16 code unit from `KEY_EVENT_RECORD` unchanged, so a supplementary scalar produces independent high- and low-surrogate callbacks in native event order. On Linux and macOS, retain incremental UTF-8 decoding and enqueue each completed scalar as one UTF-32 `wchar_t`.
 
@@ -184,7 +184,7 @@ Do not combine or replace Windows surrogates in the backend or shared dispatcher
 
 ## Convert TUI native units to scalars in the consumer
 
-Scalar-oriented consumers of `TuiCharInfo` should use `vl::encoding::UtfConversion<wchar_t>::To32`. Under `VCZH_WCHAR_UTF16`, retain at most one high surrogate across callbacks, combine only adjacent high/low units in the character-unit stream, and reprocess a valid current unit after handling an unmatched pending surrogate so input and controls are not swallowed. Under `VCZH_WCHAR_UTF32`, convert one unit directly and validate it before passing it to scalar-only APIs.
+Scalar-oriented consumers of `NativeWindowCharInfo` should use `vl::encoding::UtfConversion<wchar_t>::To32`. Under `VCZH_WCHAR_UTF16`, retain at most one high surrogate across callbacks, combine only adjacent high/low units in the character-unit stream, and reprocess a valid current unit after handling an unmatched pending surrogate so input and controls are not swallowed. Under `VCZH_WCHAR_UTF32`, convert one unit directly and validate it before passing it to scalar-only APIs.
 
 Do not use `UtfToUtfReaderBase` or `UtfStringToStringReader` across callbacks; those pull readers assume their input is already available, treat zero as end-of-input, and cannot wait for or resynchronize an incomplete pair.
 

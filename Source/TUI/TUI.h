@@ -7,6 +7,7 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_TUI
 
 #include "../Threading.h"
+#include "TUITypes.h"
 
 namespace vl
 {
@@ -93,60 +94,21 @@ namespace vl
 			wchar_t							GetWChar() const;
 		};
 
-		struct TuiMouseInfo
-		{
-			vint							x = 0;
-			vint							y = 0;
-			vint							wheel = 0;
-			bool							ctrl = false;
-			bool							shift = false;
-			bool							alt = false;
-			bool							left = false;
-			bool							middle = false;
-			bool							right = false;
-		};
-
-		enum class TuiMouseButton
-		{
-			Left,
-			Middle,
-			Right,
-		};
-
-		struct TuiKeyInfo
-		{
-			vint							code = 0;
-			bool							ctrl = false;
-			bool							shift = false;
-			bool							alt = false;
-			bool							capslock = false;
-			bool							autoRepeatKeyDown = false;
-		};
-
-		struct TuiCharInfo
-		{
-			wchar_t							code = 0;
-			bool							ctrl = false;
-			bool							shift = false;
-			bool							alt = false;
-			bool							capslock = false;
-		};
-
 		class ITuiCallback : public Interface
 		{
 		public:
 			virtual void					Starting();
 			virtual void					Stopping();
 			virtual void					BufferSizeChanged();
-			virtual void					MouseMove(const TuiMouseInfo& info);
-			virtual void					MouseDown(TuiMouseButton button, const TuiMouseInfo& info);
-			virtual void					MouseUp(TuiMouseButton button, const TuiMouseInfo& info);
-			virtual void					MouseDoubleClick(TuiMouseButton button, const TuiMouseInfo& info);
-			virtual void					MouseVerticalWheel(const TuiMouseInfo& info);
-			virtual void					MouseHorizontalWheel(const TuiMouseInfo& info);
-			virtual void					KeyDown(const TuiKeyInfo& info);
-			virtual void					KeyUp(const TuiKeyInfo& info);
-			virtual void					Char(const TuiCharInfo& info);
+			virtual void					MouseMove(const presentation::WindowMouseInfo& info);
+			virtual void					MouseDown(presentation::NativeMouseButton button, const presentation::WindowMouseInfo& info);
+			virtual void					MouseUp(presentation::NativeMouseButton button, const presentation::WindowMouseInfo& info);
+			virtual void					MouseDoubleClick(presentation::NativeMouseButton button, const presentation::WindowMouseInfo& info);
+			virtual void					MouseVerticalWheel(const presentation::WindowMouseInfo& info);
+			virtual void					MouseHorizontalWheel(const presentation::WindowMouseInfo& info);
+			virtual void					KeyDown(const presentation::NativeWindowKeyInfo& info);
+			virtual void					KeyUp(const presentation::NativeWindowKeyInfo& info);
+			virtual void					Char(const presentation::NativeWindowCharInfo& info);
 			virtual void					Timer();
 		};
 
@@ -251,10 +213,10 @@ namespace vl
 				TuiBackendEventType			type = TuiBackendEventType::None;
 				vint						width = 0;
 				vint						height = 0;
-				TuiMouseButton				mouseButton = TuiMouseButton::Left;
-				TuiMouseInfo				mouseInfo;
-				TuiKeyInfo					keyInfo;
-				TuiCharInfo					charInfo;
+				presentation::NativeMouseButton				mouseButton = presentation::NativeMouseButton::Left;
+				presentation::WindowMouseInfo				mouseInfo;
+				presentation::NativeWindowKeyInfo					keyInfo;
+				presentation::NativeWindowCharInfo					charInfo;
 			};
 
 			class ITuiBackend : public Interface

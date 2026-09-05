@@ -3,6 +3,8 @@
   - MUST READ `Coding Guidelines and Tools` before touching the source code.
   - MUST READ `Leveraging the Knowledge Base` and find the knowledge you may need before making any decision.
 - Read through `REPO-ROOT/Project.md` before performing any work.
+- Before changing TUI or TuiPlayground, read [the TUI specification](.github/KnowledgeBase/KB_VlppOS_TerminalUserInterface.md) and [the playground SOP](.github/Jobs/DebugTuiPlaygroundSOP.md).
+- GacUI consumes shared `vl::presentation` input types from `Source/TUI/TUITypes.h`. Check downstream compatibility when changing declarations, defaults, key values or event semantics, and regenerate/verify imports when required.
 - Interpret the request (in the latest chat message, not including conversation history) following the steps:
 
 ## Step 1

@@ -1,334 +1,372 @@
-﻿/***********************************************************************
+/***********************************************************************
 Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
-#include "../../Source/TUI/TUI.h"
+#include "../../Source/TUI/TUI.Input.h"
+#include "../../Source/TUI/TUI.Input.Windows.h"
 
 #define VCZH_TUI_PLAYGROUND_TEST
 #include "../UnitTest/TuiPlayground/Main.cpp"
 #undef VCZH_TUI_PLAYGROUND_TEST
 
 using namespace vl;
+using namespace vl::presentation;
 using namespace vl::collections;
 using namespace vl::console;
 namespace tui_test = vl::console::unittest;
 
-namespace
+class FakeTuiBackend : public tui_test::ITuiBackend
 {
-	class FakeTuiBackend : public tui_test::ITuiBackend
+public:
+	List<tui_test::TuiBackendEvent>		events;
+	vint								width = 8;
+	vint								height = 4;
+	vuint64_t							time = 0;
+	vint								startCount = 0;
+	vint								stopCount = 0;
+	vint								renderCount = 0;
+	vint								renderWidth = 0;
+	vint								renderHeight = 0;
+	TuiColorMode						renderColorMode = TuiColorMode::Auto;
+	Array<TuiPixel>						renderedBuffer;
+	List<U32String>						renderedTexts;
+	List<vint>							waitTimeouts;
+	vint								exitAfterTimeouts = -1;
+	bool								stopWhenEventsEmpty = false;
+	TuiColorMode						startColorMode = TuiColorMode::TrueColor;
+	bool								honorRequestedColorMode = true;
+	bool								failStart = false;
+
+	TuiColorMode Start(const TuiStartOptions& options) override
 	{
-	public:
-		List<tui_test::TuiBackendEvent>		events;
-		vint								width = 8;
-		vint								height = 4;
-		vuint64_t							time = 0;
-		vint								startCount = 0;
-		vint								stopCount = 0;
-		vint								renderCount = 0;
-		vint								renderWidth = 0;
-		vint								renderHeight = 0;
-		TuiColorMode						renderColorMode = TuiColorMode::Auto;
-		Array<TuiPixel>						renderedBuffer;
-		List<U32String>						renderedTexts;
-		List<vint>							waitTimeouts;
-		vint								exitAfterTimeouts = -1;
-		bool								stopWhenEventsEmpty = false;
-		TuiColorMode						startColorMode = TuiColorMode::TrueColor;
-		bool								honorRequestedColorMode = true;
-		bool								failStart = false;
-
-		TuiColorMode Start(const TuiStartOptions& options) override
+		startCount++;
+		if (failStart)
 		{
-			startCount++;
-			if (failStart)
-			{
-				throw Exception(L"Fake backend startup failure.");
-			}
-			return honorRequestedColorMode && options.colorMode != TuiColorMode::Auto
-				? options.colorMode
-				: startColorMode;
+			throw Exception(L"Fake backend startup failure.");
 		}
+		return honorRequestedColorMode && options.colorMode != TuiColorMode::Auto
+			? options.colorMode
+			: startColorMode;
+	}
 
-		void Stop() override
-		{
-			stopCount++;
-		}
+	void Stop() override
+	{
+		stopCount++;
+	}
 
-		bool TryGetConsoleSize(vint& outputWidth, vint& outputHeight) override
+	bool TryGetConsoleSize(vint& outputWidth, vint& outputHeight) override
+	{
+		outputWidth = width;
+		outputHeight = height;
+		return true;
+	}
+
+	vuint64_t GetMonotonicTime() override
+	{
+		return time;
+	}
+
+	bool ReadEvent(vint milliseconds, tui_test::TuiBackendEvent& event) override
+	{
+		if (events.Count() > 0)
 		{
-			outputWidth = width;
-			outputHeight = height;
+			event = events[0];
+			events.RemoveAt(0);
 			return true;
 		}
-
-		vuint64_t GetMonotonicTime() override
+		if (stopWhenEventsEmpty)
 		{
-			return time;
+			stopWhenEventsEmpty = false;
+			TUI::Stop();
+			return false;
 		}
-
-		bool ReadEvent(vint milliseconds, tui_test::TuiBackendEvent& event) override
+		if (milliseconds > 0)
 		{
-			if (events.Count() > 0)
+			waitTimeouts.Add(milliseconds);
+			if (exitAfterTimeouts == 0)
 			{
+				PushCommand(U"EXIT");
 				event = events[0];
 				events.RemoveAt(0);
 				return true;
 			}
-			if (stopWhenEventsEmpty)
-			{
-				stopWhenEventsEmpty = false;
-				TUI::Stop();
-				return false;
-			}
-			if (milliseconds > 0)
-			{
-				waitTimeouts.Add(milliseconds);
-				if (exitAfterTimeouts == 0)
-				{
-					PushCommand(U"EXIT");
-					event = events[0];
-					events.RemoveAt(0);
-					return true;
-				}
-				if (exitAfterTimeouts > 0) exitAfterTimeouts--;
-				time += milliseconds;
-			}
-			return false;
+			if (exitAfterTimeouts > 0) exitAfterTimeouts--;
+			time += milliseconds;
 		}
-
-		void Render(const TuiPixel* buffer, vint width, vint height, TuiColorMode colorMode) override
-		{
-			renderCount++;
-			renderWidth = width;
-			renderHeight = height;
-			renderColorMode = colorMode;
-			Array<TuiPixel> copiedBuffer(width * height);
-			for (vint i = 0; i < width * height; i++)
-			{
-				copiedBuffer[i] = buffer[i];
-			}
-			renderedBuffer = std::move(copiedBuffer);
-			List<char32_t> text;
-			for (vint i = 0; i < width * height; i++)
-			{
-				text.Add(buffer[i].GetChar32());
-			}
-			renderedTexts.Add(U32String::CopyFrom(&text[0], text.Count()));
-		}
-
-		void PushChar(const TuiCharInfo& info)
-		{
-			tui_test::TuiBackendEvent event;
-			event.type = tui_test::TuiBackendEventType::Char;
-			event.charInfo = info;
-			events.Add(event);
-		}
-
-		void PushChar(wchar_t code)
-		{
-			PushChar({ .code = code });
-		}
-
-		void PushScalar(char32_t code)
-		{
-			wchar_t units[encoding::UtfConversion<wchar_t>::BufferLength];
-			auto count = encoding::UtfConversion<wchar_t>::From32(code, units);
-			TEST_ASSERT(count > 0);
-			for (vint i = 0; i < count; i++)
-			{
-				PushChar(units[i]);
-			}
-		}
-
-		void PushText(const U32String& text)
-		{
-			for (vint i = 0; i < text.Length(); i++)
-			{
-				PushScalar(text[i]);
-			}
-		}
-
-		void PushCommand(const U32String& text)
-		{
-			PushText(text);
-			PushChar(L'\r');
-		}
-
-		void PushResize(vint newWidth, vint newHeight)
-		{
-			tui_test::TuiBackendEvent event;
-			event.type = tui_test::TuiBackendEventType::Resize;
-			event.width = newWidth;
-			event.height = newHeight;
-			events.Add(event);
-		}
-	};
-
-	struct Callback : ITuiCallback
-	{
-		List<WString>		events;
-		List<TuiCharInfo>	charInfos;
-		Func<void()>		onStarting;
-		Func<void()>		onStopping;
-		Func<void()>		onResize;
-		Func<void()>		onTimer;
-		Func<void(wchar_t)>	onChar;
-
-		void Starting() override
-		{
-			events.Add(L"Starting");
-			if (onStarting) onStarting();
-		}
-
-		void Stopping() override
-		{
-			events.Add(L"Stopping");
-			if (onStopping) onStopping();
-		}
-
-		void BufferSizeChanged() override
-		{
-			events.Add(L"BufferSizeChanged");
-			if (onResize) onResize();
-		}
-
-		void Char(const TuiCharInfo& info) override
-		{
-			events.Add(L"Char");
-			charInfos.Add(info);
-			if (onChar) onChar(info.code);
-		}
-
-		void Timer() override
-		{
-			events.Add(L"Timer");
-			if (onTimer) onTimer();
-		}
-	};
-
-	struct StopOnEventCallback : ITuiCallback
-	{
-		tui_test::TuiBackendEventType	type = tui_test::TuiBackendEventType::None;
-		bool							stopOnStarting = false;
-		bool							stopOnResize = false;
-		bool							stopOnTimer = false;
-		vint							expectedThreadId = -1;
-		vint							stoppingCount = 0;
-		vint							eventCount = 0;
-
-		void CheckThread()
-		{
-			if (expectedThreadId != -1)
-			{
-				TEST_ASSERT(Thread::GetCurrentThreadId() == expectedThreadId);
-			}
-		}
-
-		void Starting() override
-		{
-			CheckThread();
-			if (stopOnStarting) TUI::Stop();
-		}
-
-		void Stopping() override
-		{
-			CheckThread();
-			stoppingCount++;
-		}
-
-		void BufferSizeChanged() override
-		{
-			CheckThread();
-			if (stopOnResize) TUI::Stop();
-		}
-
-		void MouseMove(const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseMove) TUI::Stop();
-		}
-
-		void MouseDown(TuiMouseButton, const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseDown) TUI::Stop();
-		}
-
-		void MouseUp(TuiMouseButton, const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseUp) TUI::Stop();
-		}
-
-		void MouseDoubleClick(TuiMouseButton, const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseDoubleClick) TUI::Stop();
-		}
-
-		void MouseVerticalWheel(const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseVerticalWheel) TUI::Stop();
-		}
-
-		void MouseHorizontalWheel(const TuiMouseInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::MouseHorizontalWheel) TUI::Stop();
-		}
-
-		void KeyDown(const TuiKeyInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::KeyDown) TUI::Stop();
-		}
-
-		void KeyUp(const TuiKeyInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::KeyUp) TUI::Stop();
-		}
-
-		void Char(const TuiCharInfo&) override
-		{
-			CheckThread();
-			eventCount++;
-			if (type == tui_test::TuiBackendEventType::Char) TUI::Stop();
-		}
-
-		void Timer() override
-		{
-			CheckThread();
-			eventCount++;
-			if (stopOnTimer) TUI::Stop();
-		}
-	};
-
-	void ClearBuffer(TuiPixel* buffer, vint width, vint height)
-	{
-		TUI::Clear(buffer, width, height, TuiColor{ 0, 0, 0 }, 0, 0, width - 1, height - 1);
+		return false;
 	}
 
-	U32String BufferText(TuiPixel* buffer, vint width, vint height)
+	void Render(const TuiPixel* buffer, vint width, vint height, TuiColorMode colorMode) override
 	{
-		Array<char32_t> text(width * height);
+		renderCount++;
+		renderWidth = width;
+		renderHeight = height;
+		renderColorMode = colorMode;
+		Array<TuiPixel> copiedBuffer(width * height);
 		for (vint i = 0; i < width * height; i++)
 		{
-			auto code = buffer[i].GetChar32();
-			text[i] = code == 0 ? U' ' : code;
+			copiedBuffer[i] = buffer[i];
 		}
-		return U32String::CopyFrom(&text[0], text.Count());
+		renderedBuffer = std::move(copiedBuffer);
+		List<char32_t> text;
+		for (vint i = 0; i < width * height; i++)
+		{
+			text.Add(buffer[i].GetChar32());
+		}
+		renderedTexts.Add(U32String::CopyFrom(&text[0], text.Count()));
 	}
+
+	void PushChar(const NativeWindowCharInfo& info)
+	{
+		tui_test::TuiBackendEvent event;
+		event.type = tui_test::TuiBackendEventType::Char;
+		event.charInfo = info;
+		events.Add(event);
+	}
+
+	void PushChar(wchar_t code)
+	{
+		PushChar({ .code = code });
+	}
+
+	void PushScalar(char32_t code)
+	{
+		wchar_t units[encoding::UtfConversion<wchar_t>::BufferLength];
+		auto count = encoding::UtfConversion<wchar_t>::From32(code, units);
+		TEST_ASSERT(count > 0);
+		for (vint i = 0; i < count; i++)
+		{
+			PushChar(units[i]);
+		}
+	}
+
+	void PushText(const U32String& text)
+	{
+		for (vint i = 0; i < text.Length(); i++)
+		{
+			PushScalar(text[i]);
+		}
+	}
+
+	void PushCommand(const U32String& text)
+	{
+		PushText(text);
+		PushChar(L'\r');
+	}
+
+	void PushResize(vint newWidth, vint newHeight)
+	{
+		tui_test::TuiBackendEvent event;
+		event.type = tui_test::TuiBackendEventType::Resize;
+		event.width = newWidth;
+		event.height = newHeight;
+		events.Add(event);
+	}
+};
+
+struct Callback : ITuiCallback
+{
+	List<WString>		events;
+	List<NativeWindowCharInfo>	charInfos;
+	Func<void()>		onStarting;
+	Func<void()>		onStopping;
+	Func<void()>		onResize;
+	Func<void()>		onTimer;
+	Func<void(wchar_t)>	onChar;
+
+	void Starting() override
+	{
+		events.Add(L"Starting");
+		if (onStarting) onStarting();
+	}
+
+	void Stopping() override
+	{
+		events.Add(L"Stopping");
+		if (onStopping) onStopping();
+	}
+
+	void BufferSizeChanged() override
+	{
+		events.Add(L"BufferSizeChanged");
+		if (onResize) onResize();
+	}
+
+	void Char(const NativeWindowCharInfo& info) override
+	{
+		events.Add(L"Char");
+		charInfos.Add(info);
+		if (onChar) onChar(info.code);
+	}
+
+	void Timer() override
+	{
+		events.Add(L"Timer");
+		if (onTimer) onTimer();
+	}
+};
+
+struct StopOnEventCallback : ITuiCallback
+{
+	tui_test::TuiBackendEventType	type = tui_test::TuiBackendEventType::None;
+	bool							stopOnStarting = false;
+	bool							stopOnResize = false;
+	bool							stopOnTimer = false;
+	vint							expectedThreadId = -1;
+	vint							stoppingCount = 0;
+	vint							eventCount = 0;
+
+	void CheckThread()
+	{
+		if (expectedThreadId != -1)
+		{
+			TEST_ASSERT(Thread::GetCurrentThreadId() == expectedThreadId);
+		}
+	}
+
+	void Starting() override
+	{
+		CheckThread();
+		if (stopOnStarting) TUI::Stop();
+	}
+
+	void Stopping() override
+	{
+		CheckThread();
+		stoppingCount++;
+	}
+
+	void BufferSizeChanged() override
+	{
+		CheckThread();
+		if (stopOnResize) TUI::Stop();
+	}
+
+	void MouseMove(const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseMove) TUI::Stop();
+	}
+
+	void MouseDown(NativeMouseButton, const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseDown) TUI::Stop();
+	}
+
+	void MouseUp(NativeMouseButton, const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseUp) TUI::Stop();
+	}
+
+	void MouseDoubleClick(NativeMouseButton, const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseDoubleClick) TUI::Stop();
+	}
+
+	void MouseVerticalWheel(const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseVerticalWheel) TUI::Stop();
+	}
+
+	void MouseHorizontalWheel(const WindowMouseInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::MouseHorizontalWheel) TUI::Stop();
+	}
+
+	void KeyDown(const NativeWindowKeyInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::KeyDown) TUI::Stop();
+	}
+
+	void KeyUp(const NativeWindowKeyInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::KeyUp) TUI::Stop();
+	}
+
+	void Char(const NativeWindowCharInfo&) override
+	{
+		CheckThread();
+		eventCount++;
+		if (type == tui_test::TuiBackendEventType::Char) TUI::Stop();
+	}
+
+	void Timer() override
+	{
+		CheckThread();
+		eventCount++;
+		if (stopOnTimer) TUI::Stop();
+	}
+};
+
+void ClearBuffer(TuiPixel* buffer, vint width, vint height)
+{
+	TUI::Clear(buffer, width, height, TuiColor{ 0, 0, 0 }, 0, 0, width - 1, height - 1);
+}
+
+U32String BufferText(TuiPixel* buffer, vint width, vint height)
+{
+	Array<char32_t> text(width * height);
+	for (vint i = 0; i < width * height; i++)
+	{
+		auto code = buffer[i].GetChar32();
+		text[i] = code == 0 ? U' ' : code;
+	}
+	return U32String::CopyFrom(&text[0], text.Count());
+}
+
+
+void RunPlaygroundScenario(vint width, vint height, const Func<void(PlaygroundCallback&, FakeTuiBackend&)>& scenario)
+{
+	auto backend = Ptr(new FakeTuiBackend);
+	backend->width = width;
+	backend->height = height;
+	backend->stopWhenEventsEmpty = true;
+	tui_test::ScopedTuiBackend binding(backend);
+	PlaygroundCallback playground;
+	Callback driver;
+	driver.onResize = [&]()
+	{
+		scenario(playground, *backend.Obj());
+		TUI::Stop();
+	};
+	TUI::InstallListener(&playground);
+	TUI::InstallListener(&driver);
+	TUI::Start({});
+	TUI::UninstallListener(&driver);
+	TUI::UninstallListener(&playground);
+}
+
+void PlaygroundControl(PlaygroundCallback& playground, VKEY key, wchar_t character = 0, bool shift = false)
+{
+	playground.KeyDown({ .code = key, .shift = shift });
+	if (character) playground.Char({ .code = character, .shift = shift });
+}
+
+void PlaygroundText(PlaygroundCallback& playground, const U32String& text, bool submit = false)
+{
+	for (vint i = 0; i < text.Length(); i++)
+	{
+		wchar_t units[encoding::UtfConversion<wchar_t>::BufferLength];
+		auto count = encoding::UtfConversion<wchar_t>::From32(text[i], units);
+		for (vint j = 0; j < count; j++) playground.Char({ .code = units[j] });
+	}
+	if (submit) PlaygroundControl(playground, VKEY::KEY_RETURN, L'\r');
 }
 
 TEST_FILE
@@ -587,7 +625,7 @@ TEST_FILE
 	{
 		TEST_CASE(L"Character events use native wchar_t units")
 		{
-			TEST_ASSERT((std::is_same_v<decltype(TuiCharInfo::code), wchar_t>));
+			TEST_ASSERT((std::is_same_v<decltype(NativeWindowCharInfo::code), wchar_t>));
 		});
 
 #if defined VCZH_WCHAR_UTF16
@@ -596,7 +634,7 @@ TEST_FILE
 			auto backend = Ptr(new FakeTuiBackend);
 			const wchar_t high = (wchar_t)0xD83D;
 			const wchar_t low = (wchar_t)0xDE00;
-			const TuiCharInfo inputs[] =
+			const NativeWindowCharInfo inputs[] =
 			{
 				{ .code = L'A', .ctrl = true, .shift = true, .alt = true, .capslock = true },
 				{ .code = (wchar_t)0xD800, .ctrl = true },
@@ -662,7 +700,7 @@ TEST_FILE
 		TEST_CASE(L"UTF-32 character events preserve one native supplementary unit")
 		{
 			auto backend = Ptr(new FakeTuiBackend);
-			TuiCharInfo input =
+			NativeWindowCharInfo input =
 			{
 				.code = (wchar_t)0x1F600,
 				.ctrl = true,
@@ -1221,8 +1259,525 @@ TEST_FILE
 		});
 	});
 
+
+	TEST_CATEGORY(L"Production input conversion")
+	{
+		TEST_CASE(L"Shared input fields default safely and bracket aliases retain OEM values")
+		{
+			WindowMouseInfo mouse;
+			NativeWindowMouseInfo native;
+			for (auto valid : {
+				!mouse.ctrl && !mouse.shift && !mouse.alt && !mouse.osSuper && !mouse.left && !mouse.middle && !mouse.right && !mouse.nonClient && mouse.x == 0 && mouse.y == 0 && mouse.wheel == 0,
+				!native.ctrl && !native.shift && !native.alt && !native.osSuper && !native.left && !native.middle && !native.right && !native.nonClient && native.x.value == 0 && native.y.value == 0 && native.wheel == 0
+				})
+			{
+				TEST_ASSERT(valid);
+			}
+			NativeWindowKeyInfo key;
+			NativeWindowCharInfo text;
+			TEST_ASSERT(key.code == VKEY::KEY_UNKNOWN);
+			TEST_ASSERT(!key.ctrl && !key.shift && !key.alt && !key.osSuper && !key.capslock && !key.autoRepeatKeyDown);
+			TEST_ASSERT(text.code == 0 && !text.ctrl && !text.shift && !text.alt && !text.osSuper && !text.capslock);
+			TEST_ASSERT((vint)VKEY::KEY_UNKNOWN == -1 && (vint)VKEY::KEY_MAXIMUM == 255);
+			TEST_ASSERT((vint)VKEY::KEY_LEFT_BRACKET == 0xDB && VKEY::KEY_LEFT_BRACKET == VKEY::KEY_OEM_4);
+			TEST_ASSERT((vint)VKEY::KEY_RIGHT_BRACKET == 0xDD && VKEY::KEY_RIGHT_BRACKET == VKEY::KEY_OEM_6);
+			TEST_ASSERT((std::is_same_v<WindowKeyInfo, NativeWindowKeyInfo>));
+			TEST_ASSERT((std::is_same_v<WindowCharInfo, NativeWindowCharInfo>));
+		});
+
+#ifdef VCZH_MSVC
+		TEST_CASE(L"Windows records expand held keys before each native character unit")
+		{
+			tui_internal::WindowsTuiInputDecoder decoder;
+			KEY_EVENT_RECORD record = {};
+			record.bKeyDown = TRUE;
+			record.wRepeatCount = 3;
+			record.wVirtualKeyCode = VK_OEM_4;
+			record.uChar.UnicodeChar = L'[';
+			record.dwControlKeyState = RIGHT_CTRL_PRESSED | LEFT_ALT_PRESSED | SHIFT_PRESSED | CAPSLOCK_ON;
+			decoder.DecodeKey(record);
+			record.wRepeatCount = 1;
+			decoder.DecodeKey(record);
+			record.bKeyDown = FALSE;
+			decoder.DecodeKey(record);
+			record.bKeyDown = TRUE;
+			decoder.DecodeKey(record);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 11);
+			for (vint i = 0; i < 4; i++)
+			{
+				auto&& down = decoder.pendingEvents[i * 2];
+				auto&& text = decoder.pendingEvents[i * 2 + 1];
+				TEST_ASSERT(down.type == tui_test::TuiBackendEventType::KeyDown);
+				TEST_ASSERT(down.keyInfo.code == VKEY::KEY_LEFT_BRACKET);
+				TEST_ASSERT(down.keyInfo.autoRepeatKeyDown == (i != 0));
+				TEST_ASSERT(down.keyInfo.ctrl && down.keyInfo.shift && down.keyInfo.alt && down.keyInfo.capslock && !down.keyInfo.osSuper);
+				TEST_ASSERT(text.type == tui_test::TuiBackendEventType::Char && text.charInfo.code == L'[');
+				TEST_ASSERT(text.charInfo.ctrl && text.charInfo.shift && text.charInfo.alt && text.charInfo.capslock && !text.charInfo.osSuper);
+			}
+			TEST_ASSERT(decoder.pendingEvents[8].type == tui_test::TuiBackendEventType::KeyUp);
+			TEST_ASSERT(!decoder.pendingEvents[8].keyInfo.autoRepeatKeyDown);
+			TEST_ASSERT(!decoder.pendingEvents[9].keyInfo.autoRepeatKeyDown);
+			decoder.pendingEvents.Clear();
+			record.wVirtualKeyCode = VK_LEFT;
+			record.uChar.UnicodeChar = 0;
+			record.wRepeatCount = 3;
+			decoder.DecodeKey(record);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 3);
+			for (auto&& event : decoder.pendingEvents) TEST_ASSERT(event.keyInfo.code == VKEY::KEY_LEFT);
+			decoder.pendingEvents.Clear();
+			record.wVirtualKeyCode = 0;
+			record.wRepeatCount = 1;
+			record.uChar.UnicodeChar = (wchar_t)0xD83D;
+			decoder.DecodeKey(record);
+			record.uChar.UnicodeChar = (wchar_t)0xDE00;
+			decoder.DecodeKey(record);
+			TEST_ASSERT(decoder.pendingEvents[0].keyInfo.code == VKEY::KEY_UNKNOWN);
+			TEST_ASSERT(decoder.pendingEvents[1].charInfo.code == (wchar_t)0xD83D);
+			TEST_ASSERT(decoder.pendingEvents[3].charInfo.code == (wchar_t)0xDE00);
+			auto backend = Ptr(new FakeTuiBackend);
+			CopyFrom(backend->events, decoder.pendingEvents);
+			Callback callback;
+			callback.onChar = [](wchar_t) { TUI::Stop(); };
+			tui_test::ScopedTuiBackend binding(backend);
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+			TEST_ASSERT(callback.charInfos.Count() == 1 && callback.charInfos[0].code == (wchar_t)0xD83D);
+		});
+
+		TEST_CASE(L"Windows mouse conversion preserves all three buttons, viewport origin and signed wheel")
+		{
+			const DWORD masks[] = { FROM_LEFT_1ST_BUTTON_PRESSED, FROM_LEFT_2ND_BUTTON_PRESSED, RIGHTMOST_BUTTON_PRESSED };
+			const NativeMouseButton buttons[] = { NativeMouseButton::Left, NativeMouseButton::Middle, NativeMouseButton::Right };
+			for (vint i = 0; i < 3; i++)
+			{
+				tui_internal::WindowsTuiInputDecoder decoder;
+				MOUSE_EVENT_RECORD record = {};
+				record.dwMousePosition = { 17, 29 };
+				record.dwControlKeyState = LEFT_CTRL_PRESSED | RIGHT_ALT_PRESSED | SHIFT_PRESSED;
+				record.dwButtonState = masks[i];
+				decoder.DecodeMouse(record, { 10, 20 });
+				record.dwEventFlags = MOUSE_MOVED;
+				decoder.DecodeMouse(record, { 10, 20 });
+				record.dwEventFlags = 0;
+				record.dwButtonState = 0;
+				decoder.DecodeMouse(record, { 10, 20 });
+				record.dwEventFlags = DOUBLE_CLICK;
+				record.dwButtonState = masks[i];
+				decoder.DecodeMouse(record, { 10, 20 });
+				for (auto flags : { MOUSE_WHEELED, MOUSE_HWHEELED })
+				for (SHORT delta : { (SHORT)-120, (SHORT)120 })
+				{
+					record.dwEventFlags = flags;
+					record.dwButtonState = masks[i] | ((DWORD)(WORD)delta << 16);
+					decoder.DecodeMouse(record, { 10, 20 });
+					TEST_ASSERT(decoder.pendingEvents[decoder.pendingEvents.Count() - 1].mouseInfo.wheel == delta);
+				}
+				TEST_ASSERT(decoder.pendingEvents.Count() == 8);
+				TEST_ASSERT(decoder.pendingEvents[0].type == tui_test::TuiBackendEventType::MouseDown);
+				TEST_ASSERT(decoder.pendingEvents[1].type == tui_test::TuiBackendEventType::MouseMove);
+				TEST_ASSERT(decoder.pendingEvents[2].type == tui_test::TuiBackendEventType::MouseUp);
+				TEST_ASSERT(decoder.pendingEvents[3].type == tui_test::TuiBackendEventType::MouseDoubleClick);
+				for (vint j = 0; j < decoder.pendingEvents.Count(); j++)
+				{
+					auto&& event = decoder.pendingEvents[j];
+					auto&& info = event.mouseInfo;
+					TEST_ASSERT(info.x == 7 && info.y == 9 && !info.nonClient);
+					TEST_ASSERT(info.ctrl && info.shift && info.alt && !info.osSuper);
+					TEST_ASSERT(info.left == (i == 0 && j != 2));
+					TEST_ASSERT(info.middle == (i == 1 && j != 2));
+					TEST_ASSERT(info.right == (i == 2 && j != 2));
+					if (j == 0 || j == 2 || j == 3) TEST_ASSERT(event.mouseButton == buttons[i]);
+				}
+			}
+		});
+#endif
+
+		TEST_CASE(L"POSIX CSI, SS3, keypad and modified keys decode across every byte boundary")
+		{
+			struct Mapping { const char* bytes; VKEY key; bool shift = false; bool alt = false; bool ctrl = false; };
+			const Mapping mappings[] = {
+				{ "\x1B[A", VKEY::KEY_UP }, { "\x1BOB", VKEY::KEY_DOWN }, { "\x1B[C", VKEY::KEY_RIGHT }, { "\x1BOD", VKEY::KEY_LEFT },
+				{ "\x1B[H", VKEY::KEY_HOME }, { "\x1BOF", VKEY::KEY_END }, { "\x1B[2~", VKEY::KEY_INSERT }, { "\x1B[3~", VKEY::KEY_DELETE },
+				{ "\x1B[5~", VKEY::KEY_PRIOR }, { "\x1B[6~", VKEY::KEY_NEXT }, { "\x1BOP", VKEY::KEY_F1 }, { "\x1B[24~", VKEY::KEY_F12 },
+				{ "\x1B[1;8D", VKEY::KEY_LEFT, true, true, true }, { "\x1BO1;3P", VKEY::KEY_F1, false, true },
+				{ "\x1B[1;16A", VKEY::KEY_UP, true, true, true },
+				{ "\t", VKEY::KEY_TAB }, { "\x1B[Z", VKEY::KEY_TAB, true }, { "\r", VKEY::KEY_RETURN }, { "\x7F", VKEY::KEY_BACK },
+				{ "\x1BOq", VKEY::KEY_NUMPAD1 }, { "\x1BOj", VKEY::KEY_MULTIPLY }, { "\x1BOM", VKEY::KEY_RETURN },
+				{ "\x1B" "a", VKEY::KEY_A, false, true }, { "[", VKEY::KEY_LEFT_BRACKET }, { "}", VKEY::KEY_RIGHT_BRACKET },
+				{ "\x03", VKEY::KEY_C, false, false, true }, { "\x1C", VKEY::KEY_BACKSLASH, false, false, true },
+			};
+			for (auto&& mapping : mappings)
+			{
+				auto bytes = AString::Unmanaged(mapping.bytes);
+				for (vint split = 0; split <= bytes.Length(); split++)
+				{
+					tui_internal::PosixTuiInputDecoder decoder;
+					for (vint i = 0; i < split; i++) decoder.inputBytes.Add((vuint8_t)bytes[i]);
+					decoder.ParseInput(100);
+					for (vint i = split; i < bytes.Length(); i++) decoder.inputBytes.Add((vuint8_t)bytes[i]);
+					decoder.ParseInput(101);
+					TEST_ASSERT(decoder.pendingEvents.Count() >= 1);
+					auto&& event = decoder.pendingEvents[0];
+					TEST_ASSERT(event.type == tui_test::TuiBackendEventType::KeyDown);
+					TEST_ASSERT(event.keyInfo.code == mapping.key);
+					TEST_ASSERT(event.keyInfo.shift == mapping.shift && event.keyInfo.alt == mapping.alt && event.keyInfo.ctrl == mapping.ctrl);
+					TEST_ASSERT(!event.keyInfo.capslock && !event.keyInfo.autoRepeatKeyDown && !event.keyInfo.osSuper);
+					if (decoder.pendingEvents.Count() > 1) TEST_ASSERT(decoder.pendingEvents[1].type == tui_test::TuiBackendEventType::Char);
+				}
+			}
+		});
+
+		TEST_CASE(L"POSIX pending input keeps deadlines and resynchronizes without losing later events")
+		{
+			tui_internal::PosixTuiInputDecoder decoder;
+			decoder.inputBytes.Add(0x1B);
+			decoder.ParseInput(100);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 0 && decoder.escapeDeadline.Value() == 130);
+			decoder.ParseInput(129);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 0);
+			decoder.ParseInput(130);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 2 && decoder.pendingEvents[0].keyInfo.code == VKEY::KEY_ESCAPE);
+			decoder.pendingEvents.Clear();
+			for (auto bytes : { "\x1B[999~", "\x1B[999999999999999999999999999999~", "\x1B[1;;3D", "\x1BO99P", "\x1B[<0;0;3M", "\x1B[?25h" })
+			{
+				for (auto c = bytes; *c; c++) decoder.inputBytes.Add((vuint8_t)*c);
+				decoder.inputBytes.Add('x');
+				decoder.ParseInput(200);
+				TEST_ASSERT(decoder.pendingEvents.Count() == 2);
+				TEST_ASSERT(decoder.pendingEvents[0].keyInfo.code == VKEY::KEY_X);
+				decoder.pendingEvents.Clear();
+			}
+			for (auto bytes : { "\x1B]0;ignored\x07", "\x1BPignored\x1B\\", "\x1B_ignored\x1B\\", "\x1B^ignored\x1B\\", "\x1BXignored\x1B\\" })
+			{
+				for (auto c = bytes; *c; c++)
+				{
+					decoder.inputBytes.Add((vuint8_t)*c);
+					decoder.ParseInput(250);
+					TEST_ASSERT(decoder.pendingEvents.Count() == 0);
+				}
+				decoder.inputBytes.Add('x');
+				decoder.ParseInput(250);
+				TEST_ASSERT(decoder.pendingEvents.Count() == 2 && decoder.pendingEvents[1].charInfo.code == L'x');
+				decoder.pendingEvents.Clear();
+			}
+			for (auto c : { 0x1B, (int)'[', (int)'1', (int)';' }) decoder.inputBytes.Add((vuint8_t)c);
+			decoder.ParseInput(300);
+			decoder.ParseInput(5000);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 0 && !decoder.escapeDeadline);
+			decoder.inputBytes.Add('3');
+			decoder.inputBytes.Add('A');
+			decoder.ParseInput(5001);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 1 && decoder.pendingEvents[0].keyInfo.alt);
+			decoder.pendingEvents.Clear();
+			decoder.inputBytes.Add(0xF0);
+			decoder.inputBytes.Add(0x9F);
+			decoder.ParseInput(6000);
+			TEST_ASSERT(decoder.pendingEvents.Count() == 0);
+			decoder.inputBytes.Add('z');
+			decoder.ParseInput(6001);
+			TEST_ASSERT(decoder.pendingEvents[1].charInfo.code == L'\uFFFD');
+			decoder.pendingEvents.Clear();
+			decoder.ParseInput(6001);
+			TEST_ASSERT(decoder.pendingEvents[1].charInfo.code == L'z');
+			decoder.pendingEvents.Clear();
+			for (auto byte : { 0xF0, 0x9F, 0x98, 0x80 }) decoder.inputBytes.Add((vuint8_t)byte);
+			decoder.ParseInput(7000);
+			TEST_ASSERT(decoder.pendingEvents[0].keyInfo.code == VKEY::KEY_UNKNOWN);
+#ifdef VCZH_WCHAR_UTF16
+			TEST_ASSERT(decoder.pendingEvents.Count() == 3);
+			TEST_ASSERT(decoder.pendingEvents[1].charInfo.code == (wchar_t)0xD83D && decoder.pendingEvents[2].charInfo.code == (wchar_t)0xDE00);
+#else
+			TEST_ASSERT(decoder.pendingEvents.Count() == 2 && decoder.pendingEvents[1].charInfo.code == (wchar_t)0x1F600);
+#endif
+		});
+
+		TEST_CASE(L"POSIX SGR mouse preserves button state, double clicks, modifiers and wheel signs")
+		{
+			for (vint button = 0; button < 3; button++)
+			{
+				tui_internal::PosixTuiInputDecoder decoder;
+				for (vint action = 0; action < 5; action++)
+				{
+					auto cb = button + 4 + 8 + 16 + (action == 1 || action == 4 ? 32 : 0);
+					if (action == 4) cb = 3 + 32;
+					auto bytes = wtoa(L"\x1B[<" + itow(cb) + L";8;10" + (action == 2 ? L"m" : L"M"));
+					for (vint i = 0; i < bytes.Length(); i++)
+					{
+						decoder.inputBytes.Add((vuint8_t)bytes[i]);
+						decoder.ParseInput(100 + action);
+						if (i < bytes.Length() - 1) TEST_ASSERT(decoder.pendingEvents.Count() == 0);
+					}
+					TEST_ASSERT(decoder.pendingEvents.Count() == 1);
+					auto&& event = decoder.pendingEvents[0];
+					TEST_ASSERT(event.mouseInfo.x == 7 && event.mouseInfo.y == 9 && !event.mouseInfo.nonClient && !event.mouseInfo.osSuper);
+					TEST_ASSERT(event.mouseInfo.alt == (action != 4) && event.mouseInfo.ctrl == (action != 4) && event.mouseInfo.shift == (action != 4));
+					TEST_ASSERT(event.mouseInfo.left == (button == 0 && action != 2 && action != 4));
+					TEST_ASSERT(event.mouseInfo.middle == (button == 1 && action != 2 && action != 4));
+					TEST_ASSERT(event.mouseInfo.right == (button == 2 && action != 2 && action != 4));
+					const tui_test::TuiBackendEventType types[] = { tui_test::TuiBackendEventType::MouseDown, tui_test::TuiBackendEventType::MouseMove, tui_test::TuiBackendEventType::MouseUp, tui_test::TuiBackendEventType::MouseDoubleClick, tui_test::TuiBackendEventType::MouseMove };
+					TEST_ASSERT(event.type == types[action]);
+					decoder.pendingEvents.Clear();
+				}
+				for (vint wheel = 64; wheel <= 67; wheel++)
+				{
+					auto bytes = wtoa(L"\x1B[<" + itow(wheel + 8) + L";1;1M");
+					for (vint i = 0; i < bytes.Length(); i++) decoder.inputBytes.Add((vuint8_t)bytes[i]);
+					decoder.ParseInput(1000);
+					TEST_ASSERT(decoder.pendingEvents.Count() == 1);
+					auto&& event = decoder.pendingEvents[0];
+					TEST_ASSERT(event.mouseInfo.alt);
+					TEST_ASSERT(event.mouseInfo.wheel == (wheel == 64 || wheel == 67 ? 120 : -120));
+					TEST_ASSERT(event.type == (wheel <= 65 ? tui_test::TuiBackendEventType::MouseVerticalWheel : tui_test::TuiBackendEventType::MouseHorizontalWheel));
+					decoder.pendingEvents.Clear();
+				}
+			}
+		});
+	});
+
 	TEST_CATEGORY(L"TuiPlayground regression")
 	{
+		TEST_CASE(L"Canvas reserves a navigation header above the paper")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			backend->width = 30;
+			backend->height = 10;
+			backend->stopWhenEventsEmpty = true;
+			PlaygroundCallback callback;
+			tui_test::ScopedTuiBackend binding(backend);
+			TEST_ASSERT(TUI::InstallListener(&callback));
+			TUI::Start({});
+			TEST_ASSERT(TUI::UninstallListener(&callback));
+			TEST_ASSERT(backend->renderedBuffer[1].GetChar32() == U'C');
+			TEST_ASSERT((backend->renderedBuffer[1].backgroundColor == TuiColor{ 0, 0, 128 }));
+			TEST_ASSERT(backend->renderedBuffer[30].GetChar32() == U'\u2554');
+		});
+
+
+		TEST_CASE(L"Navigation and modal controls act once and preserve complete Unicode drafts")
+		{
+			RunPlaygroundScenario(30, 12, [](PlaygroundCallback& callback, FakeTuiBackend& backend)
+			{
+				PlaygroundText(callback, U"TyPe 0 0:A \U0001F600: B");
+				auto draft = callback.state.typingCommand;
+				PlaygroundControl(callback, VKEY::KEY_TAB, L'\t');
+				TEST_ASSERT(callback.state.page == PlaygroundPage::History && !callback.state.shapesMenu);
+				TEST_ASSERT(callback.state.typingCommand == draft);
+				TEST_ASSERT((backend.renderedBuffer[9].backgroundColor == TuiColor{ 0, 0, 128 }));
+				PlaygroundText(callback, U"ignored", true);
+				TEST_ASSERT(callback.state.commands.Count() == 0);
+				PlaygroundControl(callback, VKEY::KEY_TAB, L'\t');
+				TEST_ASSERT(callback.state.shapesMenu);
+				TEST_ASSERT((backend.renderedBuffer[18].backgroundColor == TuiColor{ 0, 0, 128 }));
+				PlaygroundControl(callback, VKEY::KEY_DOWN);
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				TEST_ASSERT(callback.state.drawing && callback.state.selectedShape == 1);
+				TEST_ASSERT(callback.state.page == PlaygroundPage::Canvas && !callback.state.shapesMenu);
+				TEST_ASSERT(callback.state.typingCommand == draft && callback.state.commands.Count() == 0);
+				TEST_ASSERT((backend.renderedBuffer[11 * 30].foregroundColor == TuiColor{ 128, 128, 128 }));
+				PlaygroundText(callback, U"ignored", true);
+				PlaygroundControl(callback, VKEY::KEY_BACK, L'\b');
+				TEST_ASSERT(callback.state.typingCommand == draft);
+				PlaygroundControl(callback, VKEY::KEY_ESCAPE, 0x1B);
+				TEST_ASSERT(!callback.state.drawing && callback.state.typingCommand == draft);
+				PlaygroundControl(callback, VKEY::KEY_TAB, L'\t', true);
+				TEST_ASSERT(callback.state.shapesMenu && callback.state.highlightedShape == 1);
+				callback.MouseDown(NativeMouseButton::Right, { .x = 1, .y = 0 });
+				TEST_ASSERT(callback.state.shapesMenu);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 9, .y = 0 });
+				TEST_ASSERT(!callback.state.shapesMenu && callback.state.page == PlaygroundPage::History);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 1, .y = 0 });
+				TEST_ASSERT(callback.state.typingCommand == draft);
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				TEST_ASSERT(callback.state.commands.Count() == 1 && callback.state.commands[0].text == draft);
+				PlaygroundText(callback, U"HELP", true);
+				TEST_ASSERT(callback.state.information);
+				PlaygroundControl(callback, VKEY::KEY_TAB, L'\t');
+				PlaygroundControl(callback, VKEY::KEY_DOWN);
+				PlaygroundControl(callback, VKEY::KEY_ESCAPE, 0x1B);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				callback.MouseVerticalWheel({ .x = 1, .y = 1, .wheel = 120 });
+				PlaygroundText(callback, U"EXIT", false);
+				TEST_ASSERT(callback.state.information && callback.state.page == PlaygroundPage::Canvas && !callback.state.shapesMenu);
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				TEST_ASSERT(!callback.state.information && callback.state.commands.Count() == 1 && callback.state.typingCommand.Length() == 0);
+			});
+		});
+
+		TEST_CASE(L"Every mouse shape matches typed replay with inclusive normalized coordinates")
+		{
+			for (vint shape = 0; shape < 10; shape++)
+			for (vint direction = 0; direction < 4; direction++)
+			{
+				RunPlaygroundScenario(32, 15, [=](PlaygroundCallback& callback, FakeTuiBackend& backend)
+				{
+					for (auto text : { U"FC FF8800", U"BC 112233", U"CLEAR 445566 0 0 20 10", U"LINEH THIN 0 20 3", U"TYPE 2 2:\u754C\U0001F600", U"BC CLEAR" })
+					{
+						PlaygroundText(callback, U32String::Unmanaged(text), true);
+					}
+					PlaygroundText(callback, U"draft \U0001F600");
+					auto draft = callback.state.typingCommand;
+					callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+					for (vint i = 0; i < shape; i++) PlaygroundControl(callback, VKEY::KEY_DOWN);
+					PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+					auto count = callback.state.commands.Count();
+					WindowMouseInfo anchor;
+					anchor.x = direction & 1 ? 9 : 3;
+					anchor.y = direction & 2 ? 8 : 4;
+					anchor.left = true;
+					WindowMouseInfo endpoint;
+					endpoint.x = direction & 1 ? 3 : 9;
+					endpoint.y = direction & 2 ? 4 : 8;
+					endpoint.left = true;
+					callback.MouseDoubleClick(NativeMouseButton::Left, anchor);
+					callback.MouseMove(endpoint);
+					TEST_ASSERT(callback.state.commands.Count() == count);
+					auto previewText = backend.renderedTexts[backend.renderedTexts.Count() - 1];
+					auto record = CurrentShape(callback.state).Value();
+					callback.MouseUp(NativeMouseButton::Middle, endpoint);
+					TEST_ASSERT(callback.state.drawing && callback.state.commands.Count() == count);
+					endpoint.left = false;
+					callback.MouseUp(NativeMouseButton::Left, endpoint);
+					TEST_ASSERT(callback.state.commands.Count() == count + 1 && !callback.state.drawing);
+					TEST_ASSERT(callback.state.typingCommand == draft);
+					TEST_ASSERT(callback.state.commands[count].text == record.text);
+					callback.MouseUp(NativeMouseButton::Left, endpoint);
+					TEST_ASSERT(callback.state.commands.Count() == count + 1);
+					auto layout = GetLayout(callback.state);
+					Array<TuiPixel> expected(layout.paperWidth * layout.paperHeight);
+					ReplayCommands(&expected[0], layout.paperWidth, layout.paperHeight, callback.state);
+					for (vint y = 0; y < layout.paperHeight; y++)
+					for (vint x = 0; x < layout.paperWidth; x++)
+					{
+						auto index = (y + 2) * 32 + x + 1;
+						auto&& pixel = expected[y * layout.paperWidth + x];
+						TEST_ASSERT(previewText[index] == pixel.GetChar32());
+						TEST_ASSERT(backend.renderedBuffer[index].GetChar32() == pixel.GetChar32());
+						TEST_ASSERT(backend.renderedBuffer[index].foregroundColor == pixel.foregroundColor);
+						TEST_ASSERT(backend.renderedBuffer[index].backgroundColor == pixel.backgroundColor);
+					}
+					TEST_ASSERT(record.text == ShapeName(shape) + (shape < 3 ? wtou32(L" " + itow(anchor.x - 1) + L" 2 6") : shape < 6 ? wtou32(L" 2 8 " + itow(anchor.y - 2)) : U32String(U" 2 2 8 6")));
+				});
+			}
+		});
+
+		TEST_CASE(L"Preview motion restores underlying wide glyphs and line arms without adding history")
+		{
+			RunPlaygroundScenario(30, 12, [](PlaygroundCallback& callback, FakeTuiBackend& backend)
+			{
+				PlaygroundText(callback, U"TYPE 0 0:\u754C", true);
+				PlaygroundText(callback, U"LINEH THIN 0 12 2", true);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				callback.MouseDown(NativeMouseButton::Left, { .left = true, .x = 2, .y = 2 });
+				callback.MouseMove({ .left = true, .x = 2, .y = 6 });
+				TEST_ASSERT(callback.state.commands.Count() == 2);
+				callback.MouseMove({ .left = true, .x = 2, .y = 2 });
+				TEST_ASSERT(backend.renderedBuffer[4 * 30 + 2].GetChar32() == U'\u2500');
+				callback.MouseMove({ .x = 2, .y = 3 });
+				TEST_ASSERT(!callback.state.drawing && callback.state.commands.Count() == 2);
+				TEST_ASSERT(backend.renderedBuffer[2 * 30 + 1].GetChar32() == U'\u754C');
+				TEST_ASSERT(backend.renderedBuffer[2 * 30 + 2].glyph == TuiPixelGlyph::WideCharContinuation);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				for (vint i = 0; i < 6; i++) PlaygroundControl(callback, VKEY::KEY_DOWN);
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				callback.MouseDown(NativeMouseButton::Left, { .left = true, .x = 3, .y = 3 });
+				callback.MouseUp(NativeMouseButton::Left, { .x = 3, .y = 3 });
+				TEST_ASSERT(callback.state.drawing && !callback.state.drawing.Value().dragging && callback.state.commands.Count() == 2);
+				callback.MouseDown(NativeMouseButton::Left, { .left = true, .x = 3, .y = 3 });
+				callback.MouseUp(NativeMouseButton::Left, { .x = 29, .y = 11 });
+				TEST_ASSERT(!callback.state.drawing && callback.state.commands.Count() == 3);
+				TEST_ASSERT(callback.state.commands[2].text == U"RECT THIN 2 1 27 7");
+			});
+		});
+
+		TEST_CASE(L"History preserves exact text, partial wheel input and chronological wrapping")
+		{
+			RunPlaygroundScenario(20, 6, [](PlaygroundCallback& callback, FakeTuiBackend& backend)
+			{
+				for (vint i = 0; i < 12; i++) PlaygroundText(callback, wtou32(L"TyPe 0 0:" + itow(i)) + U": \U0001F600 ", true);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 9, .y = 0 });
+				TEST_ASSERT(callback.state.page == PlaygroundPage::History && callback.state.historyTop == -1);
+				auto newest = backend.renderedTexts[backend.renderedTexts.Count() - 1];
+				callback.MouseVerticalWheel({ .x = 1, .y = 1, .wheel = 60 });
+				TEST_ASSERT(callback.state.historyTop == -1);
+				callback.MouseVerticalWheel({ .x = 1, .y = 1, .wheel = 60 });
+				TEST_ASSERT(callback.state.historyTop == 4);
+				callback.MouseHorizontalWheel({ .x = 1, .y = 1, .wheel = 120 });
+				TEST_ASSERT(callback.state.historyTop == 4);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 1, .y = 0 });
+				PlaygroundText(callback, U"BC 000000", true);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 9, .y = 0 });
+				TEST_ASSERT(callback.state.historyTop == 4);
+				callback.MouseVerticalWheel({ .x = 1, .y = 1, .wheel = 12000 });
+				TEST_ASSERT(callback.state.historyTop == 0);
+				TEST_ASSERT(backend.renderedBuffer[20].GetChar32() == U'T');
+				callback.MouseVerticalWheel({ .x = 1, .y = 1, .wheel = -12000 });
+				TEST_ASSERT(callback.state.historyTop == -1);
+				TEST_ASSERT(callback.state.commands[0].text == U"TyPe 0 0:0: \U0001F600 ");
+				TEST_ASSERT(callback.state.commands[12].text == U"BC 000000");
+				auto wrapped = WrapHistory(callback.state, 5);
+				for (auto&& scalar : wrapped.scalars)
+				{
+					if (scalar.code == U'\U0001F600') TEST_ASSERT(scalar.x + 2 <= 5);
+				}
+			});
+		});
+
+		TEST_CASE(L"Clipped layouts retain keyboard menu access and cancel drawing on resize or navigation")
+		{
+			for (vint width = 1; width <= 4; width++)
+			for (vint height = 1; height <= 4; height++)
+			{
+				RunPlaygroundScenario(width, height, [](PlaygroundCallback& callback, FakeTuiBackend& backend)
+				{
+					PlaygroundText(callback, U"a\U0001F600bcd");
+					auto draft = callback.state.typingCommand;
+					PlaygroundControl(callback, VKEY::KEY_TAB, L'\t', true);
+					for (vint i = 0; i < 15; i++) PlaygroundControl(callback, VKEY::KEY_DOWN);
+					TEST_ASSERT(callback.state.highlightedShape == 9);
+					PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+					TEST_ASSERT(callback.state.selectedShape == 9 && callback.state.drawing);
+					callback.MouseDown(NativeMouseButton::Left, { .left = true, .x = 1, .y = 2 });
+					TEST_ASSERT(!callback.state.drawing.Value().dragging);
+					callback.BufferSizeChanged();
+					TEST_ASSERT(!callback.state.drawing && callback.state.typingCommand == draft);
+					PlaygroundControl(callback, VKEY::KEY_TAB, L'\t');
+					TEST_ASSERT(callback.state.page == PlaygroundPage::History);
+					TEST_ASSERT(backend.renderedBuffer[0].GetChar32() == U' ');
+				});
+			}
+		});
+
+		TEST_CASE(L"Input-disabling transitions discard pending UTF-16 units and mouse menu gestures")
+		{
+			RunPlaygroundScenario(30, 12, [](PlaygroundCallback& callback, FakeTuiBackend&)
+			{
+				PlaygroundText(callback, U"draft");
+#ifdef VCZH_WCHAR_UTF16
+				callback.Char({ .code = (wchar_t)0xD83D });
+#endif
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 1 });
+				TEST_ASSERT(callback.state.drawing && !callback.state.drawing.Value().dragging);
+				callback.MouseUp(NativeMouseButton::Left, { .x = 18, .y = 1 });
+				TEST_ASSERT(callback.state.commands.Count() == 0);
+				PlaygroundControl(callback, VKEY::KEY_ESCAPE, 0x1B);
+#ifdef VCZH_WCHAR_UTF16
+				callback.Char({ .code = (wchar_t)0xDE00 });
+#endif
+				TEST_ASSERT(callback.state.typingCommand == U"draft");
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				callback.MouseDown(NativeMouseButton::Left, { .x = 0, .y = 5 });
+				TEST_ASSERT(!callback.state.shapesMenu && !callback.state.drawing);
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				PlaygroundControl(callback, VKEY::KEY_RETURN, L'\r');
+				callback.MouseDown(NativeMouseButton::Left, { .left = true, .x = 1, .y = 2 });
+				callback.MouseDown(NativeMouseButton::Left, { .x = 18, .y = 0 });
+				TEST_ASSERT(callback.state.shapesMenu && !callback.state.drawing && callback.state.commands.Count() == 0);
+			});
+		});
+
 		TEST_CASE(L"Strict parser accepts every command shape and preserves payloads")
 		{
 			PaintingCommand command;
@@ -1373,7 +1928,7 @@ TEST_FILE
 			TEST_ASSERT(backend->stopCount == 1);
 			TEST_ASSERT(callback.state.typingCommand.Length() == 0);
 			TEST_ASSERT(callback.state.commands.Count() == 1);
-			TEST_ASSERT(callback.state.commands[0].Get<TypeCommand>().text == U"qQ");
+			TEST_ASSERT(callback.state.commands[0].command.Get<TypeCommand>().text == U"qQ");
 		});
 
 		TEST_CASE(L"The bottom command row has a distinct dark gray background")
@@ -1486,7 +2041,7 @@ TEST_FILE
 			TUI::Start({});
 			TUI::UninstallListener(&callback);
 
-			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[4].GetChar32() == U'\u2554');
 			TEST_ASSERT(backend->renderedBuffer[2 * 4].GetChar32() == U'\u255A');
 			for (vint x = 0; x < 4; x++)
 			{
@@ -1568,14 +2123,14 @@ TEST_FILE
 
 			TEST_ASSERT(callback.state.commands.Count() == 9);
 			TEST_ASSERT(backend->renderWidth == 14 && backend->renderHeight == 9);
-			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
-			TEST_ASSERT(backend->renderedBuffer[13].GetChar32() == U'\u2557');
+			TEST_ASSERT(backend->renderedBuffer[14].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[27].GetChar32() == U'\u2557');
 			TEST_ASSERT(backend->renderedBuffer[7 * 14].GetChar32() == U'\u255A');
 			TEST_ASSERT(backend->renderedBuffer[7 * 14 + 13].GetChar32() == U'\u255D');
 
-			auto&& wide = backend->renderedBuffer[3 * 14 + 1];
-			auto&& continuation = backend->renderedBuffer[3 * 14 + 2];
-			auto&& ascii = backend->renderedBuffer[3 * 14 + 3];
+			auto&& wide = backend->renderedBuffer[4 * 14 + 1];
+			auto&& continuation = backend->renderedBuffer[4 * 14 + 2];
+			auto&& ascii = backend->renderedBuffer[4 * 14 + 3];
 			TEST_ASSERT(wide.GetChar32() == U'\u754C');
 			TEST_ASSERT(continuation.glyph == TuiPixelGlyph::WideCharContinuation);
 			TEST_ASSERT(wide.foregroundColor == TuiColor({ 255, 0, 0 }));
@@ -1585,9 +2140,9 @@ TEST_FILE
 			TEST_ASSERT(ascii.foregroundColor == TuiColor({ 255, 0, 0 }));
 			TEST_ASSERT(ascii.backgroundColor == TuiColor({ 0x11, 0x22, 0x33 }));
 
-			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 5].GetChar32() == U'\u256D');
-			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 1].backgroundColor == TuiColor({ 0x44, 0x55, 0x66 }));
-			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 11].backgroundColor == TuiColor({ 0, 0, 0 }));
+			TEST_ASSERT(backend->renderedBuffer[2 * 14 + 5].GetChar32() == U'\u256D');
+			TEST_ASSERT(backend->renderedBuffer[6 * 14 + 1].backgroundColor == TuiColor({ 0x44, 0x55, 0x66 }));
+			TEST_ASSERT(backend->renderedBuffer[2 * 14 + 11].backgroundColor == TuiColor({ 0, 0, 0 }));
 			for (vint x = 0; x < 14; x++)
 			{
 				TEST_ASSERT(backend->renderedBuffer[8 * 14 + x].backgroundColor == TuiColor({ 64, 64, 64 }));
@@ -1621,10 +2176,10 @@ TEST_FILE
 #if defined VCZH_WCHAR_UTF16
 			TEST_ASSERT(callback.state.pendingHighSurrogate == 0);
 #endif
-			TEST_ASSERT(backend->renderedBuffer[0].GetChar32() == U'\u2554');
+			TEST_ASSERT(backend->renderedBuffer[14].GetChar32() == U'\u2554');
 			TEST_ASSERT(backend->renderedBuffer[6 * 14].GetChar32() == U'\u255A');
-			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 1].GetChar32() == U'\u256D');
-			TEST_ASSERT(backend->renderedBuffer[1 * 14 + 12].GetChar32() == U'\u256E');
+			TEST_ASSERT(backend->renderedBuffer[2 * 14 + 1].GetChar32() == U'\u256D');
+			TEST_ASSERT(backend->renderedBuffer[2 * 14 + 12].GetChar32() == U'\u256E');
 			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 1].GetChar32() == U'\u2570');
 			TEST_ASSERT(backend->renderedBuffer[5 * 14 + 12].GetChar32() == U'\u256F');
 			for (vint x = 0; x < 14; x++)

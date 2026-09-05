@@ -35,3 +35,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\NetworkProtocolHttp.cpp"
 #include "..\..\Source\TUI\TUI.cpp"
 #include "..\..\Source\InterProcess\StdioRedirection\StdioRedirection.cpp"
+#include "..\..\Source\TUI\TUI.Input.cpp"

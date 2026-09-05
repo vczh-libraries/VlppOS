@@ -12,3 +12,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\Windows\HttpServerApi.Windows.h"
 #include "..\..\Source\InterProcess\Windows\HttpServer.Windows.h"
 #include "..\..\Source\InterProcess\Windows\NamedPipe.Windows.h"
+#include "..\..\Source\TUI\TUI.Input.Windows.h"

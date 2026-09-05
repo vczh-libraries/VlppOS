@@ -3179,8 +3179,96 @@ public:
 	}
 };
 
+class BurstResponseCallback : public FocusedProtocolCallback
+{
+public:
+	void OnReadString(const WString&) override
+	{
+		for (vint i = 0; i < 3; i++)
+		{
+			connection->SendString(itow(i));
+		}
+		readCount++;
+		eventRead.Signal();
+	}
+};
+
+class ObservableWindowsHttpServer : public SingleConnectionWindowsHttpServer
+{
+protected:
+	void OnHttpRequestReceived(PHTTP_REQUEST request) override
+	{
+		auto poll = wcsncmp(request->CookedUrl.pAbsPath, urlRequestPrefix.Buffer(), urlRequestPrefix.Length()) == 0;
+		HttpServer::OnHttpRequestReceived(request);
+		if (poll) eventPollRegistered.Signal();
+	}
+
+public:
+	EventObject						eventPollRegistered;
+
+	ObservableWindowsHttpServer(const WString& baseUrl, vint port, INetworkProtocolCallback* callback)
+		: SingleConnectionWindowsHttpServer(baseUrl, port, callback)
+	{
+		CHECK_ERROR(eventPollRegistered.CreateAutoUnsignal(false), L"Failed to create the Windows HTTP poll event.");
+	}
+
+	~ObservableWindowsHttpServer()
+	{
+		Stop();
+	}
+};
+
 void RunSocketHttpWindowsInteropTestCases()
 {
+	TEST_CASE(L"Windows HttpServer drains extra callback responses through an existing poll")
+	{
+		for (vint existingPoll = 0; existingPoll < 2; existingPoll++)
+		{
+			const vint port = 39643 + existingPoll;
+			const WString baseUrl = L"/VlppOSTestWinServerResponseBurst";
+			BurstResponseCallback callback;
+			auto server = Ptr(new ObservableWindowsHttpServer(baseUrl, port, &callback));
+			server->Start();
+			auto sender = CreateFocusedSocketHttpApi(port);
+			auto receiver = CreateFocusedSocketHttpApi(port);
+			sender->WaitForServer();
+			receiver->WaitForServer();
+			auto connectState = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(sender, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connectState);
+			TEST_ASSERT(connectState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!connectState->Failed() && connectState->StatusCode() == 200);
+			WString requestPath, responsePath;
+			TEST_ASSERT(ParseHttpNetworkProtocolConnectBody(connectState->Body(), requestPath, responsePath));
+			auto firstPoll = Ptr(new SocketHttpQueryState);
+			if (existingPoll)
+			{
+				SubmitSocketHttpQuery(receiver, L"POST", baseUrl + requestPath, WString::Empty, 0, firstPoll);
+				TEST_ASSERT(server->eventPollRegistered.WaitForTime(SocketHttpFocusedTimeout));
+			}
+			auto responseState = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(sender, L"POST", baseUrl + responsePath, L"burst", SocketHttpFocusedTimeout, responseState);
+			TEST_ASSERT(responseState->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(!responseState->Failed() && responseState->StatusCode() == 200);
+			TEST_ASSERT(responseState->Body() == L"0");
+			for (vint i = 1; i < 3; i++)
+			{
+				auto poll = i == 1 ? firstPoll : Ptr(new SocketHttpQueryState);
+				if (i != 1 || !existingPoll)
+				{
+					SubmitSocketHttpQuery(receiver, L"POST", baseUrl + requestPath, WString::Empty, 0, poll);
+				}
+				TEST_ASSERT(poll->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+				TEST_ASSERT(!poll->Failed() && poll->StatusCode() == 200);
+				TEST_ASSERT(poll->Body() == itow(i));
+			}
+			TEST_ASSERT(callback.readCount == 1);
+			TEST_ASSERT(callback.recoverableErrorCount == 0);
+			sender->Stop();
+			receiver->Stop();
+			server->Stop();
+		}
+	});
+
 	TEST_CASE(L"SocketHttpServer with Windows HttpClient (NetworkProtocol)")
 	{
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)

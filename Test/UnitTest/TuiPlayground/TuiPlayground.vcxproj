@@ -130,6 +130,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\..\Source\Threading.Windows.cpp" />
+    <ClCompile Include="..\..\..\Source\TUI\TUI.Input.cpp" />
     <ClCompile Include="..\..\..\Source\TUI\TUI.cpp" />
     <ClCompile Include="..\..\..\Source\TUI\TUI.Linux.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
@@ -144,6 +145,9 @@
     <ClInclude Include="..\..\..\Import\Vlpp.h" />
     <ClInclude Include="..\..\..\Source\Threading.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Input.Windows.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUI.Input.h" />
+    <ClInclude Include="..\..\..\Source\TUI\TUITypes.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Internal.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -7,6 +7,7 @@ Licensed under https://github.com/vczh-libraries/License
 #include <exception>
 
 using namespace vl;
+using namespace vl::presentation;
 using namespace vl::collections;
 
 namespace vl
@@ -543,15 +544,15 @@ ITuiCallback
 		void ITuiCallback::Starting() {}
 		void ITuiCallback::Stopping() {}
 		void ITuiCallback::BufferSizeChanged() {}
-		void ITuiCallback::MouseMove(const TuiMouseInfo&) {}
-		void ITuiCallback::MouseDown(TuiMouseButton, const TuiMouseInfo&) {}
-		void ITuiCallback::MouseUp(TuiMouseButton, const TuiMouseInfo&) {}
-		void ITuiCallback::MouseDoubleClick(TuiMouseButton, const TuiMouseInfo&) {}
-		void ITuiCallback::MouseVerticalWheel(const TuiMouseInfo&) {}
-		void ITuiCallback::MouseHorizontalWheel(const TuiMouseInfo&) {}
-		void ITuiCallback::KeyDown(const TuiKeyInfo&) {}
-		void ITuiCallback::KeyUp(const TuiKeyInfo&) {}
-		void ITuiCallback::Char(const TuiCharInfo&) {}
+		void ITuiCallback::MouseMove(const WindowMouseInfo&) {}
+		void ITuiCallback::MouseDown(NativeMouseButton, const WindowMouseInfo&) {}
+		void ITuiCallback::MouseUp(NativeMouseButton, const WindowMouseInfo&) {}
+		void ITuiCallback::MouseDoubleClick(NativeMouseButton, const WindowMouseInfo&) {}
+		void ITuiCallback::MouseVerticalWheel(const WindowMouseInfo&) {}
+		void ITuiCallback::MouseHorizontalWheel(const WindowMouseInfo&) {}
+		void ITuiCallback::KeyDown(const NativeWindowKeyInfo&) {}
+		void ITuiCallback::KeyUp(const NativeWindowKeyInfo&) {}
+		void ITuiCallback::Char(const NativeWindowCharInfo&) {}
 		void ITuiCallback::Timer() {}
 
 /***********************************************************************
