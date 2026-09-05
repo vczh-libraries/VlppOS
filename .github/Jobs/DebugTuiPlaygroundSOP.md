@@ -85,3 +85,12 @@ Record date, platform/terminal, builds/tests, actual live operations, restoratio
 - The original `TUI-PORT-SENTINEL-20260905` returned after alternate-screen exit, and termios matched its saved value immediately after the executable returned, before wrapper output.
 - Corrected stale wrapping wording in this SOP and the specification: the original task and existing implementation/tests require shape selection to clamp at the endpoints.
 - Windows results belong to the earlier implementation run. macOS was not exercised in this Linux verification.
+
+### 2026-09-05 macOS
+
+- macOS 26.5.2 arm64, xterm.js with Unicode 11 cell widths in Playwright WebKit, Menlo 14, `en_US.UTF-8`, `TERM=xterm-256color`, `COLORTERM=truecolor`, initially 100 by 32 cells. The frontend was connected to a real macOS PTY running the production executable.
+- Built UnitTest and TuiPlayground with their absolute `.github/Ubuntu/build.sh` entry points. All 14 files and 263 cases passed.
+- Exercised bracket and mixed-width/supplementary Unicode typing, whole-scalar Backspace, Tab/Shift-Tab, header navigation, overflowing history and vertical/horizontal wheels, modal HELP/error isolation, Unicode draft retention, and all ten shape styles in all four drag directions. All 40 committed shapes matched the corresponding typed commands cell-for-cell, including colors.
+- Additional live runs covered mixed-case grammar, transparent/replacing backgrounds, wide-character overlaps, off-paper clipping, identical replay after resizing, preview cancellation by Escape/Tab/header/lost release, one-cell lines, degenerate rectangles, outside-paper release, clipped shape menus, modal resizing, and active-drag resizing. Long Unicode drafts survived widths 1 through 4; xterm.js clamps its frontend to two columns, so the one-column case resized the actual child PTY directly.
+- Original-screen sentinel and normal buffer were restored on exit zero, including a fresh typing/navigation/drag/exit repeat. Saved termios matched immediately after process return with only kernel-managed `PENDIN` masked. macOS sets this transient bit even in an isolated Python raw/restore round trip; all other flags, speeds, and control characters matched exactly.
+- This is macOS production-terminal coverage; it does not replace the separately recorded Windows or Linux runs.
