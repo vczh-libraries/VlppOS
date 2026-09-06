@@ -1,6 +1,6 @@
 # Terminal User Interface
 
-`vl::console::TUI`, declared in [TUI.h](../../../Source/TUI/TUI.h), provides a cross-platform terminal takeover, owner-thread event loop, cell buffer, and drawing API. It is intended for applications that redraw the visible terminal as a complete user interface instead of using sequential `vl::console::Console` input and output.
+`vl::console::TUI`, declared in [TUI.h](../../Source/TUI/TUI.h), provides a cross-platform terminal takeover, owner-thread event loop, cell buffer, and drawing API. It is intended for applications that redraw the visible terminal as a complete user interface instead of using sequential `vl::console::Console` input and output.
 
 All names on this page are in the `vl::console` namespace unless another namespace is shown.
 
@@ -150,7 +150,7 @@ All `ITuiCallback` methods have default no-op implementations, so a listener onl
 
 ### Shared Input Declarations
 
-[Source/TUI/TUITypes.h](../../../Source/TUI/TUITypes.h) is the single declaration owner. These types remain in `vl::presentation`, depend only on Vlpp, and are consumed by GacUI and GacJS's generated protocol. GacUI owns reflection and platform key-name tables. Do not duplicate the declarations or add GacUI/reflection dependencies to VlppOS.
+[Source/TUI/TUITypes.h](../../Source/TUI/TUITypes.h) is the single declaration owner. These types remain in `vl::presentation`, depend only on Vlpp, and are consumed by GacUI and GacJS's generated protocol. GacUI owns reflection and platform key-name tables. Do not duplicate the declarations or add GacUI/reflection dependencies to VlppOS.
 
 | Declaration | Meaning and defaults |
 | --- | --- |
@@ -183,7 +183,7 @@ Use `KeyDown/KeyUp` for key actions and `Char` for text. Printable input may pro
 
 Windows translates `wVirtualKeyCode` in 1..255 directly, otherwise UNKNOWN. Each `wRepeatCount` unit emits KeyDown followed by its nonzero native character. The first press is not a repeat; later units and down records while held are repeats. One KeyUp clears held state without text. Start/Stop clears decoder state. Ctrl/Shift/Alt/Caps Lock come from the record; OS Super is unobservable. [Microsoft key record contract](https://learn.microsoft.com/en-us/windows/console/key-event-record-str).
 
-The production POSIX decoder in [TUI.Input.cpp](../../../Source/TUI/TUI.Input.cpp) retains incomplete bytes and decoded events across reads:
+The production POSIX decoder in [TUI.Input.cpp](../../Source/TUI/TUI.Input.cpp) retains incomplete bytes and decoded events across reads:
 
 - ASCII letters/digits/space/punctuation, Tab, Enter, Backspace and Escape map to shared keys. Inferable control bytes map to Ctrl plus their key. Uppercase/shifted punctuation does not imply observable Shift.
 - CSI/SS3 arrows, Home/End, Insert/Delete, PageUp/PageDown, F1..F20 forms, Shift-Tab and SS3 application keypad forms translate to VKEY. Modifier parameters 1..16 preserve Shift/Ctrl and terminal Alt/Meta; terminal Meta maps to Alt, never OS Super. Caps Lock, OS Super and repeats remain false.
@@ -340,7 +340,7 @@ Do not assume that every arbitrary thin, thick, and double four-arm combination 
 
 ### Exact Glyph Selection
 
-`GetMergeableChar` in [TUI.cpp](../../../Source/TUI/TUI.cpp) maps all 80 nonempty none/thin/thick combinations exactly; all-none returns zero. Supported double/thin-double states use U+2550..U+256C; unsupported states return zero. Rounded corners use U+256D top-left, U+256E top-right, U+256F bottom-right and U+2570 bottom-left.
+`GetMergeableChar` in [TUI.cpp](../../Source/TUI/TUI.cpp) maps all 80 nonempty none/thin/thick combinations exactly; all-none returns zero. Supported double/thin-double states use U+2550..U+256C; unsupported states return zero. Rounded corners use U+256D top-left, U+256E top-right, U+256F bottom-right and U+2570 bottom-left.
 
 This is the exact lookup. Arms are up/down/left/right, with 0=None, 1=Thin, 2=Thick, 3=Double.
 
@@ -479,5 +479,5 @@ POSIX saves termios, applies cfmakeraw with VMIN/VTIME zero using TCSANOW, and s
 - The ten styles are LINEV THIN/THICK/DOUBLE, LINEH THIN/THICK/DOUBLE, RECT THIN/THICK/DOUBLE/ROUND. Accept switches to Canvas and arms drawing, retaining draft, changing its text to 808080, and hiding the cursor. The selecting mouse gesture is consumed.
 - Only Left acts. Down (or DoubleClick replacing Down) inside paper starts a drag. Each preview replays committed commands plus the same parsed drawing operation, preserving merging/colors/clipping/wide-character repair without ghosts/history changes.
 - Release clamps to paper and commits exactly one canonical command. Lines use the anchor's fixed row/column with inclusive normalized endpoints; one-cell lines are valid. Rectangles need two distinct rows and columns; degenerate release stays armed without committing.
-- Escape, header navigation, Tab, resize or motion showing left released cancels preview/armed mode. Middle/Right never begin, commit or cancel.
+- Escape, header navigation, Tab or resize cancels preview/armed mode. During a drag, motion showing left released cancels it. Middle/Right never begin, commit or cancel.
 - HELP/errors are modal rounded overlays with opaque black border/interior backgrounds and left-aligned text. Lines wrap only when they exceed the available paper width excluding the overlay border. Without wrapping, the text width is the longest original line; with wrapping, the box fills the available width. The whole box is centered and its layout is recalculated on every frame, including resize. Only Enter dismisses, without submitting. EXIT is the only application exit command; q/Q are ordinary text.
