@@ -25,3 +25,15 @@ Checkout [Project.md](./Project.md) for details about compiling and running each
 On Windows, use MSBuild or Visual Studio to build.
 
 On Linux/macOS, run `REPO-ROOT/.github/Ubuntu/build.sh` in a project folder to update the makefile from vcxproj and build the project.
+
+## TUI Playground
+
+VlppOS also comes with a simple cross-platform TUI API. It works on Windows, Linux and macOS.
+It supports basic IO operations but no actual UI utilities.
+It is also a renderer for `GacUI`.
+
+![TUI_Windows.png](./TUI_Windows.png)
+
+![TUI_Ubuntu.png](./TUI_Ubuntu.png)
+
+![TUI_macOS.png](./TUI_macOS.png)
