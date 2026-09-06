@@ -91,9 +91,9 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 
 ## Verification Record
 
-Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
+Record platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
 
-### 2026-09-05 Manual text-style verification by terminal host
+### Manual text-style verification by terminal host
 
 The user confirms that Windows Terminal visibly renders bold, italic, underline and strikeline on both Windows 10 and Windows 11. Windows Terminal is the required Windows host for these visual checks; Windows 11 is not required.
 
@@ -105,7 +105,7 @@ The user confirms that Windows Terminal visibly renders bold, italic, underline 
 
 The Windows Terminal version, font, profile settings and exact successful-run OS builds were not supplied; Linux terminal details were also not supplied. The earlier limited Windows result came from the built-in `C:\Windows\System32\conhost.exe` hosting PowerShell. These observations distinguish terminal hosts, and do not imply that Windows 10 lacks the effects. The ConPTY/headless run below separately verifies transported attributes. Manual style checks do not add automated, modal-layout, restoration or macOS coverage.
 
-### 2026-09-05 Windows ConPTY attributes and information layout
+### Windows ConPTY attributes and information layout
 
 - Windows 10 Pro 22H2, build 19045, production Windows ConPTY with xterm.js headless Unicode 11 cell decoding. Native UTF-16 console input/output crossed ConPTY as UTF-8. This run inspected terminal characters, widths, colors and style attributes; it did not assert a particular font's visual appearance. Auto selected RGB emission.
 - Built Debug x64 through `copilotBuild.ps1`: zero warnings/errors. All 16 test files and 297 cases passed through the UnitTest wrapper, with no Debug leak report. The new minimal-width overlay regression first failed against the original implementation, then passed after the fix.
@@ -114,7 +114,7 @@ The Windows Terminal version, font, profile settings and exact successful-run OS
 - EXIT returned zero in fresh repeated sessions. Native before/after snapshots around the CLI wrapper's executable invocation matched: 100 by 160 original buffer with a 100 by 32 viewport, window origin, cursor position/size/visibility, attributes, input/output modes, and hashes of every original character/attribute cell. The sentinel `TUI-STYLES-SENTINEL-20260905` returned. A no-op `cmd /C exit 0` established the shell's baseline first: cmd independently clears the mouse-input flag, so this shell effect was separated from TUI restoration.
 - Both Windows and Linux/macOS renderers were updated and their Release artifacts regenerated. Linux/macOS builds and live checks for these new styles/layout changes remain pending manual verification; the earlier platform records below predate this change.
 
-### 2026-09-05 Linux
+### Linux
 
 - Ubuntu, VTE 0.76, `en_US.UTF-8`, DejaVu Sans Mono 10, `TERM=xterm-256color`, `COLORTERM=truecolor`; initial terminal 100 by 32 cells.
 - Built UnitTest and TuiPlayground through their absolute `.github/Ubuntu/build.sh` entry points. All 14 unit-test files and 263 cases passed, including the production POSIX decoder and playground regressions.
@@ -126,7 +126,7 @@ The Windows Terminal version, font, profile settings and exact successful-run OS
 - Corrected stale wrapping wording in this SOP and the specification: the original task and existing implementation/tests require shape selection to clamp at the endpoints.
 - Windows results belong to the earlier implementation run. macOS was not exercised in this Linux verification.
 
-### 2026-09-05 macOS
+### macOS
 
 - macOS 26.5.2 arm64, xterm.js with Unicode 11 cell widths in Playwright WebKit, Menlo 14, `en_US.UTF-8`, `TERM=xterm-256color`, `COLORTERM=truecolor`, initially 100 by 32 cells. The frontend was connected to a real macOS PTY running the production executable.
 - Built UnitTest and TuiPlayground with their absolute `.github/Ubuntu/build.sh` entry points. All 14 files and 263 cases passed.
