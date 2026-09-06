@@ -7,9 +7,16 @@ This document owns production feature operations and observable results. [Projec
 - Windows: from `REPO-ROOT/Test/UnitTest`, build with `& REPO-ROOT/.github/Scripts/copilotBuild.ps1` and launch `& REPO-ROOT/.github/Scripts/copilotExecute.ps1 -Mode CLI -Executable TuiPlayground` in a real interactive console.
 - Linux/macOS: from `REPO-ROOT/Test/Linux/TuiPlayground`, build through the absolute `REPO-ROOT/.github/Ubuntu/build.sh` and run `./Bin/TuiPlayground` in an interactive UTF-8 xterm-compatible terminal.
 - Record OS, terminal, locale/font, selected emission mode, dimensions and process result.
-- On Windows, record the terminal host separately from the shell: PowerShell and cmd can run in either the built-in console host or Windows Terminal. For visual coverage of all four text styles, open the current stable Windows Terminal app and run the CLI wrapper from a PowerShell tab inside it. Set `"intenseTextStyle": "bold"` or `"all"` in the profile used for that tab; its default `bright` does not request a heavier font. Windows 10's built-in console can transport attributes that its own renderer does not display; enabling VT and selecting TrueColor do not guarantee every text effect. See [terminal rendering limitations and version guidance](../KnowledgeBase/KB_VlppOS_TerminalUserInterface.md#windows-terminal-rendering-limitations).
+- Windows Terminal is required for this SOP's visual verification of all four text styles on Windows. The user has verified it on both Windows 10 and Windows 11. Record the terminal host separately from the shell: PowerShell and cmd can run inside different terminal hosts.
 - Begin with existing content and a unique sentinel. Windows must have scrollback taller than its viewport. Save buffer size, window rectangle/origin, cursor position/visibility/size, attributes and input/output modes.
 - Capture the same state immediately after the application returns, before wrapper/prompt output touches the restored console.
+
+### Windows Terminal Setup
+
+1. Install the current stable Windows Terminal app with `winget install --id Microsoft.WindowsTerminal -e`. `-e` means an exact package-ID match.
+2. Open Windows Terminal with `wt`, then run the CLI wrapper from a PowerShell tab inside that app.
+3. Set `"intenseTextStyle": "bold"` or `"all"` in the profile used for that tab to request a heavier font. The default `bright` selects intensity without requesting a heavier font.
+4. Follow the text-style operations below using `FS` and `TYPE`. The terminal host supplies the visual effects; enabling VT or selecting TrueColor alone does not establish style support. See the [Windows Terminal requirement and version guidance](../KnowledgeBase/KB_VlppOS_TerminalUserInterface.md#windows-terminal-requirement).
 
 ## Rules for Every Operation
 
@@ -86,17 +93,19 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 
 Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
 
-### 2026-09-05 Windows 11 manual text-style verification
+### 2026-09-05 Manual text-style verification by terminal host
 
-- The user confirms that bold, italic, underline and strikeline visibly work on Windows 11. This records successful manual visual verification of the playground text styles, complementing the earlier Windows ConPTY attribute checks and the user's successful Linux verification.
-- The exact Windows build, terminal host/version, font and profile settings were not supplied. The result applies to the user's tested Windows 11 environment; it does not establish support in every Windows 11 terminal host. The Windows Terminal setup above remains the reproducible setup guidance for future runs.
+The user confirms that Windows Terminal visibly renders bold, italic, underline and strikeline on both Windows 10 and Windows 11. Windows Terminal is the required Windows host for these visual checks; Windows 11 is not required.
 
-### 2026-09-05 Follow-up: Windows host and Linux text styles
+| Terminal host | Environment | Observed text styles | Verification |
+| --- | --- | --- | --- |
+| Windows Terminal | Windows 10 and Windows 11 | Bold, italic, underline and strikeline work | User manual visual verification |
+| Built-in console host (`conhost.exe`) | Windows 10 build 19045; host file version 10.0.19041.1 | Only underline was visible | User observation and read-only process inspection |
+| User's Linux terminal | Linux | Bold, italic, underline and strikeline work | User manual visual verification |
 
-- The user reports only underline visibly working on Windows. Process inspection found the production playground launched by PowerShell with the built-in `C:\Windows\System32\conhost.exe`, file version 10.0.19041.1, on Windows 10 build 19045; no Windows Terminal process was found. This is consistent with the older host's rendering limitations documented in the specification. The prior ConPTY/headless result below verifies attribute transport, not this host's visual rendering. No new Windows Terminal visual run was performed in this follow-up.
-- The user reports that the styles work correctly on Linux. Record this as successful user manual verification of the text effects; terminal/font/version details were not supplied. It does not establish a new automated Linux test run or additional coverage of modal layout, restoration or macOS.
+The Windows Terminal version, font, profile settings and exact successful-run OS builds were not supplied; Linux terminal details were also not supplied. The earlier limited Windows result came from the built-in `C:\Windows\System32\conhost.exe` hosting PowerShell. These observations distinguish terminal hosts, and do not imply that Windows 10 lacks the effects. The ConPTY/headless run below separately verifies transported attributes. Manual style checks do not add automated, modal-layout, restoration or macOS coverage.
 
-### 2026-09-05 Windows text styles and information layout
+### 2026-09-05 Windows ConPTY attributes and information layout
 
 - Windows 10 Pro 22H2, build 19045, production Windows ConPTY with xterm.js headless Unicode 11 cell decoding. Native UTF-16 console input/output crossed ConPTY as UTF-8. This run inspected terminal characters, widths, colors and style attributes; it did not assert a particular font's visual appearance. Auto selected RGB emission.
 - Built Debug x64 through `copilotBuild.ps1`: zero warnings/errors. All 16 test files and 297 cases passed through the UnitTest wrapper, with no Debug leak report. The new minimal-width overlay regression first failed against the original implementation, then passed after the fix.
