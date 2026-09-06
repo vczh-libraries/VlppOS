@@ -7,7 +7,7 @@ This document owns production feature operations and observable results. [Projec
 - Windows: from `REPO-ROOT/Test/UnitTest`, build with `& REPO-ROOT/.github/Scripts/copilotBuild.ps1` and launch `& REPO-ROOT/.github/Scripts/copilotExecute.ps1 -Mode CLI -Executable TuiPlayground` in a real interactive console.
 - Linux/macOS: from `REPO-ROOT/Test/Linux/TuiPlayground`, build through the absolute `REPO-ROOT/.github/Ubuntu/build.sh` and run `./Bin/TuiPlayground` in an interactive UTF-8 xterm-compatible terminal.
 - Record OS, terminal, locale/font, selected emission mode, dimensions and process result.
-- On Windows, record the terminal host separately from the shell: PowerShell and cmd can run in either the built-in console host or Windows Terminal. For visual coverage of all four text styles, use Windows Terminal and set the profile's `intenseTextStyle` to `bold` or `all`; its default `bright` does not request a heavier font. Windows 10's built-in console can transport attributes that its own renderer does not display; enabling VT and selecting TrueColor do not guarantee every text effect. See [terminal rendering limitations](../KnowledgeBase/KB_VlppOS_TerminalUserInterface.md#windows-terminal-rendering-limitations).
+- On Windows, record the terminal host separately from the shell: PowerShell and cmd can run in either the built-in console host or Windows Terminal. For visual coverage of all four text styles, open the current stable Windows Terminal app and run the CLI wrapper from a PowerShell tab inside it. Set `"intenseTextStyle": "bold"` or `"all"` in the profile used for that tab; its default `bright` does not request a heavier font. Windows 10's built-in console can transport attributes that its own renderer does not display; enabling VT and selecting TrueColor do not guarantee every text effect. See [terminal rendering limitations and version guidance](../KnowledgeBase/KB_VlppOS_TerminalUserInterface.md#windows-terminal-rendering-limitations).
 - Begin with existing content and a unique sentinel. Windows must have scrollback taller than its viewport. Save buffer size, window rectangle/origin, cursor position/visibility/size, attributes and input/output modes.
 - Capture the same state immediately after the application returns, before wrapper/prompt output touches the restored console.
 
@@ -85,6 +85,11 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 ## Verification Record
 
 Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
+
+### 2026-09-05 Windows 11 manual text-style verification
+
+- The user confirms that bold, italic, underline and strikeline visibly work on Windows 11. This records successful manual visual verification of the playground text styles, complementing the earlier Windows ConPTY attribute checks and the user's successful Linux verification.
+- The exact Windows build, terminal host/version, font and profile settings were not supplied. The result applies to the user's tested Windows 11 environment; it does not establish support in every Windows 11 terminal host. The Windows Terminal setup above remains the reproducible setup guidance for future runs.
 
 ### 2026-09-05 Follow-up: Windows host and Linux text styles
 
