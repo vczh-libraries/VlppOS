@@ -449,6 +449,14 @@ Windows development targets Windows 10 or newer. The backend enables `ENABLE_VIR
 
 POSIX requires an interactive UTF-8 xterm-compatible terminal. Auto chooses TrueColor for COLORTERM containing truecolor/24bit, Color256 for TERM containing 256color, otherwise Color16. Explicit modes override the heuristic.
 
+#### Windows Terminal Rendering Limitations
+
+The Windows 10 minimum OS requirement does not promise that every terminal host renders every style. The shell (PowerShell or cmd), VT parsing, ConPTY attribute transport, and the terminal's visible renderer are separate parts. Enabling `ENABLE_VIRTUAL_TERMINAL_PROCESSING` proves that VT processing is available; it does not query per-style drawing support. `TUI::GetColorMode` reports color emission, not font capabilities.
+
+Windows 10's older built-in console host can show underline while italic and strikeline remain invisible. Microsoft added [extended-attribute transport through ConPTY](https://github.com/microsoft/terminal/pull/2917) separately from [strikethrough rendering](https://github.com/microsoft/terminal/pull/7143) and [italic rendering](https://github.com/microsoft/terminal/pull/8580). Transport support therefore does not establish visible rendering support. Later changes to Microsoft's shared terminal sources do not imply that an installed Windows 10 inbox conhost contains them. [Bold font rendering in the GDI renderer](https://github.com/microsoft/terminal/pull/19441) was added much later; older intensity behavior need not change explicitly selected RGB colors.
+
+Use a current Windows Terminal for visual verification of all four effects. Its profile [intense-text formatting](https://learn.microsoft.com/en-us/windows/terminal/customize-settings/profile-appearance#intense-text-formatting) defaults to `bright`, which does not request a heavier font. Set `"intenseTextStyle": "bold"` or `"all"` at profile level when testing the `bold` flag. Font choice still affects the result. TUI emits the requested standard SGR attributes; it cannot make a host draw an unsupported effect. Headless decoding of ConPTY output verifies attributes, not the visible host's glyph rendering.
+
 ### Platform Takeover and Restoration
 
 Windows validates console input/output, saves modes, cursor information, screen geometry and queryable palette/attributes. Raw record input disables line/echo/processed/Quick Edit/VT input and enables mouse/window events. VT uses alternate-screen 1049 and hides the cursor; classic uses an owned screen buffer. Active dimensions match the viewport at origin (0,0), without scrollback. Resize records trigger a fresh viewport query.

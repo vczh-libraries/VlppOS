@@ -7,6 +7,7 @@ This document owns production feature operations and observable results. [Projec
 - Windows: from `REPO-ROOT/Test/UnitTest`, build with `& REPO-ROOT/.github/Scripts/copilotBuild.ps1` and launch `& REPO-ROOT/.github/Scripts/copilotExecute.ps1 -Mode CLI -Executable TuiPlayground` in a real interactive console.
 - Linux/macOS: from `REPO-ROOT/Test/Linux/TuiPlayground`, build through the absolute `REPO-ROOT/.github/Ubuntu/build.sh` and run `./Bin/TuiPlayground` in an interactive UTF-8 xterm-compatible terminal.
 - Record OS, terminal, locale/font, selected emission mode, dimensions and process result.
+- On Windows, record the terminal host separately from the shell: PowerShell and cmd can run in either the built-in console host or Windows Terminal. For visual coverage of all four text styles, use Windows Terminal and set the profile's `intenseTextStyle` to `bold` or `all`; its default `bright` does not request a heavier font. Windows 10's built-in console can transport attributes that its own renderer does not display; enabling VT and selecting TrueColor do not guarantee every text effect. See [terminal rendering limitations](../KnowledgeBase/KB_VlppOS_TerminalUserInterface.md#windows-terminal-rendering-limitations).
 - Begin with existing content and a unique sentinel. Windows must have scrollback taller than its viewport. Save buffer size, window rectangle/origin, cursor position/visibility/size, attributes and input/output modes.
 - Capture the same state immediately after the application returns, before wrapper/prompt output touches the restored console.
 
@@ -16,6 +17,7 @@ This document owns production feature operations and observable results. [Projec
 2. After navigation/resize, locate the header, paper and command box again.
 3. All operations must clip on small screens without scrolling/crashing.
 4. Record unavailable Linux/macOS hosts as pending; common-parser tests on Windows do not verify a POSIX terminal.
+5. Keep terminal attribute verification separate from visual verification. ConPTY output decoded by a headless terminal proves emitted attributes and cell layout, but does not prove that the user's terminal draws bold, italic or strikeline. Record unsupported effects for that host and perform visual style checks in a supporting terminal.
 
 ## Command Grammar
 
@@ -46,7 +48,7 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 
 ## Text Styles, Colors and Information Layout
 
-1. Submit `FC 123456`, `CLEAR 234567 0 0 40 10`, then `FS B` and `TYPE 0 0:Bold`. Repeat on separate rows with `FS I`, `FS U`, `FS S`, and `FS BIUS`. Require the four individual effects and their combination, with RGB foreground 123456 and background 234567 on a true-color terminal. Bold may use the terminal's intensity preference. `TYPE` preserves the destination background; `BC` controls later geometric drawing.
+1. Submit `FC 123456`, `CLEAR 234567 0 0 40 10`, then `FS B` and `TYPE 0 0:Bold`. Repeat on separate rows with `FS I`, `FS U`, `FS S`, and `FS BIUS`. Require the four individual effects and their combination, with RGB foreground 123456 and background 234567 on a supporting true-color terminal. For visual inspection, also repeat with `FC FFFFFF` and a black background for contrast. Bold may use the terminal's intensity preference; use the Windows Terminal profile setting described above to test a heavier font with RGB colors. `TYPE` preserves the destination background; `BC` controls later geometric drawing.
 2. Submit `FS I` after `FS BIUS`; subsequent `TYPE` text must be italic only. Submit `FS` then `TYPE 0 6:Plain`; require all effects disabled. Earlier text retains its style. Include a literal space and width-two text such as `TYPE 12 0:A一 B` while styled, then overwrite either half of the wide character with a line and with plain text.
 3. Draw lines and rectangles while `FS BIUS` is active. Require ordinary geometric glyphs and empty cells without inherited text effects. Resize and inspect replay; styles, colors and exact history entries must persist. Header, history, command input and information text remain unstyled.
 4. Submit `FS BX` and `FS B I`; require modal parse errors. `FS`, `FS bius` and reordered/duplicate valid flags must succeed. Keep `TYPE`; there is no `TEXT` command.
@@ -83,6 +85,11 @@ The command box wraps complete Unicode scalars by display width, grows upward as
 ## Verification Record
 
 Record date, platform/terminal, builds/tests, actual live operations, restoration evidence and failures/fixes. Mark Linux/macOS pending when not executed. A passing parser or fake-backend test does not replace these production terminal checks.
+
+### 2026-09-05 Follow-up: Windows host and Linux text styles
+
+- The user reports only underline visibly working on Windows. Process inspection found the production playground launched by PowerShell with the built-in `C:\Windows\System32\conhost.exe`, file version 10.0.19041.1, on Windows 10 build 19045; no Windows Terminal process was found. This is consistent with the older host's rendering limitations documented in the specification. The prior ConPTY/headless result below verifies attribute transport, not this host's visual rendering. No new Windows Terminal visual run was performed in this follow-up.
+- The user reports that the styles work correctly on Linux. Record this as successful user manual verification of the text effects; terminal/font/version details were not supplied. It does not establish a new automated Linux test run or additional coverage of modal layout, restoration or macOS.
 
 ### 2026-09-05 Windows text styles and information layout
 

@@ -32,6 +32,14 @@ you need to also update the Linux implementation as well, I will test them manua
 
 by the way, `TEXT` looks like my mistake, if the current commmand is `TYPE`, then keep `TYPE`
 
+## UPDATE
+
+looks like on Windows only underline is working
+
+## UPDATE
+
+Under linux it is perfectly working
+
 # TEST [CONFIRMED]
 
 The new minimal-width information-box regression compiled in Debug x64 with zero warnings/errors and failed against the original implementation at the expected top-left corner assertion. Existing tests preceding it passed. This confirms the full-width layout defect before the fix.
@@ -45,6 +53,7 @@ The new minimal-width information-box regression compiled in Debug x64 with zero
 # PROPOSALS
 
 - No.1 Store character styles in the cell and emit VT attributes; derive opaque information layout from current dimensions [CONFIRMED]
+- No.2 Clarify Windows host rendering requirements and separate transported attributes from visible effects [CONFIRMED]
 
 ## No.1 Store character styles in the cell and emit VT attributes; derive opaque information layout from current dimensions
 
@@ -68,3 +77,19 @@ Added TuiTextStyle/TuiCharPixel and migrated scalar accesses to character.c. Pri
 - Windows already used modern virtual-terminal output and TrueColor in Auto mode. No color quantization change was needed; the live run confirmed exact RGB values on Windows 10. Text attributes now use SGR 1/3/4/9 and explicit 22/23/24/29 resets in both platform renderers.
 - GacUI's shared `Source/TUI/TUITypes.h` declarations/defaults/key values/event semantics are unchanged. Searches found no `TuiPixel` or `TuiPrintOptions` uses in GacUI Source/Test, so no downstream consumer edits or import refresh are required for shared input compatibility. Generated VlppOS Release pairs contain the new character payload and both renderer changes.
 - Linux/macOS code is updated, but its build and live terminal verification are pending the user's manual testing; the Windows common tests do not claim POSIX runtime coverage.
+
+## No.2 Clarify Windows host rendering requirements and separate transported attributes from visible effects
+
+The Windows follow-up reports only underline visible, while the Linux follow-up reports successful text effects. Check the Windows host and the standard SGR emission before changing the rendering implementation. Distinguish the prior production ConPTY test's decoded attributes from visible font rendering in the built-in console. Document a Windows Terminal profile suitable for visual verification and record the user's Linux result without inferring unrelated test coverage.
+
+### CODE CHANGE
+
+No source change is needed for this host limitation: `GetTextStyleSequence` in Source/TUI/TUI.cpp emits SGR 1/3/4/9 and 22/23/24/29, and the Windows renderer applies these independently of RGB colors. Updated Project.md, the TUI specification and the playground SOP with host-specific limitations, Windows Terminal intense-text formatting, and separate transport/visual verification requirements. Added the user's Linux result to the SOP.
+
+### CONFIRMED
+
+- Read-only process inspection found the running production playground under PowerShell and the Windows inbox conhost, version 10.0.19041.1 on Windows 10 build 19045, with no Windows Terminal process. The reported visible result is consistent with this older renderer. This follow-up did not independently capture the console's visible glyphs or run a Windows Terminal visual test.
+- Microsoft's [ConPTY attribute support change](https://github.com/microsoft/terminal/pull/2917) explicitly separates transporting italic/crossed-out attributes from drawing them. Drawing support followed in [strikethrough](https://github.com/microsoft/terminal/pull/7143) and [italic](https://github.com/microsoft/terminal/pull/8580) changes. [GDI bold fonts](https://github.com/microsoft/terminal/pull/19441) were added much later. An upstream change does not establish availability in the installed Windows 10 inbox host.
+- Microsoft's [Windows Terminal profile documentation](https://learn.microsoft.com/en-us/windows/terminal/customize-settings/profile-appearance#intense-text-formatting) specifies `bright` as the default for SGR 1 and provides `bold`/`all` to request heavier glyphs. RGB emission and correct SGR bytes cannot force unsupported font effects in another host.
+- The unchanged source already passed the full 297-case Windows suite and production ConPTY attribute checks recorded above. Those checks remain valid for their stated scope; the earlier report should not have implied visual confirmation in the user's console. No rebuild or additional unit run was needed for this documentation correction.
+- The user now confirms the text effects work on Linux. This is user manual verification with unspecified terminal/font details; the earlier pending statement records the status at the original implementation run. No additional Linux automated, modal-layout, restoration or macOS coverage is inferred.
