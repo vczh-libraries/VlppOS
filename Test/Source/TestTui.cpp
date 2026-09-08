@@ -531,7 +531,10 @@ TEST_FILE
 			TEST_ASSERT(TUI::MeasureChar(U'\0') == 0);
 			TEST_ASSERT(TUI::MeasureChar(U'\x1B') == 0);
 			TEST_ASSERT(TUI::MeasureChar(U'\u0301') == 0);
-			TEST_ASSERT(TUI::MeasureChar(U'A') == 1);
+			for (char32_t code = U' '; code <= U'~'; code++)
+			{
+				TEST_ASSERT(TUI::MeasureChar(code) == 1);
+			}
 			TEST_ASSERT(TUI::MeasureChar(U'\u2500') == 1);
 			TEST_ASSERT(TUI::MeasureChar(U'\u4E00') == 2);
 			TEST_ASSERT(TUI::MeasureChar(U'\U0001F600') == 2);

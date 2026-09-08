@@ -6772,7 +6772,7 @@ namespace vl
 				ERROR_MESSAGE_PREFIX L"Failed to query character types."
 				);
 			if (ctype1[0] & C1_CNTRL) return 0;
-			if (ctype3[0] & (C3_NONSPACING | C3_DIACRITIC | C3_VOWELMARK)) return 0;
+			if (ctype3[0] & (C3_NONSPACING | C3_VOWELMARK)) return 0;
 			if (ctype3[0] & C3_HALFWIDTH) return 1;
 			if (length == 2 || (ctype3[0] & (C3_FULLWIDTH | C3_IDEOGRAPH | C3_HIRAGANA | C3_KATAKANA))) return 2;
 #undef ERROR_MESSAGE_PREFIX
