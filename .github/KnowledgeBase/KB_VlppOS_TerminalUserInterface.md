@@ -195,6 +195,14 @@ The production POSIX decoder in [TUI.Input.cpp](../../Source/TUI/TUI.Input.cpp) 
 - Numeric fields validate syntax, ranges and overflow before translation. Unsupported complete CSI/SS3 is consumed without suffix leakage. Overlong incomplete sequences discard through their final byte. OSC/DCS/SOS/PM/APC strings discard through their terminator; a new Escape can resynchronize.
 - Invalid UTF-8 produces replacement units without dropping later valid text. Buffered events/bytes drain before polling. The earliest timer or Escape deadline bounds blocking, and interrupted poll returns to the owner loop to recompute deadlines.
 
+### Terminal Limits on OS Super
+
+Every input payload initializes `osSuper` to false. Windows fills it from each key or mouse record, including mouse movement, buttons, double-clicks and both wheel axes, and copies each key event's flag to accompanying Char events. Linux/macOS fill it from Kitty keyboard modifiers and preserve it in accompanying Char events.
+
+Standard SGR mouse reports encode only Shift, Alt and Ctrl; their `osSuper` remains false even in Kitty. Legacy text has no independent Super bit either. Do not infer mouse Super from the last keyboard event: the current keyboard mode does not report standalone modifier releases, so that state could remain stale indefinitely.
+
+The terminal application matters independently of the operating system. GNOME Terminal 3.52.0 with VTE 0.76.0 does not transmit Super. Its [key mapper](https://github.com/GNOME/vte/blob/0.76.0/src/keymap.cc) removes unsupported modifiers. A probe of that installed VTE widget produced identical bytes with and without Super: Ctrl+Alt+Q emitted hex `1b 11`, and Ctrl+Alt+Shift+F8 emitted `ESC [19;8~`. VlppOS cannot reconstruct a missing modifier from identical input. Local Super shortcuts require a terminal that reports it through the Kitty keyboard protocol. Native global shortcuts are handled by the downstream platform's separate input service.
+
 ### Character Events Use Native `wchar_t` Units
 
 `vl::presentation::NativeWindowCharInfo::code` is exactly one platform-native `wchar_t` code unit, not necessarily one complete Unicode scalar.
