@@ -150,6 +150,15 @@ TEST_FILE
 			TEST_ASSERT(r == L"D:\\Windows\\Explorer.exe");
 		});
 	#elif defined VCZH_GCC
+		TEST_CASE(L"Joining an absolute POSIX path replaces the current folder")
+		{
+			for (auto base : { L"/", L"/usr/bin" })
+			{
+				TEST_ASSERT((FilePath(base) / L"/tmp/image.png").GetFullPath() == L"/tmp/image.png");
+				TEST_ASSERT((FilePath(base) / L"/").GetFullPath() == L"/");
+			}
+			TEST_ASSERT((FilePath(L"/usr") / L"bin/../lib").GetFullPath() == L"/usr/lib");
+		});
 		ClearTestFolders();
 		TEST_CASE(L"<Empty>")
 		{

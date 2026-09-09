@@ -1554,6 +1554,58 @@ TEST_FILE
 			}
 		});
 
+		TEST_CASE(L"POSIX keyboard normalizes controls and distinguishes Kitty Super from legacy Meta across read boundaries")
+		{
+			struct Mapping { const char* bytes; VKEY key; bool alt; bool super; bool ctrl; bool shift; bool capslock; wchar_t text = 0; };
+			const Mapping mappings[] = {
+				{ "\x7F", VKEY::KEY_BACK, false, false, false, false, false, L'\b' },
+				{ "\b", VKEY::KEY_BACK, false, false, false, false, false, L'\b' },
+				{ "\n", VKEY::KEY_RETURN, false, false, false, false, false, L'\r' },
+				{ "\r", VKEY::KEY_RETURN, false, false, false, false, false, L'\r' },
+				{ "\x1B[127;9u", VKEY::KEY_BACK, false, true, false, false, false, L'\b' },
+				{ "\x1B[113;15u", VKEY::KEY_Q, true, true, true, false, false },
+				{ "\x1B[113;3u", VKEY::KEY_Q, true, false, false, false, false },
+				{ "\x1B[113;9u", VKEY::KEY_Q, false, true, false, false, false },
+				{ "\x1B[113;33u", VKEY::KEY_Q, true, false, false, false, false },
+				{ "\x1B[?1u\x1B[1;10A", VKEY::KEY_UP, false, true, false, true, false },
+				{ "\x1B[?1u\x1B[19;16~", VKEY::KEY_F8, true, true, true, true, false },
+				{ "\x1B[13;73u", VKEY::KEY_RETURN, false, true, false, false, true, L'\r' },
+				{ "\x1B[27u", VKEY::KEY_ESCAPE, false, false, false, false, false, L'\x1B' },
+				{ "\x1B[1;9A", VKEY::KEY_UP, true, false, false, false, false },
+			};
+			for (auto&& mapping : mappings)
+			{
+				auto bytes = AString::Unmanaged(mapping.bytes);
+				for (vint split = 0; split <= bytes.Length(); split++)
+				{
+					tui_internal::PosixTuiInputDecoder decoder;
+					for (vint i = 0; i < split; i++) decoder.inputBytes.Add((vuint8_t)bytes[i]);
+					decoder.ParseInput(100);
+					for (vint i = split; i < bytes.Length(); i++) decoder.inputBytes.Add((vuint8_t)bytes[i]);
+					decoder.ParseInput(101);
+					TEST_ASSERT(decoder.pendingEvents.Count() == (mapping.text ? 2 : 1));
+					auto&& info = decoder.pendingEvents[0].keyInfo;
+					TEST_ASSERT(info.code == mapping.key);
+					TEST_ASSERT(info.alt == mapping.alt && info.osSuper == mapping.super);
+					TEST_ASSERT(info.ctrl == mapping.ctrl && info.shift == mapping.shift && info.capslock == mapping.capslock);
+					if (mapping.text)
+					{
+						auto&& text = decoder.pendingEvents[1].charInfo;
+						TEST_ASSERT(text.code == mapping.text && text.osSuper == mapping.super && text.capslock == mapping.capslock);
+					}
+				}
+			}
+			for (auto bytes : { "\x1B[113;0u", "\x1B[113;257u", "\x1B[55296u", "\x1B[4294967409u", "\x1B[113;9:3u", "\x1B[113;9;97u" })
+			{
+				tui_internal::PosixTuiInputDecoder decoder;
+				for (auto c = bytes; *c; c++) decoder.inputBytes.Add((vuint8_t)*c);
+				decoder.inputBytes.Add('x');
+				decoder.ParseInput(100);
+				TEST_ASSERT(decoder.pendingEvents.Count() == 2);
+				TEST_ASSERT(decoder.pendingEvents[0].keyInfo.code == VKEY::KEY_X && !decoder.pendingEvents[0].keyInfo.osSuper);
+			}
+		});
+
 		TEST_CASE(L"POSIX pending input keeps deadlines and resynchronizes without losing later events")
 		{
 			tui_internal::PosixTuiInputDecoder decoder;

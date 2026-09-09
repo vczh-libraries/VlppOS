@@ -49,6 +49,10 @@ LinuxFileSystemImpl
 
 			WString ConcatPath(const WString& fullPath, const WString& relativePath) const override
 			{
+				if (relativePath.Length() > 0 && relativePath[0] == GetPathDelimiter())
+				{
+					return relativePath;
+				}
 				auto delimiter = WString::FromChar(GetPathDelimiter());
 				if (IsRoot(fullPath))
 				{
