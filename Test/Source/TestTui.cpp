@@ -1336,6 +1336,82 @@ TEST_FILE
 		});
 
 #ifdef VCZH_MSVC
+		TEST_CASE(L"Windows Terminal Win flags survive queued key and character events independently of Alt")
+		{
+			for (DWORD superMask : { 0u, 0x0200u, 0x0400u, 0x0600u })
+			for (DWORD altMask : { (DWORD)0, (DWORD)LEFT_ALT_PRESSED, (DWORD)RIGHT_ALT_PRESSED })
+			{
+				tui_internal::WindowsTuiInputDecoder decoder;
+				KEY_EVENT_RECORD record = {};
+				record.bKeyDown = TRUE;
+				record.wRepeatCount = 3;
+				record.wVirtualKeyCode = 'Q';
+				record.uChar.UnicodeChar = L'\x11';
+				record.dwControlKeyState = superMask | altMask | LEFT_CTRL_PRESSED | SHIFT_PRESSED | CAPSLOCK_ON | ENHANCED_KEY;
+				decoder.DecodeKey(record);
+				record.bKeyDown = FALSE;
+				record.dwControlKeyState = altMask | LEFT_CTRL_PRESSED;
+				decoder.DecodeKey(record);
+				record.bKeyDown = TRUE;
+				record.wRepeatCount = 1;
+				record.dwControlKeyState = 0;
+				decoder.DecodeKey(record);
+				TEST_ASSERT(decoder.pendingEvents.Count() == 9);
+				for (vint i = 0; i < 3; i++)
+				{
+					auto&& key = decoder.pendingEvents[i * 2];
+					auto&& text = decoder.pendingEvents[i * 2 + 1];
+					TEST_ASSERT(key.type == tui_test::TuiBackendEventType::KeyDown && key.keyInfo.code == VKEY::KEY_Q);
+					TEST_ASSERT(key.keyInfo.osSuper == (superMask != 0) && key.keyInfo.alt == (altMask != 0));
+					TEST_ASSERT(key.keyInfo.ctrl && key.keyInfo.shift && key.keyInfo.capslock);
+					TEST_ASSERT(key.keyInfo.autoRepeatKeyDown == (i != 0));
+					TEST_ASSERT(text.type == tui_test::TuiBackendEventType::Char && text.charInfo.code == L'\x11');
+					TEST_ASSERT(text.charInfo.osSuper == (superMask != 0) && text.charInfo.alt == (altMask != 0));
+					TEST_ASSERT(text.charInfo.ctrl && text.charInfo.shift && text.charInfo.capslock);
+				}
+				auto&& up = decoder.pendingEvents[6];
+				TEST_ASSERT(up.type == tui_test::TuiBackendEventType::KeyUp && up.keyInfo.code == VKEY::KEY_Q);
+				TEST_ASSERT(!up.keyInfo.osSuper && up.keyInfo.alt == (altMask != 0) && up.keyInfo.ctrl);
+				TEST_ASSERT(!up.keyInfo.shift && !up.keyInfo.capslock && !up.keyInfo.autoRepeatKeyDown);
+				auto&& key = decoder.pendingEvents[7].keyInfo;
+				auto&& text = decoder.pendingEvents[8].charInfo;
+				TEST_ASSERT(!key.osSuper && !key.alt && !key.ctrl && !key.shift && !key.capslock && !key.autoRepeatKeyDown);
+				TEST_ASSERT(!text.osSuper && !text.alt && !text.ctrl && !text.shift && !text.capslock);
+			}
+		});
+
+		TEST_CASE(L"Windows Terminal mouse Win flags follow each record without retaining released modifiers")
+		{
+			for (DWORD superMask : { 0u, 0x0200u, 0x0400u, 0x0600u })
+			for (DWORD altMask : { (DWORD)0, (DWORD)LEFT_ALT_PRESSED, (DWORD)RIGHT_ALT_PRESSED })
+			{
+				tui_internal::WindowsTuiInputDecoder decoder;
+				MOUSE_EVENT_RECORD record = {};
+				record.dwMousePosition = { 17, 29 };
+				record.dwControlKeyState = superMask | altMask | RIGHT_CTRL_PRESSED | SHIFT_PRESSED;
+				record.dwButtonState = FROM_LEFT_1ST_BUTTON_PRESSED;
+				decoder.DecodeMouse(record, { 10, 20 });
+				record.dwEventFlags = MOUSE_MOVED;
+				decoder.DecodeMouse(record, { 10, 20 });
+				record.dwControlKeyState = 0;
+				record.dwButtonState = 0;
+				record.dwEventFlags = 0;
+				decoder.DecodeMouse(record, { 10, 20 });
+				TEST_ASSERT(decoder.pendingEvents.Count() == 3);
+				TEST_ASSERT(decoder.pendingEvents[0].type == tui_test::TuiBackendEventType::MouseDown);
+				TEST_ASSERT(decoder.pendingEvents[1].type == tui_test::TuiBackendEventType::MouseMove);
+				TEST_ASSERT(decoder.pendingEvents[2].type == tui_test::TuiBackendEventType::MouseUp);
+				for (vint i = 0; i < 3; i++)
+				{
+					auto&& info = decoder.pendingEvents[i].mouseInfo;
+					TEST_ASSERT(info.x == 7 && info.y == 9 && !info.nonClient);
+					TEST_ASSERT(info.osSuper == (i != 2 && superMask != 0));
+					TEST_ASSERT(info.alt == (i != 2 && altMask != 0));
+					TEST_ASSERT(info.ctrl == (i != 2) && info.shift == (i != 2) && info.left == (i != 2));
+				}
+			}
+		});
+
 		TEST_CASE(L"Windows records expand held keys before each native character unit")
 		{
 			tui_internal::WindowsTuiInputDecoder decoder;
