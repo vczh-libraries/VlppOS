@@ -545,6 +545,27 @@ TEST_FILE
 
 	TEST_CATEGORY(L"Drawing")
 	{
+		TEST_CASE(L"All drawing overloads accept an optional clipper")
+		{
+			auto supportsClipping = []<typename T>()
+			{
+				return requires(TuiPixel* buffer, TuiPrintOptions print, TuiLineOptions line, TuiRectOptions rect, TuiColor color)
+				{
+					T::PrintChar(print, U'x', 0, 0, nullptr);
+					T::DrawLineV(line, 0, 0, 1, nullptr);
+					T::DrawLineH(line, 0, 1, 0, nullptr);
+					T::DrawRect(rect, 0, 0, 1, 1, nullptr);
+					T::Clear(color, 0, 0, 1, 1, nullptr);
+					T::PrintChar(buffer, 2, 2, print, U'x', 0, 0, nullptr);
+					T::DrawLineV(buffer, 2, 2, line, 0, 0, 1, nullptr);
+					T::DrawLineH(buffer, 2, 2, line, 0, 1, 0, nullptr);
+					T::DrawRect(buffer, 2, 2, rect, 0, 0, 1, 1, nullptr);
+					T::Clear(buffer, 2, 2, color, 0, 0, 1, 1, nullptr);
+				};
+			};
+			TEST_ASSERT(supportsClipping.operator()<TUI>());
+		});
+
 		TEST_CASE(L"PrintChar validates scalars and maintains wide pairs")
 		{
 			TuiPixel buffer[5];
