@@ -13,13 +13,15 @@
 - Treat fatal channel broadcast as an admission barrier [2]
 - `stdio_redirection` belongs to testing-only VlppOS inter-process [2]
 - `vl::inter_process` admission callbacks preserve producer-owned `Ptr` values [2]
+- `HttpServerConnection` queues pending outbound `/Request` responses [2]
+- Store semantic TUI state and derive each frame [2]
+- Use one general information overlay for TUI help and errors [2]
 - Template `NetworkProtocolChannelServer` over the protocol server base [1]
 - Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
 - Keep `IChannelServer` delivery-only; use local clients for server speech [1]
 - Keep channel protocol declarations separate from implementation headers [1]
 - Group `SpinLock`-protected fields with coverage comments [1]
-- `HttpServerConnection` queues pending outbound `/Request` responses [1]
 - `NetworkPackage` first section preserves null client ids and normalizes empty extras [1]
 - `vl::inter_process` Windows transports use feature-specific nested namespaces [1]
 - `Thread::Wait` completion belongs to the native thread entry point [1]
@@ -31,8 +33,8 @@
 - `NativeWindowCharInfo::code` carries one native `wchar_t` unit [1]
 - Convert TUI native units to scalars in the consumer [1]
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
-- Store semantic TUI state and derive each frame [1]
-- Use one general information overlay for TUI help and errors [1]
+- Shared TUI input declarations have one upstream owner [1]
+- Populate TUI modifiers only from observable input [1]
 
 # Refinements
 
@@ -101,6 +103,8 @@ For classes that use `SpinLock`, group every field protected by a given lock dir
 ## `HttpServerConnection` queues pending outbound `/Request` responses
 
 When HTTP inter-process channel delivery can produce multiple outbound responses back-to-back, queue pending `/Request` responses instead of storing one overwriteable pending response. This preserves sequences such as the connection response followed immediately by the first channel message.
+
+When `HttpServerConnection::SubmitResponse` moves excess callback responses into that queue, immediately satisfy an already registered long poll through the existing delivery/error path. Test both an existing poll and a poll registered after the inline response: the latter alone can pass while the former leaves queued messages and a pending poll stranded together.
 
 ## Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code
 
@@ -200,8 +204,22 @@ Keep durable callback state semantic: completed scalar input, accumulated comman
 
 Rebuild each frame from semantic state. Replay commands from logical coordinates into a temporary interior buffer, clip there, copy the bounded result into the terminal buffer, and draw protected borders and command UI last.
 
+Store the parsed painting command and exact submitted text in one ordered record so canvas replay and command history cannot diverge. Keep drag anchors and endpoints in logical paper coordinates, and derive previews and hit testing from the same current layout; a preview must neither mutate history nor leave painted pixels behind after movement or cancellation.
+
 ## Use one general information overlay for TUI help and errors
 
 Represent modal playground information as an ordered `List<U32String>` instead of an error-specific structure. Parse failures populate two items for the original command and reason; `HELP` populates only the concise accepted command shapes. Use the same wrapping, clipping, cursor hiding, and Enter-to-dismiss behavior for both. Left-align all rows inside an opaque black box; center the whole box, shrinking to the longest line if nothing wraps and using the available width otherwise. Recompute layout after resize.
 
 Handle exact case-insensitive `HELP` and `EXIT` controls before painting-command parsing and never add them to painting history. `EXIT` is the only application-controlled quit action; ordinary characters such as `q`/`Q` and Escape do not stop the playground.
+
+## Shared TUI input declarations have one upstream owner
+
+Keep shared `vl::presentation` coordinates, mouse/key/character payloads, `VKEY`, and its complete macro dependencies in `VlppOS/Source/TUI/TUITypes.h`, with their comments and aliases. The header may depend on upstream Vlpp but must not acquire GacUI or reflection dependencies. GacUI consumes this header and retains its own reflection registration and platform key-name tables; delete superseded declarations instead of maintaining compatibility copies.
+
+When these shared declarations or semantics change, regenerate the VlppOS release and verify matching downstream protocol, reflection, native-provider, and browser-generated surfaces. Public defaults do not initialize JavaScript payloads, so inspect field construction and forwarding as well as C++ compilation.
+
+## Populate TUI modifiers only from observable input
+
+In `Source/TUI` input decoders, preserve independent Alt and OS Super only when the native record or negotiated terminal protocol supplies them. Windows record Win bits must reach key, character, and every mouse callback through their common payload construction. `PosixTuiInputDecoder` can decode Super from Kitty keyboard reports and copy it to accompanying character events; legacy text and standard SGR mouse reports do not provide that state and must retain false.
+
+Do not reinterpret SGR Alt/motion/button bits as Super or carry the last keyboard Super state into mouse events: an unreported modifier release makes that cache stale. When two shortcuts become identical before bytes reach the decoder, inspect the terminal encoder and negotiated protocol instead of adding field assignments that cannot recover lost information. A terminal-local key callback also cannot replace a separately registered native global shortcut; verify which route owns the requested action before attributing failure to TUI decoding.

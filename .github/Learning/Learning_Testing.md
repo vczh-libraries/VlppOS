@@ -6,13 +6,15 @@
 - Debug UnitTest logs append memory leaks after the pass summary [9]
 - Split channel clients by role when validating sender ids [5]
 - Repeat inter-process transport scenarios instead of sleeping after `Stop()` [4]
+- Verify Windows TUI geometry with the production backend [3]
 - `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [2]
 - Search project metadata after source file renames [1]
 - Test inherited `Thread` completion with a custom subclass [1]
 - Synchronize server startup outside dedicated retry tests [1]
 - Test shared Socket HTTP routing through one injected listener and client [1]
 - Inject response failure when testing Socket HTTP poll requeue [1]
-- Verify Windows TUI geometry with the production backend [1]
+- Test the production TUI decoder across input boundaries [1]
+- Separate TUI attribute transport from visible font effects [1]
 
 # Refinements
 
@@ -71,3 +73,17 @@ Use a private test hook to cancel the claimed server request context immediately
 An injected backend is appropriate for deterministic layout, input, timer, resize, and replay tests, but it cannot prove Win32 console takeover or restoration. Also run the production executable in a console whose scrollback buffer is taller than its viewport. While active, inspect that buffer and viewport dimensions match through repeated grow/shrink operations and that no vertical-scrollbar condition returns.
 
 After application-controlled shutdown, inspect the real process before any wrapper adjusts child-exit scrollback and require the original buffer size, window rectangle, modes, and sentinel contents to be restored.
+
+Compare against a no-op wrapper/shell baseline when the launcher itself changes console state, and include offscreen cells and attributes in restoration evidence. This separates TUI takeover effects from shell post-exit changes.
+
+## Test the production TUI decoder across input boundaries
+
+Use a narrow internal test seam or controlled native input to exercise the actual Windows record converter and POSIX byte decoder. Fake-backend callbacks validate dispatch but cannot prove that real input becomes the correct event. Keep the POSIX decoding algorithm platform-neutral so its deterministic cases can run on Windows, while reserving native terminal claims for hosts actually exercised.
+
+Split supported sequences at every relevant byte boundary and place multiple events in one read. Check exact callback order, native character units, unsupported and malformed sequences followed by valid input, and timers/resizes while input is incomplete. A complete buffered event must be drained before another blocking read, and discarded escape sequences must not leak suffixes into text.
+
+## Separate TUI attribute transport from visible font effects
+
+Production ConPTY output decoded by a terminal model can prove RGB values and SGR style/reset attributes, but it does not prove that the user's terminal host and font visibly render bold, italic, underline, and strikeline. Identify the installed host/version and inspect standard attribute emission before changing working TUI rendering code in response to a visual mismatch.
+
+For Windows visual acceptance, use the Windows Terminal setup in `.github/Jobs/DebugTuiPlaygroundSOP.md`, including intense-text formatting that requests bold glyphs. Windows 10 inbox conhost can transport attributes without drawing every effect, and terminal/font fidelity is separate from true-color support. Report byte/cell verification, direct visible checks, and user-reported platform results with their actual scope; a Linux style confirmation does not imply automated, layout, restoration, or macOS coverage.
