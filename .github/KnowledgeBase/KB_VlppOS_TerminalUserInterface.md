@@ -297,7 +297,13 @@ The operations are:
 - `TUI::DrawRect`
 - `TUI::Clear`
 
-Buffer-explicit overloads require a non-null buffer and positive dimensions.
+Buffer-explicit overloads require a non-null buffer and non-negative dimensions. A zero-sized buffer paints nothing, while invalid drawing arguments still fail validation.
+
+Both overload families append `const TuiClipper* clipper = nullptr`. `TuiClipper` in `Source/TUI/TUI.h` contains `vint x1, y1, x2, y2` with half-open bounds `[x1, x2) x [y1, y2)`. Null selects the whole current buffer. Every operation normalizes the clip against that buffer; empty, inverted and disjoint intersections paint nothing. Drawing endpoints remain inclusive and retain their original geometry, so an interior clip cannot invent rectangle edges or corners. Argument validation precedes clipping.
+
+A new width-two character requires both cells inside the normalized clip before either cell changes. Overwriting an existing lead or continuation may clear its partner immediately outside the clip; this is the only repair spill, preserves the partner background and never changes unrelated cells. Active-buffer operations reacquire the current buffer after resize rather than retaining its previous pointer or dimensions.
+
+`TuiLineOptions::foregroundColorBlending` and `TuiRectOptions::foregroundColorBlending` optionally transform the destination foreground for each accepted painted cell, before wide-cell repair. When absent, `foregroundColor` is used directly. The transform performs synchronous, pure color calculation; it must not mutate or pump TUI state. This lets clients retain destination-dependent RGB policies without duplicating raster clipping or copying a buffer. No transform runs for clipped cells or rectangle interiors, and its work is proportional to painted cells. TUI colors remain RGB, without a GUI alpha dependency.
 
 ### Printing Characters
 

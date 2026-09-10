@@ -369,6 +369,45 @@ void PlaygroundText(PlaygroundCallback& playground, const U32String& text, bool 
 	if (submit) PlaygroundControl(playground, VKEY::KEY_RETURN, L'\r');
 }
 
+void AssertTuiPixel(const TuiPixel& actual, const TuiPixel& expected)
+{
+	TEST_ASSERT(actual.glyph == expected.glyph);
+	TEST_ASSERT(actual.GetChar32() == expected.GetChar32());
+	TEST_ASSERT(actual.foregroundColor == expected.foregroundColor);
+	TEST_ASSERT(actual.backgroundColor == expected.backgroundColor);
+	TEST_ASSERT(tui_internal::GetTextStyle(actual) == tui_internal::GetTextStyle(expected));
+}
+
+void DrawClippingTestOperation(vint operation, TuiPixel* buffer, bool active, TuiClipper bounds, const TuiClipper* clipper)
+{
+	TuiPrintOptions print{ { 51, 62, 73 }, { 84, 95, 106 }, { true, true, true, true } };
+	TuiLineOptions line{ (TuiMergeableGlyph)(1 + operation % 3), { 51, 62, 73 } };
+	TuiRectOptions rect{ line.glyph, line.foregroundColor };
+	if (operation == 8) rect = { TuiMergeableGlyph::ThinLine, line.foregroundColor, {}, TuiRectCorner::Round };
+	if (operation == 0)
+	{
+		if (active) TUI::PrintChar(print, U'X', bounds.x1, bounds.y1, clipper);
+		else TUI::PrintChar(buffer, 8, 4, print, U'X', bounds.x1, bounds.y1, clipper);
+	}
+	else if (operation == 1)
+	{
+		if (active) TUI::Clear(print.backgroundColor, bounds.x1, bounds.y1, bounds.x2, bounds.y2, clipper);
+		else TUI::Clear(buffer, 8, 4, print.backgroundColor, bounds.x1, bounds.y1, bounds.x2, bounds.y2, clipper);
+	}
+	else if (operation < 5)
+	{
+		if (active) TUI::DrawLineH(line, bounds.x1, bounds.x2, bounds.y1, clipper);
+		else TUI::DrawLineH(buffer, 8, 4, line, bounds.x1, bounds.x2, bounds.y1, clipper);
+		if (active) TUI::DrawLineV(line, bounds.x1, bounds.y1, bounds.y2, clipper);
+		else TUI::DrawLineV(buffer, 8, 4, line, bounds.x1, bounds.y1, bounds.y2, clipper);
+	}
+	else
+	{
+		if (active) TUI::DrawRect(rect, bounds.x1, bounds.y1, bounds.x2, bounds.y2, clipper);
+		else TUI::DrawRect(buffer, 8, 4, rect, bounds.x1, bounds.y1, bounds.x2, bounds.y2, clipper);
+	}
+}
+
 TEST_FILE
 {
 	TEST_CATEGORY(L"Pixels and character widths")
@@ -545,6 +584,160 @@ TEST_FILE
 
 	TEST_CATEGORY(L"Drawing")
 	{
+		TEST_CASE(L"Destination foreground blending visits only clipped original edges before wide repair")
+		{
+			TuiPixel buffer[32];
+			TuiPrintOptions print{ { 10, 20, 30 }, { 40, 50, 60 } };
+			TUI::PrintChar(buffer, 8, 4, print, U'\u4E00', 2, 1);
+			TuiClipper clip{ 3, 1, 4, 2 };
+			vint calls = 0;
+			TuiRectOptions rect;
+			rect.foregroundColorBlending = [&](TuiColor destination)
+			{
+				calls++;
+				TEST_ASSERT(destination == print.foregroundColor);
+				return TuiColor{ 70, 80, 90 };
+			};
+			TUI::DrawRect(buffer, 8, 4, rect, -1000000, -1000000, 1000000, 1000000, &clip);
+			TEST_ASSERT(calls == 0);
+			TUI::DrawRect(buffer, 8, 4, rect, 3, 1, 1000000, 1000000, &clip);
+			TEST_ASSERT(calls == 1);
+			TEST_ASSERT(buffer[11].foregroundColor == TuiColor({ 70, 80, 90 }));
+			TEST_ASSERT(buffer[10].character.c == 0 && buffer[10].backgroundColor == print.backgroundColor);
+		});
+
+		TEST_CASE(L"Clipped primitives preserve original geometry and every unrelated seeded cell")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			tui_test::ScopedTuiBackend binding(backend);
+			Callback callback;
+			callback.onStarting = [&]()
+			{
+				TuiPixel seed[32];
+				for (vint i = 0; i < 32; i++)
+				{
+					seed[i].character = { .c = (char32_t)(U'a' + i % 26), .style = { .italic = true } };
+					seed[i].foregroundColor = { (vuint8_t)i, 21, 32 };
+					seed[i].backgroundColor = { 43, (vuint8_t)i, 65 };
+				}
+				TuiClipper clips[] = {
+					{ 0, 0, 8, 4 }, { -2, -3, 10, 7 }, { 2, 1, 6, 3 }, { -3, -2, 3, 2 },
+					{ 6, 2, 10, 7 }, { 8, 0, 10, 4 }, { 0, 4, 8, 7 }, { -3, -3, -1, -1 },
+					{ 2, 1, 2, 3 }, { 2, 1, 6, 1 }, { 6, 1, 2, 3 }, { 2, 3, 6, 1 },
+					{ 7, 3, 8, 4 }, { 1, 0, 2, 1 }, { 0, 0, 1, 1 }
+				};
+				TuiClipper geometries[] = { { 1, 0, 6, 3 }, { -2, -2, 3, 2 }, { 6, 2, 10, 6 }, { 8, 4, 10, 6 }, { 0, 0, 1, 1 } };
+				for (auto bounds : geometries)
+				for (vint operation = 0; operation < 9; operation++)
+				{
+					TuiPixel reference[32];
+					for (vint i = 0; i < 32; i++) reference[i] = seed[i];
+					DrawClippingTestOperation(operation, reference, false, bounds, nullptr);
+					for (vint mode = 0; mode < 2; mode++)
+					for (vint clipIndex = -1; clipIndex < (vint)(sizeof(clips) / sizeof(*clips)); clipIndex++)
+					{
+						auto clip = clipIndex == -1 ? nullptr : &clips[clipIndex];
+						TuiPixel actual[32];
+						auto buffer = mode == 0 ? actual : TUI::GetBuffer();
+						for (vint i = 0; i < 32; i++) buffer[i] = seed[i];
+						DrawClippingTestOperation(operation, buffer, mode == 1, bounds, clip);
+						for (vint y = 0; y < 4; y++)
+						for (vint x = 0; x < 8; x++)
+						{
+							auto visible = !clip || (x >= clip->x1 && x < clip->x2 && y >= clip->y1 && y < clip->y2);
+							AssertTuiPixel(buffer[y * 8 + x], visible ? reference[y * 8 + x] : seed[y * 8 + x]);
+						}
+						if (mode == 1) TUI::RenderBuffer();
+					}
+				}
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Clipped wide text is atomic and only its repaired partner can spill")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			tui_test::ScopedTuiBackend binding(backend);
+			Callback callback;
+			callback.onStarting = [&]()
+			{
+				for (auto scalar : { U'\u4E00', U'\U00020000' })
+				for (vint mode = 0; mode < 2; mode++)
+				for (vint half = 0; half < 2; half++)
+				{
+					TuiPixel seed[32];
+					for (vint i = 0; i < 32; i++)
+					{
+						seed[i].character.c = U'.';
+						seed[i].backgroundColor = { (vuint8_t)i, 20, 30 };
+					}
+					TuiPixel actual[32];
+					auto buffer = mode == 0 ? actual : TUI::GetBuffer();
+					auto x = 2 + half;
+					TuiClipper clip{ x, 1, x + 1, 2 };
+					TuiPrintOptions print{ { 10, 20, 30 }, { 40, 50, 60 }, { true, true, true, true } };
+					for (vint i = 0; i < 32; i++) buffer[i] = seed[i];
+					if (mode == 1) TUI::PrintChar(print, scalar, 2, 1, &clip);
+					else TUI::PrintChar(buffer, 8, 4, print, scalar, 2, 1, &clip);
+					for (vint i = 0; i < 32; i++) AssertTuiPixel(buffer[i], seed[i]);
+					for (vint operation = 0; operation < 9; operation++)
+					{
+						for (vint i = 0; i < 32; i++) buffer[i] = seed[i];
+						TUI::PrintChar(buffer, 8, 4, print, scalar, 2, 1);
+						DrawClippingTestOperation(operation, buffer, mode == 1, { x, 1, x + 2, 3 }, &clip);
+						for (vint i = 0; i < 32; i++)
+						{
+							if (i == 10 || i == 11) continue;
+							AssertTuiPixel(buffer[i], seed[i]);
+						}
+						auto partner = 11 - half;
+						TEST_ASSERT(buffer[partner].glyph == TuiPixelGlyph::Char && buffer[partner].character.c == 0);
+						TEST_ASSERT(buffer[partner].backgroundColor == print.backgroundColor);
+						TEST_ASSERT(buffer[8 + x].glyph != TuiPixelGlyph::WideCharContinuation);
+						if (mode == 0)
+						{
+							for (vint i = 0; i < 32; i++) TUI::GetBuffer()[i] = buffer[i];
+						}
+						TUI::RenderBuffer();
+					}
+				}
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+		});
+
+		TEST_CASE(L"Empty clips and zero dimensions retain argument validation")
+		{
+			TuiPixel buffer[1];
+			TuiClipper clip{ 2, 2, 1, 1 };
+			for (auto width : { (vint)0, (vint)1 })
+			for (auto height : { (vint)0, (vint)1 })
+			{
+				TUI::PrintChar(buffer, width, height, {}, U'X', 0, 0, &clip);
+				TUI::Clear(buffer, width, height, {}, 0, 0, 1, 1, &clip);
+				TUI::DrawLineH(buffer, width, height, {}, 0, 0, 0, &clip);
+				TUI::DrawLineV(buffer, width, height, {}, 0, 0, 0, &clip);
+				TUI::DrawRect(buffer, width, height, {}, 0, 0, 1, 1, &clip);
+				TEST_ASSERT(buffer[0].character.c == 0);
+				TEST_ERROR(TUI::PrintChar(buffer, width, height, {}, (char32_t)0xD800, 0, 0, &clip));
+				TEST_ERROR(TUI::Clear(buffer, width, height, {}, 1, 0, 0, 1, &clip));
+				TEST_ERROR(TUI::DrawLineH(buffer, width, height, {}, 1, 0, 0, &clip));
+				TEST_ERROR(TUI::DrawLineV(buffer, width, height, {}, 0, 1, 0, &clip));
+				TEST_ERROR(TUI::DrawRect(buffer, width, height, {}, 0, 0, 0, 1, &clip));
+				TEST_ERROR(TUI::DrawLineH(buffer, width, height, { .glyph = TuiMergeableGlyph::None }, 0, 1, 0, &clip));
+				TEST_ERROR(TUI::DrawLineV(buffer, width, height, { .glyph = (TuiMergeableGlyph)4 }, 0, 0, 1, &clip));
+				TEST_ERROR(TUI::DrawRect(buffer, width, height, { .corner = (TuiRectCorner)2 }, 0, 0, 1, 1, &clip));
+				TEST_ERROR(TUI::DrawRect(buffer, width, height, { .glyph = TuiMergeableGlyph::DoubleLine, .corner = TuiRectCorner::Round }, 0, 0, 1, 1, &clip));
+			}
+			TEST_ERROR(TUI::Clear(nullptr, 0, 0, {}, 0, 0, 1, 1, &clip));
+			TEST_ERROR(TUI::Clear(buffer, -1, 0, {}, 0, 0, 1, 1, &clip));
+		});
+
 		TEST_CASE(L"All drawing overloads accept an optional clipper")
 		{
 			auto supportsClipping = []<typename T>()
