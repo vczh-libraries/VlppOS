@@ -584,6 +584,66 @@ TEST_FILE
 
 	TEST_CATEGORY(L"Drawing")
 	{
+		TEST_CASE(L"Omitted and null clips match in both families, including mixed intersections and validation")
+		{
+			auto backend = Ptr(new FakeTuiBackend);
+			tui_test::ScopedTuiBackend binding(backend);
+			Callback callback;
+			callback.onStarting = [&]()
+			{
+				auto omitted = [](auto... buffer)
+				{
+					TUI::PrintChar(buffer..., {}, U'X', 0, 0);
+					TUI::DrawLineH(buffer..., {}, -2, 4, 1);
+					TUI::DrawLineV(buffer..., { .glyph = TuiMergeableGlyph::ThickLine }, 2, -1, 3);
+					TUI::DrawRect(buffer..., { .glyph = TuiMergeableGlyph::DoubleLine }, 4, 0, 7, 3);
+					TUI::Clear(buffer..., { 10, 20, 30 }, 6, 2, 7, 3);
+				};
+				auto explicitNull = [](auto... buffer)
+				{
+					TUI::PrintChar(buffer..., {}, U'X', 0, 0, nullptr);
+					TUI::DrawLineH(buffer..., {}, -2, 4, 1, nullptr);
+					TUI::DrawLineV(buffer..., { .glyph = TuiMergeableGlyph::ThickLine }, 2, -1, 3, nullptr);
+					TUI::DrawRect(buffer..., { .glyph = TuiMergeableGlyph::DoubleLine }, 4, 0, 7, 3, nullptr);
+					TUI::Clear(buffer..., { 10, 20, 30 }, 6, 2, 7, 3, nullptr);
+				};
+				TuiPixel reference[32];
+				omitted(reference, 8, 4);
+				TuiPixel actual[32];
+				explicitNull(actual, 8, 4);
+				for (vint i = 0; i < 32; i++) AssertTuiPixel(actual[i], reference[i]);
+				omitted();
+				for (vint i = 0; i < 32; i++) AssertTuiPixel(TUI::GetBuffer()[i], reference[i]);
+				for (vint i = 0; i < 32; i++) TUI::GetBuffer()[i] = {};
+				explicitNull();
+				for (vint i = 0; i < 32; i++) AssertTuiPixel(TUI::GetBuffer()[i], reference[i]);
+				TUI::RenderBuffer();
+
+				TuiClipper clip{ 2, 1, 3, 2 };
+				for (auto glyph : { TuiMergeableGlyph::ThinLine, TuiMergeableGlyph::ThickLine, TuiMergeableGlyph::DoubleLine })
+				{
+					TUI::DrawLineH(actual, 8, 4, { .glyph = glyph }, 0, 7, 1);
+					for (vint i = 0; i < 32; i++) TUI::GetBuffer()[i] = actual[i];
+					TUI::DrawLineV(actual, 8, 4, { .glyph = TuiMergeableGlyph::ThickLine }, 2, 0, 3);
+					TUI::DrawLineV({ .glyph = TuiMergeableGlyph::ThickLine }, 2, 0, 3, &clip);
+					AssertTuiPixel(TUI::GetBuffer()[10], actual[10]);
+					TUI::RenderBuffer();
+				}
+				clip = {};
+				TEST_ERROR(TUI::PrintChar({}, (char32_t)0xD800, 0, 0, &clip));
+				TEST_ERROR(TUI::Clear({}, 1, 0, 0, 1, &clip));
+				TEST_ERROR(TUI::DrawLineH({}, 1, 0, 0, &clip));
+				TEST_ERROR(TUI::DrawLineV({}, 0, 1, 0, &clip));
+				TEST_ERROR(TUI::DrawRect({}, 0, 0, 0, 1, &clip));
+				TEST_ERROR(TUI::DrawLineH({ .glyph = TuiMergeableGlyph::None }, 0, 1, 0, &clip));
+				TEST_ERROR(TUI::DrawRect({ .corner = (TuiRectCorner)2 }, 0, 0, 1, 1, &clip));
+				TUI::Stop();
+			};
+			TUI::InstallListener(&callback);
+			TUI::Start({});
+			TUI::UninstallListener(&callback);
+		});
+
 		TEST_CASE(L"Destination foreground blending visits only clipped original edges before wide repair")
 		{
 			TuiPixel buffer[32];
@@ -667,6 +727,8 @@ TEST_FILE
 				for (auto scalar : { U'\u4E00', U'\U00020000' })
 				for (vint mode = 0; mode < 2; mode++)
 				for (vint half = 0; half < 2; half++)
+				for (vint baseX : { 0, 2, 6 })
+				for (vint baseY : { 0, 1, 3 })
 				{
 					TuiPixel seed[32];
 					for (vint i = 0; i < 32; i++)
@@ -676,27 +738,28 @@ TEST_FILE
 					}
 					TuiPixel actual[32];
 					auto buffer = mode == 0 ? actual : TUI::GetBuffer();
-					auto x = 2 + half;
-					TuiClipper clip{ x, 1, x + 1, 2 };
+					auto x = baseX + half;
+					auto lead = baseY * 8 + baseX;
+					TuiClipper clip{ x, baseY, x + 1, baseY + 1 };
 					TuiPrintOptions print{ { 10, 20, 30 }, { 40, 50, 60 }, { true, true, true, true } };
 					for (vint i = 0; i < 32; i++) buffer[i] = seed[i];
-					if (mode == 1) TUI::PrintChar(print, scalar, 2, 1, &clip);
-					else TUI::PrintChar(buffer, 8, 4, print, scalar, 2, 1, &clip);
+					if (mode == 1) TUI::PrintChar(print, scalar, baseX, baseY, &clip);
+					else TUI::PrintChar(buffer, 8, 4, print, scalar, baseX, baseY, &clip);
 					for (vint i = 0; i < 32; i++) AssertTuiPixel(buffer[i], seed[i]);
 					for (vint operation = 0; operation < 9; operation++)
 					{
 						for (vint i = 0; i < 32; i++) buffer[i] = seed[i];
-						TUI::PrintChar(buffer, 8, 4, print, scalar, 2, 1);
-						DrawClippingTestOperation(operation, buffer, mode == 1, { x, 1, x + 2, 3 }, &clip);
+						TUI::PrintChar(buffer, 8, 4, print, scalar, baseX, baseY);
+						DrawClippingTestOperation(operation, buffer, mode == 1, { x, baseY, x + 2, baseY + 2 }, &clip);
 						for (vint i = 0; i < 32; i++)
 						{
-							if (i == 10 || i == 11) continue;
+							if (i == lead || i == lead + 1) continue;
 							AssertTuiPixel(buffer[i], seed[i]);
 						}
-						auto partner = 11 - half;
+						auto partner = lead + 1 - half;
 						TEST_ASSERT(buffer[partner].glyph == TuiPixelGlyph::Char && buffer[partner].character.c == 0);
 						TEST_ASSERT(buffer[partner].backgroundColor == print.backgroundColor);
-						TEST_ASSERT(buffer[8 + x].glyph != TuiPixelGlyph::WideCharContinuation);
+						TEST_ASSERT(buffer[baseY * 8 + x].glyph != TuiPixelGlyph::WideCharContinuation);
 						if (mode == 0)
 						{
 							for (vint i = 0; i < 32; i++) TUI::GetBuffer()[i] = buffer[i];
