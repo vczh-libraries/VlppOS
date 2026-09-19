@@ -25,6 +25,10 @@ Run the browser verification project as `MiniHttpServer <WebsiteFolder> <AssetsF
 
 ### TuiPlayground Verification
 
+Before changing TUI or TuiPlayground, read [the TUI specification](.github/KnowledgeBase/KB_VlppOS_TerminalUserInterface.md) and [the playground SOP](.github/Jobs/DebugTuiPlaygroundSOP.md).
+
+GacUI consumes shared `vl::presentation` input types from `Source/TUI/TUITypes.h`. Check downstream compatibility when changing declarations, defaults, key values or event semantics, and regenerate/verify imports when required.
+
 Windows TUI development targets Windows 10 or newer. Use virtual-terminal output for true color and text styles; their visual appearance depends on the terminal and font.
 For visual verification of all four text styles, follow the SOP's Windows Terminal setup; Windows 10's built-in console host does not guarantee those effects even when VT and true-color output are available.
 
