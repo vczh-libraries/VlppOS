@@ -1706,6 +1706,26 @@ namespace mynamespace
 	};
 
 #ifdef VCZH_MSVC
+	class WindowsHttpShutdownServer : public HttpServerApi
+	{
+	protected:
+		void OnHttpRequestReceived(PHTTP_REQUEST) override
+		{
+			TEST_ASSERT(false);
+		}
+
+	public:
+		WindowsHttpShutdownServer()
+			: HttpServerApi(L"http://localhost:8769/VlppOSShutdown/", false)
+		{
+		}
+
+		bool ReceiveCompleted()
+		{
+			return HasOverlappedIoCompleted(&overlappedRequest);
+		}
+	};
+
 	class SingleConnectionWindowsHttpServer : public HttpServer
 	{
 	private:
@@ -4665,6 +4685,26 @@ void RunSocketHttpFocusedTestCases()
 
 TEST_FILE
 {
+#ifdef VCZH_MSVC
+	TEST_CASE(L"Windows HTTP Stop completes its outstanding receive")
+	{
+		{
+			WindowsHttpShutdownServer server;
+			server.Stop();
+			server.Stop();
+		}
+		for (vint i = 0; i < 1000; i++)
+		{
+			WindowsHttpShutdownServer server;
+			server.Start();
+			TEST_ASSERT(!server.ReceiveCompleted());
+			server.Stop();
+			TEST_ASSERT(server.ReceiveCompleted());
+			server.Stop();
+		}
+	});
+#endif
+
 	TEST_CASE(L"NetworkPackage ExtraClientIds")
 	{
 		NetworkPackage::ClientIdList extraClientIds;
