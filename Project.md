@@ -50,8 +50,5 @@ On Linux and macOS, only configuration "debug x64" is available, no need to buil
 
 ## WebAssembly
 
-Only `Test/Linux/UnitTest` opts in through `WASM=YES` in its `vbuild` file. From that folder, run `../../../.github/Ubuntu/build.sh -bw` (incremental) or `-fbw` (full), then `./Bin/app.sh`. Open `http://127.0.0.1:8888/`; pass a port to `app.sh` to change it. Node.js serves the generated files with the COOP/COEP headers required for pthread shared memory.
-
-The suite runs in a Web Worker using 32 preloaded pthread workers. Threading, locale string operations, memory streams, serialization and encoding remain tested. Native filesystem, concrete inter-process transports and TUI are unavailable; accessing the filesystem fails immediately. The requested filesystem-dependent test files and two file-stream cases are excluded from Wasm.
-
-Require all retained cases to pass and exactly one `wasm_main returns 0.` line. Run the native UnitTest suite as well when changing shared source. `Bin/UnitTest` is a copy of the Wasm module in this mode, not a native executable. The Linux release includes both shared POSIX code and guarded Wasm implementations.
+The following unit test projects could be built to web assembly and run with a browser:
+- `REPO-ROOT/Test/Linux/UnitTest`
