@@ -69,6 +69,7 @@ The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, 
 - Vlpp opts in and packages `*.Wasm.*` in its Linux release; regenerated releases were copied into VlppOS. Vlpp was committed and pushed after its browser, Clang and GCC suites passed.
 - VlppOS excludes the requested native services and tests with positive platform guards, shares locale and character encoding code, fails explicitly on filesystem access, and keeps the complete threading suite. Its POSIX backend now supports Wasm, reclaims retained pthreads through serialized joins, and uses four thread-pool workers. Added a concurrent/repeated wait test to cover one pthread joined by several waiters.
 - Fixed explicit dependent-type syntax needed by the installed Emscripten compiler. The new Wasm file is registered in project/filter metadata and included in the regenerated Linux release.
+- VlppRegex received the generated Vlpp/VlppOS releases and canonical Ubuntu toolchain, opted its Linux UnitTest project into Wasm, and uses the same browser entry contract. The requested filesystem test is named `TestAutomaton.cpp`; guarded that file for native platforms and retained every other test file. No library source changes were needed.
 
 ### VLPP AND VLPPOS VERIFICATION
 
@@ -80,3 +81,10 @@ The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, 
 - A separate consumer compiled the generated Vlpp/VlppOS releases for Wasm and passed a browser check that filesystem access fails explicitly while memory streams remain available.
 - VlppRegex and VlppReflection implementation and verification follow the requested commit/push checkpoint.
 - Emscripten 3.1.6 emits its advisory warning about pthreads with growable memory; the setting permits allocations beyond the initial 128 MiB. Windows/macOS execution is not claimed.
+
+### VLPPREGEX VERIFICATION
+
+- Wasm build passed. Firefox passed all 8 files / 192 cases, including all Unicode lexer/walker/colorizer paths, with exactly one successful completion and no browser errors.
+- Native Clang build passed and all 9 files / 226 cases passed, including the file-based automaton baseline comparisons.
+- Every Vlpp/VlppOS import is byte-identical to its generated upstream release. Preserved the Unicode test file's BOM.
+- The second checkpoint commits and pushes VlppRegex and this investigation before starting VlppReflection.
