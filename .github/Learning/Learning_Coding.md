@@ -35,6 +35,8 @@
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
 - Shared TUI input declarations have one upstream owner [1]
 - Populate TUI modifiers only from observable input [1]
+- Preserve real concurrency and explicit unsupported services on Wasm [1]
+- Keep protocol-independent ChannelImpls available on Wasm [1]
 
 # Refinements
 
@@ -223,3 +225,11 @@ When these shared declarations or semantics change, regenerate the VlppOS releas
 In `Source/TUI` input decoders, preserve independent Alt and OS Super only when the native record or negotiated terminal protocol supplies them. Windows record Win bits must reach key, character, and every mouse callback through their common payload construction. `PosixTuiInputDecoder` can decode Super from Kitty keyboard reports and copy it to accompanying character events; legacy text and standard SGR mouse reports do not provide that state and must retain false.
 
 Do not reinterpret SGR Alt/motion/button bits as Super or carry the last keyboard Super state into mouse events: an unreported modifier release makes that cache stale. When two shortcuts become identical before bytes reach the decoder, inspect the terminal encoder and negotiated protocol instead of adding field assignments that cannot recover lost information. A terminal-local key callback also cannot replace a separately registered native global shortcut; verify which route owns the requested action before attributing failure to TUI decoding.
+
+## Preserve real concurrency and explicit unsupported services on Wasm
+
+Keep the complete threading contract through Emscripten pthreads and shared POSIX code; do not make the browser port pass by dropping concurrency tests. `Threading.Wasm.cpp` supplies browser-specific operations, while shared join/recycling logic must handle concurrent and repeated waits without joining one pthread twice. Unsupported native filesystem access should fail explicitly through the existing injection boundary instead of inventing a filesystem implementation. TUI and concrete native transports remain unavailable.
+
+## Keep protocol-independent ChannelImpls available on Wasm
+
+`Source/InterProcess/ChannelImpls` is portable channel logic, not a concrete native transport. Keep all seven implementation/header files available on Wasm through the existing threading backend; preserve ordinary header guards when removing inappropriate native-platform wrappers. Apply native-only guards to the actual transport implementations instead of excluding every nested InterProcess file. Regenerate the Linux release and verify that a Wasm consumer can instantiate the channel/client/server types and round-trip a package with client and receiver IDs.

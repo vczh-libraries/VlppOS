@@ -15,6 +15,7 @@
 - Inject response failure when testing Socket HTTP poll requeue [1]
 - Test the production TUI decoder across input boundaries [1]
 - Separate TUI attribute transport from visible font effects [1]
+- Check Wasm threading in an isolated browser and generated release consumer [1]
 
 # Refinements
 
@@ -87,3 +88,7 @@ Split supported sequences at every relevant byte boundary and place multiple eve
 Production ConPTY output decoded by a terminal model can prove RGB values and SGR style/reset attributes, but it does not prove that the user's terminal host and font visibly render bold, italic, underline, and strikeline. Identify the installed host/version and inspect standard attribute emission before changing working TUI rendering code in response to a visual mismatch.
 
 For Windows visual acceptance, use the Windows Terminal setup in `.github/Jobs/DebugTuiPlaygroundSOP.md`, including intense-text formatting that requests bold glyphs. Windows 10 inbox conhost can transport attributes without drawing every effect, and terminal/font fidelity is separate from true-color support. Report byte/cell verification, direct visible checks, and user-reported platform results with their actual scope; a Linux style confirmation does not imply automated, layout, restoration, or macOS coverage.
+
+## Check Wasm threading in an isolated browser and generated release consumer
+
+Use the generated HTTP launcher with COOP/COEP isolation and the configured preloaded pthread workers, then run every retained test, including concurrency and repeated/concurrent thread waits. Check exactly one successful completion and no browser errors. Compile a separate consumer of the generated Vlpp/VlppOS release to verify memory streams, deliberate filesystem failure and supported channel APIs. Keep native regression tests and confirm projects without `WASM=YES` reject both incremental and full Wasm commands before cleaning.
