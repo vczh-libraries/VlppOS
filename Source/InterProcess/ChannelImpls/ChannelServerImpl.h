@@ -9,8 +9,6 @@ Interfaces:
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELSERVERIMPL
 
 #include "LocalChannelClientImpl.h"
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../NetworkProtocol.h"
 #include "ChannelPackage.h"
 #include <exception>
@@ -1187,7 +1185,5 @@ NetworkProtocolChannelServer
 		}
 	};
 }
-
-#endif
 
 #endif

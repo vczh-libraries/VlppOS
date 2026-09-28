@@ -2,101 +2,36 @@
 
 # PROBLEM DESCRIPTION
 
-I would like you to convert this repo to be compatible with web assembly, as well as two others:
-- `VlppOS/Test/Linux/UnitTest`
-- `VlppRegex/Test/Linux`
-- `VlppReflection/Test/Linux/UnitTest`
-There are other test projects but they do not have plan to work with web assembly yet.
-
-First you need to fix `vbuild`. Currently only `../Vlpp/Test/Linux` builds wasm, but there is no configuration to tell if this project works with web assembly or not. So here I add one thing to `vbuild -bw|-fbw`:
-- Try to read the `vbuild` file in pwd, if this file exists, and if this file has this line "WASM=YES", it means the project works with web assembly. Otherwise `vbuild -bw|-fbw` should just deny to run.
-  - To make the work simpler, we could just test if this string exists in the file, no need to worry about if it is actually a line. Or if testing a line is easier, then do the line test.
-- Add such `vbuild` to `../Vlpp/Test/Linux` and `Test/Linux/UnitTest`.
-
-Second you need to upgrade the Source folder:
-- InterProcess/*/*/* should deny `VCZH_WASM`, there is two options:
-  - If a file only works in a certain platform, nothing needs to do.
-  - If a file works in all platform, you need to add `#if defined VCZH_MSVC || defined VCZH_GCC`.
-  - It includes InterProcess/NetworkProtocolHttp.*
-  - It does not include other files inInterprocess
-- Tui/*.* should deny `VCZH_WASM`.
-- FileSystem.Linux.cpp should deny `VCZH_WASM`, and currently we don't invent a file system implementation, so do not create a wasm version. For now trying to access file system just crash because no implementation is offered.
-- Local.Linux.cpp should work with `VCZH_WASM`.
-- You need to implement a `Threading.Wasm.cpp`.
-
-Third you need to upgrade test cases:
-- Only `UnitTest` needs to build with web assembly.
-- Test files are in Test/Source, you are going to make the following files deny `VCZH_WASM`:
-  - TestFileSystem.cpp
-  - TestInterProcess*.*
-  - TestLocale.cpp
-  - TestStream.cpp but only deny `Test FileStream` and `Test CacheStream with seekable stream`
-  - TestStreamLzw.cpp
-  - TestTui.cpp
-
-You can read about `../Vlpp/TODO_Task.md` and figure out how the original work was done.
-You need to first change `Tools` and `Vlpp`, release `Vlpp` to `VlppOS`, and then release ubuntu tool chain to `VlppOS`, and then handle `VlppOS`:
-- You need to probably fix `CodegenConfig.xml` to make all `*.Wasm.*` included in generated `*.Linux.*`.
-commit and push all local changes before doing the following.
-
-The whole `VlppRegex` repo does not involve any OS specific thing, first release `Vlpp` and `VlppOS` to `VlppRegex`, and then make `VlppRegex/Test/Linux` works with web assembly, but deny `TestAutomation.cpp` as it uses `FileStream`. All other test cases should be fine.
-commit and push all local changes before doing the following.
-
-Now its time for `VlppReflection/Test/Linux/UnitTest`, release `Vlpp` and `VlppOS` to `VlppReflection`, deny `TestReflection_Builder.cpp` as it uses `FileStream`. All other test cases should be fine.
-commit and push all local changes before doing the following.
+In generated `makefile` we don't really need to do the `rm -f`, we could assume `CPP_TARGET` is always a file in `Bin` folder. Remove this command from `vmake-cpp` in `Tools`, release ubuntu tool to these 4 repos, regenerate updated `makefile` files.
+Some little fix, we should actually allow `VlppOS/Source/InterProcess/ChannelImpls/*.*` on all platforms, remove added guards from the last request.
+commit and push all local changes.
 
 # TEST
 
-- Verify all four Wasm build aliases reject missing or disabled project opt-in before invoking make, including before cleaning a full build. Verify `WASM=YES` admits builds without executing the configuration file.
-- Build and run the complete Vlpp suite in the browser and natively after updating its packaging configuration.
-- Build and run the retained VlppOS, VlppRegex and VlppReflection UnitTest suites in the browser, with exactly one successful `wasm_main` completion and no unexpected skipped tests. Preserve the VlppOS concurrency tests.
-- Run complete native suites to verify guarded files remain available. Verify other projects reject Wasm builds.
-- Regenerate releases using CodePack and copy generated release files to downstream imports. Confirm Wasm implementations occur in Linux releases and verify consumers compile those releases.
+- Regenerate all eight Linux makefiles across Vlpp, VlppOS, VlppRegex and VlppReflection with the canonical toolchain; confirm their clean rules remove Bin without the redundant file-by-file deletion.
+- Confirm all seven ChannelImpls files lose only the platform guard added by the previous request, preserving header inclusion guards.
+- Build and run native VlppOS tests and the retained Wasm suite. Verify the generated release exposes channel implementations in Wasm and copy the release to the existing downstream consumers.
+- Build affected downstream unit tests and check the propagated toolchains match Tools.
 
 # PROPOSALS
 
-- No.1 Explicit project opt-in and guarded platform implementations [CONFIRMED]
+- No.1 Simplify generated cleanup and restore portable channel implementations [CONFIRMED]
 
-## No.1 Explicit project opt-in and guarded platform implementations
+## No.1 Simplify generated cleanup and restore portable channel implementations
 
-Read the opt-in file as text. Keep compiler-independent source inventories. Package Wasm implementations with Linux releases. Exclude the requested native services and tests using positive native guards. Leave the injectable filesystem without a default implementation on Wasm. Reuse the fallback locale and character encoding implementation.
-
-The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, events, reader/writer locks, thread pools, task queues and TLS. Use Emscripten pthreads, share applicable POSIX implementations, and implement browser sleep/CPU queries in `Threading.Wasm.cpp`, with guarded join/recycling and finite-pool behavior in the shared implementation. Add optional pthread configuration and worker artifact tracking to the canonical toolchain, and serve isolation headers from the generated launcher. Follow the existing exception-safe `WasmMain` entry contract.
+Remove the redundant rm command from the vmake-cpp clean recipe because Bin removal already deletes CPP_TARGET and its Wasm package. Remove the native-platform wrappers from ChannelImpls, whose protocol-independent implementation can use the existing Wasm threading backend. Regenerate VlppOS releases with CodePack and refresh the VlppRegex/VlppReflection imports.
 
 ### CODE CHANGE
 
-- Tools now checks the text opt-in before build/clean, emits optional pthread pool configuration, tracks the worker output, and serves COOP/COEP with the generated Node launcher. Tools was committed and pushed before `vgo uci` propagation.
-- Vlpp opts in and packages `*.Wasm.*` in its Linux release; regenerated releases were copied into VlppOS. Vlpp was committed and pushed after its browser, Clang and GCC suites passed.
-- VlppOS excludes the requested native services and tests with positive platform guards, shares locale and character encoding code, fails explicitly on filesystem access, and keeps the complete threading suite. Its POSIX backend now supports Wasm, reclaims retained pthreads through serialized joins, and uses four thread-pool workers. Added a concurrent/repeated wait test to cover one pthread joined by several waiters.
-- Fixed explicit dependent-type syntax needed by the installed Emscripten compiler. The new Wasm file is registered in project/filter metadata and included in the regenerated Linux release.
-- VlppRegex received the generated Vlpp/VlppOS releases and canonical Ubuntu toolchain, opted its Linux UnitTest project into Wasm, and uses the same browser entry contract. The requested filesystem test is named `TestAutomaton.cpp`; guarded that file for native platforms and retained every other test file. No library source changes were needed.
-- VlppReflection received the same dependency releases and Ubuntu toolchain. Opted in only `Test/Linux/UnitTest`, guarded `TestReflection_Builder.cpp` and the shared entry point's metadata-directory preflight for native platforms, and preserved every remaining reflection test. Both metadata projects remain native-only. Converted the encountered MSVC test guard to the required positive platform syntax.
-
-### VLPP AND VLPPOS VERIFICATION
-
-- Opt-in: 20 checks passed across all four aliases, absent/empty/disabled/enabled files and a marker embedded in text; configuration contents were never executed. Both unsupported VlppOS projects rejected incremental/full Wasm builds.
-- Vlpp: browser 32 files / 469 cases; native Clang and GCC 32 files / 465 cases, all passed.
-- VlppOS final browser run: 7 files / 81 cases, all passed, including the added concurrent-wait regression. Exactly one completion, 33 observed workers, cross-origin isolation enabled and no browser errors.
-- Unchanged Wasm build compiled/linked nothing. Removing `app.worker.js` caused it to be regenerated; `Bin/UnitTest` matched `app.wasm`.
-- Native UnitTest passed 14 files / 277 cases. Native MiniHttpServer and TuiPlayground builds passed.
-- A separate consumer compiled the generated Vlpp/VlppOS releases for Wasm and passed a browser check that filesystem access fails explicitly while memory streams remain available.
-- Committed and pushed Tools, Vlpp and VlppOS before starting VlppRegex, as requested.
-- Emscripten 3.1.6 emits its advisory warning about pthreads with growable memory; the setting permits allocations beyond the initial 128 MiB. Windows/macOS execution is not claimed.
-
-### VLPPREGEX VERIFICATION
-
-- Wasm build passed. Firefox passed all 8 files / 192 cases, including all Unicode lexer/walker/colorizer paths, with exactly one successful completion and no browser errors.
-- Native Clang build passed and all 9 files / 226 cases passed, including the file-based automaton baseline comparisons.
-- Every Vlpp/VlppOS import is byte-identical to its generated upstream release. Preserved the Unicode test file's BOM.
-- Committed and pushed VlppRegex and this investigation before starting VlppReflection.
-
-### VLPPREFLECTION VERIFICATION
-
-- Wasm build passed. Firefox passed all 7 retained files / 51 cases, with exactly one successful completion, cross-origin isolation and no browser errors.
-- Native Clang UnitTest passed 9 files / 53 cases. Native Metadata_Generate passed 3 files / 175 cases, followed by Metadata_Test passing 3 files / 174 cases, including metadata round-trip comparisons. No tracked metadata baseline content changed.
-- Both metadata projects rejected incremental and full Wasm builds. Their generated native makefiles were refreshed through the canonical build wrapper.
-- Every Vlpp/VlppOS import matches its upstream generated release. All four consuming repos have byte-identical copies of the relevant canonical Ubuntu toolchain files. Exactly the four intended Linux projects contain the `WASM=YES` opt-in.
+- Remove the single file-cleanup command from canonical Tools/Ubuntu/vl/vmake-cpp and propagate the Ubuntu toolchain to all four repositories.
+- Remove the seven native-platform guards in ChannelImpls, regenerate the release, and refresh the downstream imports.
 
 ### CONFIRMED
 
-The opt-in check denies unsupported projects before invoking make or cleaning. The native guards remove the requested filesystem-dependent services and tests from Wasm while native builds retain them. Emscripten pthreads keep the complete VlppOS threading suite functional, including concurrent and repeated waits; generated Linux releases include the new Wasm implementation exactly once. Browser execution and native regression checks passed for all requested projects. The generated-release consumer also verifies the deliberate filesystem failure. The final checkpoint commits and pushes VlppReflection and this completed investigation.
+- All eight native Linux projects built successfully and regenerated their makefiles. The clean recipes remove Bin without the redundant rm -f command, and all four propagated vmake-cpp files match canonical Tools.
+- The seven ChannelImpls files are byte-for-byte identical to their contents before the previous WebAssembly request. Header inclusion guards remain intact.
+- Native unit tests passed: VlppOS 14 files / 277 cases, VlppRegex 9 files / 226 cases, and VlppReflection 9 files / 53 cases.
+- A full VlppOS Wasm rebuild exercised the simplified clean rule. Firefox passed 7 files / 81 cases, with one successful completion and no browser errors.
+- A separate Wasm consumer compiled the regenerated release and instantiated the channel, channel-client base, network client, local client and server class layouts. Its browser run passed a channel-package serialization/parsing round trip with client and receiver IDs, alongside the existing unsupported-filesystem and memory-stream checks.
+- Regenerated the VlppOS release with CodePack and copied it to VlppRegex and VlppReflection. No generated files were edited by hand.
+- Emscripten retains its existing pthread/growable-memory advisory; no build or test failures occurred.

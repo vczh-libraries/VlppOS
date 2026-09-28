@@ -2372,8 +2372,6 @@ Interfaces:
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELIMPL
 
 
-#if defined VCZH_MSVC || defined VCZH_GCC
-
 namespace vl::inter_process
 {
 /***********************************************************************
@@ -2608,8 +2606,6 @@ NetworkProtocolChannel
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\INTERPROCESS\CHANNELIMPLS\CHANNELPACKAGE.H
@@ -2624,8 +2620,6 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELPACKAGE
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELPACKAGE
 
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process
 {
@@ -2647,8 +2641,6 @@ namespace vl::inter_process
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\INTERPROCESS\CHANNELIMPLS\CHANNELCLIENTBASEIMPL.H
@@ -2663,8 +2655,6 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELCLIENTBASEIMPL
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELCLIENTBASEIMPL
 
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process
 {
@@ -2908,8 +2898,6 @@ NetworkProtocolChannelClientBase
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\INTERPROCESS\CHANNELIMPLS\CHANNELCLIENTIMPL.H
@@ -2924,8 +2912,6 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELCLIENTIMPL
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELCLIENTIMPL
 
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process
 {
@@ -3146,8 +3132,6 @@ NetworkProtocolChannelClient
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\INTERPROCESS\CHANNELIMPLS\LOCALCHANNELCLIENTIMPL.H
@@ -3162,8 +3146,6 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_CHANNELIMPLS_LOCALCHANNELCLIENTIMPL
 #define VCZH_INTERPROCESS_CHANNELIMPLS_LOCALCHANNELCLIENTIMPL
 
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process
 {
@@ -3262,8 +3244,6 @@ NetworkProtocolLocalChannelClient
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\INTERPROCESS\CHANNELIMPLS\CHANNELSERVERIMPL.H
@@ -3278,8 +3258,6 @@ Interfaces:
 #ifndef VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELSERVERIMPL
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELSERVERIMPL
 
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 #include <exception>
 
 namespace vl::inter_process
@@ -4453,8 +4431,6 @@ NetworkProtocolChannelServer
 		}
 	};
 }
-
-#endif
 
 #endif
 

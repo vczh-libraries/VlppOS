@@ -2912,8 +2912,6 @@ Unicode General (extern templates)
 .\INTERPROCESS\CHANNELIMPLS\CHANNELPACKAGE.CPP
 ***********************************************************************/
 
-#if defined VCZH_MSVC || defined VCZH_GCC
-
 namespace vl::inter_process
 {
 	NetworkPackage NetworkPackage::Create(Nullable<vint> _clientId, const WString& _channelName, const WString& _messageBody)
@@ -3007,8 +3005,6 @@ namespace vl::inter_process
 #undef ERROR_MESSAGE_PREFIX
 	}
 }
-
-#endif
 
 
 /***********************************************************************

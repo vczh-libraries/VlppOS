@@ -9,8 +9,6 @@ Interfaces:
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELIMPL
 
 #include "../Channel.h"
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Threading.h"
 
 namespace vl::inter_process
@@ -244,7 +242,5 @@ NetworkProtocolChannel
 	};
 
 }
-
-#endif
 
 #endif

@@ -10,8 +10,6 @@ Interfaces:
 
 #include "../Channel.h"
 
-#if defined VCZH_MSVC || defined VCZH_GCC
-
 namespace vl::inter_process
 {
 	struct NetworkPackage
@@ -29,7 +27,5 @@ namespace vl::inter_process
 		static void Parse(const WString& str, NetworkPackage& package);
 	};
 }
-
-#endif
 
 #endif

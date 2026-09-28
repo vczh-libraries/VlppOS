@@ -9,8 +9,6 @@ Interfaces:
 #define VCZH_INTERPROCESS_CHANNELIMPLS_CHANNELCLIENTIMPL
 
 #include "ChannelClientBaseImpl.h"
-
-#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../NetworkProtocol.h"
 #include "ChannelPackage.h"
 
@@ -230,7 +228,5 @@ NetworkProtocolChannelClient
 	};
 
 }
-
-#endif
 
 #endif
