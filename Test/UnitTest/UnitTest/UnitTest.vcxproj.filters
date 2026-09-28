@@ -81,9 +81,6 @@
     <ClCompile Include="..\..\..\Source\Threading.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Source\Threading.Wasm.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Source\Stream\Accessor.cpp">
       <Filter>Common\Stream</Filter>
     </ClCompile>

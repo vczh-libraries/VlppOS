@@ -15,6 +15,8 @@ Licensed under https://github.com/vczh-libraries/License
 #include <time.h>
 #if defined VCZH_GCC && defined VCZH_APPLE
 #include <CoreFoundation/CoreFoundation.h>
+#elif defined VCZH_WASM
+#include <emscripten/threading.h>
 #endif
 
 
@@ -170,9 +172,9 @@ Thread
 		return 0;
 	}
 
-#if defined VCZH_GCC
 	void Thread::Sleep(vint ms)
 	{
+#if defined VCZH_GCC
 		if (ms >= 1000)
 		{
 			sleep(ms / 1000);
@@ -181,14 +183,19 @@ Thread
 		{
 			usleep((ms % 1000) * 1000);
 		}
+#elif defined VCZH_WASM
+		emscripten_thread_sleep(ms);
+#endif
 	}
 	
 	vint Thread::GetCPUCount()
 	{
+#if defined VCZH_GCC
 		return (vint)sysconf(_SC_NPROCESSORS_ONLN);
-	}
-
+#elif defined VCZH_WASM
+		return emscripten_num_logical_cores();
 #endif
+	}
 
 	vint Thread::GetCurrentThreadId()
 	{

@@ -228,7 +228,7 @@ Do not reinterpret SGR Alt/motion/button bits as Super or carry the last keyboar
 
 ## Preserve real concurrency and explicit unsupported services on Wasm
 
-Keep the complete threading contract through Emscripten pthreads and shared POSIX code; do not make the browser port pass by dropping concurrency tests. `Threading.Wasm.cpp` supplies browser-specific operations, while shared join/recycling logic must handle concurrent and repeated waits without joining one pthread twice. Unsupported native filesystem access should fail explicitly through the existing injection boundary instead of inventing a filesystem implementation. TUI and concrete native transports remain unavailable.
+Keep the complete threading contract through Emscripten pthreads and shared POSIX code; do not make the browser port pass by dropping concurrency tests. `Source/Threading.Linux.cpp` supplies browser-specific operations under `VCZH_WASM` guards, while shared join/recycling logic must handle concurrent and repeated waits without joining one pthread twice. Unsupported native filesystem access should fail explicitly through the existing injection boundary instead of inventing a filesystem implementation. TUI and concrete native transports remain unavailable.
 
 ## Keep protocol-independent ChannelImpls available on Wasm
 
