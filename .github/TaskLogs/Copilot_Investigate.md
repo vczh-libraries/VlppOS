@@ -55,7 +55,7 @@ commit and push all local changes before doing the following.
 
 # PROPOSALS
 
-- No.1 Explicit project opt-in and guarded platform implementations
+- No.1 Explicit project opt-in and guarded platform implementations [CONFIRMED]
 
 ## No.1 Explicit project opt-in and guarded platform implementations
 
@@ -70,6 +70,7 @@ The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, 
 - VlppOS excludes the requested native services and tests with positive platform guards, shares locale and character encoding code, fails explicitly on filesystem access, and keeps the complete threading suite. Its POSIX backend now supports Wasm, reclaims retained pthreads through serialized joins, and uses four thread-pool workers. Added a concurrent/repeated wait test to cover one pthread joined by several waiters.
 - Fixed explicit dependent-type syntax needed by the installed Emscripten compiler. The new Wasm file is registered in project/filter metadata and included in the regenerated Linux release.
 - VlppRegex received the generated Vlpp/VlppOS releases and canonical Ubuntu toolchain, opted its Linux UnitTest project into Wasm, and uses the same browser entry contract. The requested filesystem test is named `TestAutomaton.cpp`; guarded that file for native platforms and retained every other test file. No library source changes were needed.
+- VlppReflection received the same dependency releases and Ubuntu toolchain. Opted in only `Test/Linux/UnitTest`, guarded `TestReflection_Builder.cpp` and the shared entry point's metadata-directory preflight for native platforms, and preserved every remaining reflection test. Both metadata projects remain native-only. Converted the encountered MSVC test guard to the required positive platform syntax.
 
 ### VLPP AND VLPPOS VERIFICATION
 
@@ -79,7 +80,7 @@ The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, 
 - Unchanged Wasm build compiled/linked nothing. Removing `app.worker.js` caused it to be regenerated; `Bin/UnitTest` matched `app.wasm`.
 - Native UnitTest passed 14 files / 277 cases. Native MiniHttpServer and TuiPlayground builds passed.
 - A separate consumer compiled the generated Vlpp/VlppOS releases for Wasm and passed a browser check that filesystem access fails explicitly while memory streams remain available.
-- VlppRegex and VlppReflection implementation and verification follow the requested commit/push checkpoint.
+- Committed and pushed Tools, Vlpp and VlppOS before starting VlppRegex, as requested.
 - Emscripten 3.1.6 emits its advisory warning about pthreads with growable memory; the setting permits allocations beyond the initial 128 MiB. Windows/macOS execution is not claimed.
 
 ### VLPPREGEX VERIFICATION
@@ -87,4 +88,15 @@ The existing `TestThread.cpp` requires concurrent threads, mutexes, semaphores, 
 - Wasm build passed. Firefox passed all 8 files / 192 cases, including all Unicode lexer/walker/colorizer paths, with exactly one successful completion and no browser errors.
 - Native Clang build passed and all 9 files / 226 cases passed, including the file-based automaton baseline comparisons.
 - Every Vlpp/VlppOS import is byte-identical to its generated upstream release. Preserved the Unicode test file's BOM.
-- The second checkpoint commits and pushes VlppRegex and this investigation before starting VlppReflection.
+- Committed and pushed VlppRegex and this investigation before starting VlppReflection.
+
+### VLPPREFLECTION VERIFICATION
+
+- Wasm build passed. Firefox passed all 7 retained files / 51 cases, with exactly one successful completion, cross-origin isolation and no browser errors.
+- Native Clang UnitTest passed 9 files / 53 cases. Native Metadata_Generate passed 3 files / 175 cases, followed by Metadata_Test passing 3 files / 174 cases, including metadata round-trip comparisons. No tracked metadata baseline content changed.
+- Both metadata projects rejected incremental and full Wasm builds. Their generated native makefiles were refreshed through the canonical build wrapper.
+- Every Vlpp/VlppOS import matches its upstream generated release. All four consuming repos have byte-identical copies of the relevant canonical Ubuntu toolchain files. Exactly the four intended Linux projects contain the `WASM=YES` opt-in.
+
+### CONFIRMED
+
+The opt-in check denies unsupported projects before invoking make or cleaning. The native guards remove the requested filesystem-dependent services and tests from Wasm while native builds retain them. Emscripten pthreads keep the complete VlppOS threading suite functional, including concurrent and repeated waits; generated Linux releases include the new Wasm implementation exactly once. Browser execution and native regression checks passed for all requested projects. The generated-release consumer also verifies the deliberate filesystem failure. The final checkpoint commits and pushes VlppReflection and this completed investigation.
