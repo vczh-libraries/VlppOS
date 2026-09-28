@@ -11,6 +11,8 @@ Interfaces:
 #define VCZH_INTERPROCESS_ASYNCSOCKET_HTTPCLIENTAPI
 
 #include "AsyncSocket_HttpRequestClient.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../NetworkProtocolHttp.h"
 
 namespace vl::inter_process::async_tcp_socket
@@ -59,5 +61,7 @@ namespace vl::inter_process::async_tcp_socket
 		static WString						UrlDecodeQuery(const WString& query);
 	};
 }
+
+#endif
 
 #endif

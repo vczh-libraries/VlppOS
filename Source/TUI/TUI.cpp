@@ -4,6 +4,8 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "TUI.Internal.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <exception>
 #include <algorithm>
 
@@ -1015,3 +1017,5 @@ ScopedTuiBackend
 		}
 	}
 }
+
+#endif

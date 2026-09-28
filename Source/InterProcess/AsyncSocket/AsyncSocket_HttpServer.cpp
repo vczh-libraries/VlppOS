@@ -1,4 +1,6 @@
 #include "AsyncSocket_HttpServer.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../NetworkProtocolHttp.h"
 
 #include <random>
@@ -1423,3 +1425,5 @@ namespace vl::inter_process::async_tcp_socket
 		return impl->lifecycle->IsStopped() || SocketHttpServerApi::IsStopped();
 	}
 }
+
+#endif

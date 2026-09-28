@@ -1,4 +1,6 @@
 #include "StdioRedirection.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../AsyncSocket/HttpRequest.h"
 #include "../../Encoding/Base64Encoding.h"
 #include "../../Encoding/CharFormat/UtfEncoding.h"
@@ -934,3 +936,5 @@ StdioRedirectionServer
 #undef ERROR_MESSAGE_PREFIX
 	}
 }
+
+#endif

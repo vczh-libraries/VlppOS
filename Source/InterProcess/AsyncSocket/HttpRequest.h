@@ -12,6 +12,8 @@ Interfaces:
 
 #include "AsyncSocket.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 	constexpr vint HttpIncompleteMessageTimeout = 30 * 1000;
@@ -167,5 +169,7 @@ namespace vl::inter_process::async_tcp_socket
 		virtual void						Stop() = 0;
 	};
 }
+
+#endif
 
 #endif

@@ -8,6 +8,8 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "../../Import/Vlpp.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl
 {
 	namespace presentation
@@ -386,5 +388,7 @@ ITEM(OEM_NEC_EQUAL,       0x92)		/* '=' key on numpad */						\
 		using WindowCharInfo = NativeWindowCharInfo;
 	}
 }
+
+#endif
 
 #endif

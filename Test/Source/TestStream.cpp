@@ -272,6 +272,7 @@ TEST_FILE
 		TestClosedProperty(stream);
 	});
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 	TEST_CASE(L"Test FileStream")
 	{
 		FileStream destroyer(GetTestOutputPath() + L"TestFile.ReadWrite.txt", FileStream::WriteOnly);
@@ -299,6 +300,7 @@ TEST_FILE
 		rw.Close();
 		TestClosedProperty(rw);
 	});
+#endif
 
 	TEST_CASE(L"Test RecorderStream")
 	{
@@ -360,6 +362,7 @@ TEST_FILE
 		TEST_ASSERT(strncmp(buffer, "vczh is genius!", 15) == 0);
 	});
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 	TEST_CASE(L"Test CacheStream with seekable stream")
 	{
 		FileStream w(GetTestOutputPath() + L"TestFile.ReadWrite.txt", FileStream::WriteOnly);
@@ -378,6 +381,7 @@ TEST_FILE
 		r.Close();
 		TestClosedProperty(r);
 	});
+#endif
 
 	TEST_CASE(L"Test CacheStream with bidirectional limited stream")
 	{

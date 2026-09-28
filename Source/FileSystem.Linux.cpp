@@ -4,6 +4,8 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "FileSystem.h"
+
+#if defined VCZH_GCC
 #include "Locale.h"
 #include "Stream/FileStream.h"
 #include "Stream/MemoryWrapperStream.h"
@@ -13,9 +15,6 @@ Licensed under https://github.com/vczh-libraries/License
 #include <dirent.h>
 #include <unistd.h>
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
 
 namespace vl
 {
@@ -279,3 +278,5 @@ Global FileSystem Implementation
 		}
 	}
 }
+
+#endif

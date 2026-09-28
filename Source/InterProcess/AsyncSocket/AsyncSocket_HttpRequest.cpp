@@ -8,6 +8,8 @@ Async Socket HTTP/1.1 Connection
 
 #include "AsyncSocket_HttpRequest.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 #include <cstring>
 #include <limits>
 
@@ -2992,3 +2994,5 @@ HttpRequestConnection
 		CHECK_ERROR(connection == state->socketConnection, L"HttpRequestConnection was installed on an unexpected async socket connection.");
 	}
 }
+
+#endif

@@ -7,6 +7,8 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_TUI
 
 #include "../Threading.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "TUITypes.h"
 
 namespace vl
@@ -271,5 +273,7 @@ namespace vl
 		}
 	}
 }
+
+#endif
 
 #endif

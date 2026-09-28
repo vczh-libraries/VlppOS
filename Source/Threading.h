@@ -80,7 +80,7 @@ Kernel Mode Objects
 		/// <param name="abandoned">Returns true if the waiting is canceled by an abandoned object. An abandoned object is caused by it's owner thread existing without releasing it.</param>
 		/// <remarks>This function is only available in Windows.</remarks>
 		static vint									WaitAnyForTime(WaitableObject** objects, vint count, vint ms, bool* abandoned);
-#elif defined VCZH_GCC
+#elif defined VCZH_GCC || defined VCZH_WASM
 		virtual bool								Wait() = 0;
 #endif
 	};
@@ -136,7 +136,7 @@ Kernel Mode Objects
 		/// <summary>Start the thread.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		bool										Start();
-#if defined VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 		bool										Wait();
 #endif
 		/// <summary>Stop the thread.</summary>
@@ -145,7 +145,7 @@ Kernel Mode Objects
 		/// <summary>Get the state of the thread.</summary>
 		/// <returns>The state of the thread.</returns>
 		ThreadState									GetState();
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 		void										SetCPU(vint index);
 #endif
 	};
@@ -176,7 +176,7 @@ Kernel Mode Objects
 		/// </summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		bool										Release();
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 		bool										Wait();
 #endif
 	};
@@ -209,7 +209,7 @@ Kernel Mode Objects
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="count">The amout to release.</param>
 		vint										Release(vint count);
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 		bool										Wait();
 #endif
 	};
@@ -245,7 +245,7 @@ Kernel Mode Objects
 		/// <summary>Unsignal the event.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		bool										Unsignal();
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 		bool										Wait();
 		/// <summary>Wait for this event to signal for a period of time.</summary>
 		/// <returns>Returns true if the event is signaled. Returns false if this operation failed, including time out.</returns>
@@ -284,7 +284,7 @@ Thread Pool
 			Queue(Func<void()>(proc));
 		}
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 		static bool									Stop(bool discardPendingTasks);
 #endif
 	};
@@ -422,7 +422,7 @@ Kernel Mode Objects in Process
 		/// <param name="cs">The critical section.</param>
 		/// <param name="ms">Time in milliseconds.</param>
 		bool										SleepWithForTime(CriticalSection& cs, vint ms);
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 		/// <summary>Bind a conditional variable with a owned reader lock and release it. When the function returns, the condition variable is activated, and the current thread owned the reader lock again.</summary>
 		/// <returns>Returns true if this operation succeeded.</returns>
 		/// <param name="lock">The reader lock.</param>

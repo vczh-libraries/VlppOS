@@ -14,6 +14,8 @@ Interfaces:
 
 #include "NetworkProtocol.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process
 {
 	/*
@@ -141,5 +143,7 @@ namespace vl::inter_process
 	extern windows_http::HttpRequest CreateHttpNetworkProtocolReceiveRequest(const WString& target);
 	extern windows_http::HttpRequest CreateHttpNetworkProtocolSendRequest(const WString& target, const collections::Array<char>& body);
 }
+
+#endif
 
 #endif

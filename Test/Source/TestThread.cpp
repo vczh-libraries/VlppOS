@@ -325,10 +325,42 @@ TEST_FILE
 		DerivedThread thread(counter);
 		TEST_ASSERT(thread.Start());
 		TEST_ASSERT(thread.Wait());
-	#ifdef VCZH_GCC
+	#if defined VCZH_GCC || defined VCZH_WASM
 		TEST_ASSERT(thread.GetState() == Thread::Stopped);
 	#endif
 		TEST_ASSERT(counter == 1);
+	});
+
+	TEST_CASE(L"Test concurrent thread waiters")
+	{
+		EventObject eventFinish;
+		TEST_ASSERT(eventFinish.CreateManualUnsignal(false));
+		atomic_vint completed = 0;
+		auto target = Thread::CreateAndStart([&]()
+		{
+			TEST_ASSERT(eventFinish.Wait());
+		}, false);
+		TEST_ASSERT(target != nullptr);
+		List<Thread*> waiters;
+		for (vint i = 0; i < 2; i++)
+		{
+			auto waiter = Thread::CreateAndStart([&]()
+			{
+				TEST_ASSERT(target->Wait());
+				completed++;
+			}, false);
+			TEST_ASSERT(waiter != nullptr);
+			waiters.Add(waiter);
+		}
+		TEST_ASSERT(eventFinish.Signal());
+		for (auto waiter : waiters)
+		{
+			TEST_ASSERT(waiter->Wait());
+			delete waiter;
+		}
+		TEST_ASSERT(target->Wait());
+		TEST_ASSERT(completed == 2);
+		delete target;
 	});
 
 	TEST_CASE(L"Test Mutex")
@@ -543,7 +575,7 @@ TEST_FILE
 			while (data.counter != 10);
 			Thread::Sleep(1000);
 			TEST_ASSERT(data.lock.TryEnter());
-		#ifdef VCZH_GCC
+		#if defined VCZH_GCC || defined VCZH_WASM
 			TEST_ASSERT(ThreadPoolLite::Stop(true));
 		#endif
 		}

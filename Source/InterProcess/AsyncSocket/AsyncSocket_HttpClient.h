@@ -12,6 +12,8 @@ Interfaces:
 
 #include "AsyncSocket_HttpClientApi.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 	class SocketHttpClient
@@ -45,6 +47,8 @@ namespace vl::inter_process::async_tcp_socket
 		void							Stop() override;
 	};
 }
+
+#endif
 
 #endif
 

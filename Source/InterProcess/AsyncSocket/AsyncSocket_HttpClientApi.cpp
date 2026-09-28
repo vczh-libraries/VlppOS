@@ -9,6 +9,8 @@ Interfaces:
 
 #include "AsyncSocket_HttpClientApi.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 	using namespace vl::collections;
@@ -963,3 +965,5 @@ SocketHttpClientApi
 		return HttpUrlDecodeQuery(query);
 	}
 }
+
+#endif

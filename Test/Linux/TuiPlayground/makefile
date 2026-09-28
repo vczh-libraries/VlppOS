@@ -1,6 +1,9 @@
 .PHONY: all clean pre-build
 .DEFAULT_GOAL := all
 
+CPP_TARGET=./Bin/TuiPlayground
+CPP_OBJECTS=./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TUI.Input.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Main.o
+
 CPP_COMPILE_OPTIONS=-I ../../../Import
 include $(VCPROOT)/vl/makefile-cpp
 
@@ -10,13 +13,16 @@ pre-build:
 	if ! [ -d ./Coverage ]; then mkdir ./Coverage; fi
 
 clean:
+	rm -f "$(CPP_TARGET)" "$(dir $(CPP_TARGET))app.mjs" "$(dir $(CPP_TARGET))app.wasm" "$(dir $(CPP_TARGET))app.worker.js" "$(dir $(CPP_TARGET))app.html" "$(dir $(CPP_TARGET))app.sh" "$(dir $(CPP_TARGET))index.html"
 	if [ -d ./Bin ]; then rm -r ./Bin; fi
 	if [ -d ./Obj ]; then rm -r ./Obj; fi
 	if [ -d ./Coverage ]; then rm -r ./Coverage; fi
 
 all:pre-build ./Bin/TuiPlayground
 
-./Bin/TuiPlayground:./Obj/Vlpp.o ./Obj/Vlpp.Linux.o ./Obj/Threading.o ./Obj/Threading.Linux.o ./Obj/TUI.Input.o ./Obj/TUI.o ./Obj/TUI.Linux.o ./Obj/Main.o
+$(CPP_TARGET) $(CPP_OBJECTS): | pre-build
+
+$(CPP_TARGET):$(CPP_OBJECTS)
 	$(CPP_LINK)
 
 ./Obj/Vlpp.o: ../../../Import/Vlpp.cpp

@@ -8,7 +8,7 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "TUI.Internal.h"
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif

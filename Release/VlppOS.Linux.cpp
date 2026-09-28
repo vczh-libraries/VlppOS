@@ -12,13 +12,12 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+
+#if defined VCZH_GCC
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
 
 namespace vl
 {
@@ -283,6 +282,8 @@ Global FileSystem Implementation
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\LOCALE.LINUX.CPP
@@ -293,9 +294,8 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
+#if defined VCZH_GCC || defined VCZH_WASM
+
 
 namespace vl
 {
@@ -306,6 +306,8 @@ namespace vl
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\THREADING.LINUX.CPP
@@ -315,18 +317,17 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+
+#if defined VCZH_GCC || defined VCZH_WASM
 #include <pthread.h>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <errno.h>
 #include <time.h>
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
 
 namespace vl
 {
@@ -345,6 +346,10 @@ Thread
 			pthread_t					id;
 			EventObject					ev;
 			bool						deleteAfterStopped = false;
+#if defined VCZH_WASM
+			CriticalSection				lockJoin;
+			bool						joined = false;
+#endif
 		};
 
 		class ProceduredThread : public Thread
@@ -428,7 +433,18 @@ Thread
 			Stop();
 			if (threadState!=Thread::NotStarted)
 			{
+#if defined VCZH_GCC
 				pthread_detach(internalData->id);
+#elif defined VCZH_WASM
+				if (internalData->deleteAfterStopped)
+				{
+					pthread_detach(internalData->id);
+				}
+				else
+				{
+					Wait();
+				}
+#endif
 			}
 			delete internalData;
 		}
@@ -465,6 +481,7 @@ Thread
 		return 0;
 	}
 
+#if defined VCZH_GCC
 	void Thread::Sleep(vint ms)
 	{
 		if (ms >= 1000)
@@ -481,6 +498,8 @@ Thread
 	{
 		return (vint)sysconf(_SC_NPROCESSORS_ONLN);
 	}
+
+#endif
 
 	vint Thread::GetCurrentThreadId()
 	{
@@ -503,7 +522,16 @@ Thread
 
 	bool Thread::Wait()
 	{
+#if defined VCZH_GCC
 		return internalData->ev.Wait();
+#elif defined VCZH_WASM
+		if (threadState == NotStarted || internalData->deleteAfterStopped) return false;
+		CriticalSection::Scope scope(internalData->lockJoin);
+		if (internalData->joined) return true;
+		if (pthread_join(internalData->id, nullptr) != 0) return false;
+		internalData->joined = true;
+		return true;
+#endif
 	}
 
 	bool Thread::Stop()
@@ -579,7 +607,7 @@ Semaphore
 			sem_t*			semNamed = nullptr;
 		};
 
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 		void FailOnUnnamedSemaphore()
 		{
 			CHECK_FAIL(L"vl::Semaphore::~Semaphore()#Unnamed semaphores are not supported on macOS.");
@@ -602,9 +630,9 @@ Semaphore
 			}
 			else
 			{
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 				threading_internal::FailOnUnnamedSemaphore();
-#else
+#elif (defined VCZH_GCC && !defined VCZH_APPLE) || defined VCZH_WASM
 				sem_destroy(&internalData->semUnnamed);
 #endif
 			}
@@ -618,7 +646,7 @@ Semaphore
 		if (initialCount > maxCount) return false;
 
 		internalData = new SemaphoreData;
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 
 		AString auuid;
 		if(name.Length() == 0)
@@ -642,7 +670,7 @@ Semaphore
 			return false;
 		}
         
-#else
+#elif (defined VCZH_GCC && !defined VCZH_APPLE) || defined VCZH_WASM
 		if (name == L"")
 		{
 			if(sem_init(&internalData->semUnnamed, 0, (int)initialCount) == -1)
@@ -865,9 +893,9 @@ EventObject
 		{
 			auto signalVersion = internalData->signalVersion;
 			timespec now;
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 			constexpr auto waitClock = CLOCK_REALTIME;
-#else
+#elif (defined VCZH_GCC && !defined VCZH_APPLE) || defined VCZH_WASM
 			constexpr auto waitClock = CLOCK_MONOTONIC;
 #endif
 			if (ms <= 0 || clock_gettime(waitClock, &now) != 0)
@@ -993,7 +1021,13 @@ ThreadPoolLite
 					threadPoolData->taskFinishEvent.CreateManualUnsignal(false);
 					threadPoolData->taskEnd = &threadPoolData->taskBegin;
 
-					for (vint i = 0; i < Thread::GetCPUCount() * 4; i++)
+#if defined VCZH_GCC
+					auto threadCount = Thread::GetCPUCount() * 4;
+#elif defined VCZH_WASM
+					// Browser workers come from a finite, preloaded pthread pool.
+					auto threadCount = 4;
+#endif
+					for (vint i = 0; i < threadCount; i++)
 					{
 						threadPoolData->taskThreads.Add(Thread::CreateAndStart(&ThreadPoolProc, nullptr, false));
 					}
@@ -1218,9 +1252,9 @@ ConditionVariable
 	{
 #define ERROR_MESSAGE_PREFIX L"vl::ConditionVariable::ConditionVariable()#"
 		internalData = new ConditionVariableData;
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 		auto initResult = pthread_cond_init(&internalData->cond, nullptr);
-#else
+#elif (defined VCZH_GCC && !defined VCZH_APPLE) || defined VCZH_WASM
 		pthread_condattr_t attributes;
 		auto attributeResult = pthread_condattr_init(&attributes);
 		if (attributeResult != 0)
@@ -1258,9 +1292,9 @@ ConditionVariable
 		if (ms < 0) return false;
 
 		timespec timeout;
-#if defined VCZH_APPLE
+#if defined VCZH_GCC && defined VCZH_APPLE
 		constexpr auto waitClock = CLOCK_REALTIME;
-#else
+#elif (defined VCZH_GCC && !defined VCZH_APPLE) || defined VCZH_WASM
 		constexpr auto waitClock = CLOCK_MONOTONIC;
 #endif
 		if (clock_gettime(waitClock, &timeout) != 0)
@@ -1329,6 +1363,8 @@ ThreadLocalStorage
 #undef KEY
 }
 
+#endif
+
 
 /***********************************************************************
 .\ENCODING\CHARFORMAT\CHARFORMAT.LINUX.CPP
@@ -1338,11 +1374,10 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+
+#if defined VCZH_GCC || defined VCZH_WASM
 #include <string.h>
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
 
 namespace vl
 {
@@ -1425,6 +1460,8 @@ TestEncoding
 		}
 	}
 }
+
+#endif
 
 
 /***********************************************************************
@@ -5713,7 +5750,7 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC
 
 #include <csignal>
 #include <locale.h>
@@ -6287,6 +6324,39 @@ namespace vl::inter_process::stdio_redirection
 			process = CreateStdioRedirectionProcessUnsafe(command);
 		}
 		return process;
+	}
+}
+
+#endif
+
+
+/***********************************************************************
+.\THREADING.WASM.CPP
+***********************************************************************/
+/***********************************************************************
+Author: Zihan Chen (vczh)
+Licensed under https://github.com/vczh-libraries/License
+***********************************************************************/
+
+
+#if defined VCZH_WASM
+#include <emscripten/threading.h>
+
+namespace vl
+{
+
+/***********************************************************************
+Thread
+***********************************************************************/
+
+	void Thread::Sleep(vint ms)
+	{
+		emscripten_thread_sleep(ms);
+	}
+
+	vint Thread::GetCPUCount()
+	{
+		return emscripten_num_logical_cores();
 	}
 }
 

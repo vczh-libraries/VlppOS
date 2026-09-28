@@ -12,3 +12,4 @@ DEVELOPER: Zihan Chen(vczh)
 #include "..\..\Source\InterProcess\AsyncSocket\AsyncSocket.macOS.cpp"
 #include "..\..\Source\TUI\TUI.Linux.cpp"
 #include "..\..\Source\InterProcess\StdioRedirection\StdioRedirection.Linux.cpp"
+#include "..\..\Source\Threading.Wasm.cpp"

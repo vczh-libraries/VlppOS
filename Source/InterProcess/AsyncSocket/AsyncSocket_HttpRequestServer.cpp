@@ -1,5 +1,7 @@
 #include "AsyncSocket_HttpRequestServer.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 /***********************************************************************
@@ -507,3 +509,5 @@ HttpRequestServer
 		return impl->IsStopped();
 	}
 }
+
+#endif

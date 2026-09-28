@@ -5,9 +5,8 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "Locale.h"
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
+#if defined VCZH_GCC || defined VCZH_WASM
+
 
 namespace vl
 {
@@ -17,3 +16,5 @@ namespace vl
 		return &linuxLocaleImpl;
 	}
 }
+
+#endif

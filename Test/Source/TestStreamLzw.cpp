@@ -1,4 +1,6 @@
 ﻿#include "../../Source/Stream/FileStream.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/Stream/MemoryStream.h"
 #include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Encoding/LzwEncoding.h"
@@ -138,3 +140,5 @@ TEST_FILE
 	});
 #endif
 }
+
+#endif

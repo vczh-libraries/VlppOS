@@ -1,4 +1,6 @@
 #include "../../Source/InterProcess/NetworkProtocolChannel.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpClient.h"
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.h"
 #if defined VCZH_MSVC
@@ -5290,3 +5292,5 @@ TEST_FILE
 	>(true);
 #endif
 }
+
+#endif

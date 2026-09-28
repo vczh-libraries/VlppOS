@@ -1,4 +1,6 @@
 #include "AsyncSocket.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <chrono>
 #include <cstring>
 #include <limits>
@@ -841,3 +843,5 @@ NetworkProtocolConnection
 		CHECK_ERROR(connection == state->socketConnection, L"NetworkProtocolConnection was installed on an unexpected async socket connection.");
 	}
 }
+
+#endif

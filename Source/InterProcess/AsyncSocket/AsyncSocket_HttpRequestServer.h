@@ -12,6 +12,8 @@ Interfaces:
 
 #include "AsyncSocket_HttpRequest.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 	/// <summary>Adapts an asynchronous TCP server to HTTP/1.1 request connections.</summary>
@@ -40,5 +42,7 @@ namespace vl::inter_process::async_tcp_socket
 		bool							IsStopped();
 	};
 }
+
+#endif
 
 #endif

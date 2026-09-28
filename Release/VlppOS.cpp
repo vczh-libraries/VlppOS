@@ -447,12 +447,18 @@ namespace vl
 {
 	namespace filesystem
 	{
+#if defined VCZH_MSVC || defined VCZH_GCC
 		extern IFileSystemImpl* GetOSFileSystemImpl();
+#endif
 
 		feature_injection::FeatureInjection<IFileSystemImpl>& GetFileSystemInjection()
 		{
+#if defined VCZH_MSVC || defined VCZH_GCC
 			static feature_injection::FeatureInjection<IFileSystemImpl> injection(GetOSFileSystemImpl());
 			return injection;
+#elif defined VCZH_WASM
+			CHECK_FAIL(L"vl::filesystem::GetFileSystemInjection()#File system access is not supported in WebAssembly.");
+#endif
 		}
 
 		void InjectFileSystemImpl(IFileSystemImpl* impl)
@@ -561,6 +567,7 @@ Folder
 	}
 }
 
+
 /***********************************************************************
 .\LOCALE.CPP
 ***********************************************************************/
@@ -578,7 +585,7 @@ namespace vl
 EnUsLocaleImpl
 ***********************************************************************/
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 #define _wcsicmp wcscasecmp
 #define _wcsnicmp wcsncasecmp
 #endif
@@ -966,7 +973,7 @@ EnUsLocaleImpl
 		return false;
 	}
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 #undef _wcsicmp
 #undef _wcsnicmp
 #endif
@@ -1213,9 +1220,9 @@ SpinLock
 			}
 			while (token != 0)
 			{
-#ifdef VCZH_ARM
+#if defined VCZH_ARM
 				__yield();
-#else
+#elif defined VCZH_MSVC || defined VCZH_GCC
 				_mm_pause();
 #endif
 			}
@@ -2905,6 +2912,8 @@ Unicode General (extern templates)
 .\INTERPROCESS\CHANNELIMPLS\CHANNELPACKAGE.CPP
 ***********************************************************************/
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process
 {
 	NetworkPackage NetworkPackage::Create(Nullable<vint> _clientId, const WString& _channelName, const WString& _messageBody)
@@ -2998,6 +3007,8 @@ namespace vl::inter_process
 #undef ERROR_MESSAGE_PREFIX
 	}
 }
+
+#endif
 
 
 /***********************************************************************
@@ -4169,6 +4180,7 @@ namespace vl
 OSFileStreamImpl
 ***********************************************************************/
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 		class OSFileStreamImpl : public Object, public virtual IFileStreamImpl
 		{
 		private:
@@ -4369,6 +4381,8 @@ CreateOSFileStreamImpl
 		{
 			return Ptr(new OSFileStreamImpl(fileName, accessRight));
 		}
+
+#endif
 
 /***********************************************************************
 FileStream
@@ -4919,6 +4933,8 @@ RecorderStream
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <chrono>
 #include <cstring>
 #include <limits>
@@ -5762,10 +5778,14 @@ NetworkProtocolConnection
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPCLIENT.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 
 namespace vl::inter_process::async_tcp_socket
@@ -7487,6 +7507,8 @@ SocketHttpClient
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPCLIENTAPI.CPP
@@ -7500,6 +7522,8 @@ Interfaces:
 
 ***********************************************************************/
 
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process::async_tcp_socket
 {
@@ -8456,6 +8480,8 @@ SocketHttpClientApi
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPREQUEST.CPP
@@ -8468,6 +8494,8 @@ Async Socket HTTP/1.1 Connection
 
 ***********************************************************************/
 
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 
 namespace vl::inter_process::async_tcp_socket
@@ -11452,10 +11480,14 @@ HttpRequestConnection
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPREQUESTCLIENT.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process::async_tcp_socket
 {
@@ -11603,10 +11635,14 @@ HttpRequestClient
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPREQUESTSERVER.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl::inter_process::async_tcp_socket
 {
@@ -12116,10 +12152,14 @@ HttpRequestServer
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPSERVER.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 #include <random>
 
@@ -13544,10 +13584,14 @@ namespace vl::inter_process::async_tcp_socket
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\ASYNCSOCKET\ASYNCSOCKET_HTTPSERVERAPI.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 
 namespace vl::inter_process::async_tcp_socket
@@ -15046,10 +15090,14 @@ namespace vl::inter_process::async_tcp_socket
 	WString SocketHttpServerApi::GetUrlPrefix() { return impl->GetUrlPrefix(); }
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\NETWORKPROTOCOLHTTP.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 
 namespace vl::inter_process
@@ -15470,6 +15518,8 @@ namespace vl::inter_process
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\TUI\TUI.CPP
@@ -15479,6 +15529,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <algorithm>
 
 using namespace vl;
@@ -16490,10 +16542,14 @@ ScopedTuiBackend
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\INTERPROCESS\STDIOREDIRECTION\STDIOREDIRECTION.CPP
 ***********************************************************************/
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <cstdlib>
 
 namespace vl::inter_process::stdio_redirection
@@ -17421,6 +17477,8 @@ StdioRedirectionServer
 	}
 }
 
+#endif
+
 
 /***********************************************************************
 .\TUI\TUI.INPUT.CPP
@@ -17430,6 +17488,8 @@ Author: Zihan Chen (vczh)
 Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 using namespace vl;
 using namespace vl::collections;
@@ -17824,4 +17884,6 @@ PosixTuiInputDecoder
 		}
 	}
 }
+
+#endif
 

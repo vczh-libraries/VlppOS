@@ -3,6 +3,8 @@
 
 #include "../NetworkProtocol.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::stdio_redirection
 {
 	class IStdioRedirectionProcess : public virtual Interface
@@ -87,5 +89,7 @@ namespace vl::inter_process::stdio_redirection
 		void									ConnectNewClient(const WString& command);
 	};
 }
+
+#endif
 
 #endif

@@ -4,6 +4,8 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "../../Source/TUI/TUI.Input.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/TUI/TUI.Input.Windows.h"
 
 #define VCZH_TUI_PLAYGROUND_TEST
@@ -2781,3 +2783,5 @@ TEST_FILE
 		});
 	});
 }
+
+#endif

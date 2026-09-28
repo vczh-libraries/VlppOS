@@ -11,6 +11,8 @@ Interfaces:
 #define VCZH_INTERPROCESS_ASYNCSOCKET
 
 #include "../NetworkProtocol.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Threading.h"
 #include <concepts>
 #include <type_traits>
@@ -592,5 +594,7 @@ NetworkProtocolClient
 		}
 	};
 }
+
+#endif
 
 #endif

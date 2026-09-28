@@ -1,4 +1,6 @@
 #include "NetworkProtocolHttp.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "AsyncSocket/HttpRequest.h"
 #include "../Encoding/CharFormat/CharFormat.h"
 #include "../Stream/Accessor.h"
@@ -426,3 +428,5 @@ namespace vl::inter_process
 		return request;
 	}
 }
+
+#endif

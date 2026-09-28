@@ -5,7 +5,7 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "TUI.Input.h"
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC
 
 #include <cerrno>
 #include <csignal>

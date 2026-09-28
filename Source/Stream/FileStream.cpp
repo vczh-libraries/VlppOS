@@ -29,6 +29,7 @@ namespace vl
 OSFileStreamImpl
 ***********************************************************************/
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 		class OSFileStreamImpl : public Object, public virtual IFileStreamImpl
 		{
 		private:
@@ -229,6 +230,8 @@ CreateOSFileStreamImpl
 		{
 			return Ptr(new OSFileStreamImpl(fileName, accessRight));
 		}
+
+#endif
 
 /***********************************************************************
 FileStream

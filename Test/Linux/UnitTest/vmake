@@ -23,5 +23,6 @@ CPP_ADDS=("Main.cpp")
 FOLDERS=("../../Output")
 TARGETS=("${CPP_TARGET}")
 CPP_COMPILE_OPTIONS="-I ../../../Import"
+CPP_WASM_PTHREAD_POOL_SIZE=32
 #>
 <#@ include "${VCPROOT}/vl/vmake-cpp" #>

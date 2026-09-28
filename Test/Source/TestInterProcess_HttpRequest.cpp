@@ -1,4 +1,6 @@
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestClient.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket_HttpRequestServer.h"
 #include "../../Source/Threading.h"
 
@@ -3573,3 +3575,5 @@ TEST_FILE
 	});
 #endif
 }
+
+#endif

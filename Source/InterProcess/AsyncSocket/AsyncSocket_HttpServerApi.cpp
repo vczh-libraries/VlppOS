@@ -1,5 +1,7 @@
 #include "AsyncSocket_HttpServerApi.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 #include <limits>
 
 namespace vl::inter_process::async_tcp_socket
@@ -1497,3 +1499,5 @@ namespace vl::inter_process::async_tcp_socket
 	bool SocketHttpServerApi::IsStopped() { return impl->IsStopped(); }
 	WString SocketHttpServerApi::GetUrlPrefix() { return impl->GetUrlPrefix(); }
 }
+
+#endif

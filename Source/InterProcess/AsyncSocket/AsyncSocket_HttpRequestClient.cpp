@@ -1,5 +1,7 @@
 #include "AsyncSocket_HttpRequestClient.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 /***********************************************************************
@@ -145,3 +147,5 @@ HttpRequestClient
 		return impl->GetStatus();
 	}
 }
+
+#endif

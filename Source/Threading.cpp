@@ -45,9 +45,9 @@ SpinLock
 			}
 			while (token != 0)
 			{
-#ifdef VCZH_ARM
+#if defined VCZH_ARM
 				__yield();
-#else
+#elif defined VCZH_MSVC || defined VCZH_GCC
 				_mm_pause();
 #endif
 			}

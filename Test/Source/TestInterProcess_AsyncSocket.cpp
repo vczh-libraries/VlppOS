@@ -1,4 +1,6 @@
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/Threading.h"
 
 using namespace vl;
@@ -1494,3 +1496,5 @@ TEST_FILE
 	RunWindowsAsyncSocketServerCallbackTestCases(WaitForEvent(&WaitForNativeEvent));
 #endif
 }
+
+#endif

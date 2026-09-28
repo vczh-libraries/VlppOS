@@ -4,11 +4,10 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "CharFormat.h"
+
+#if defined VCZH_GCC || defined VCZH_WASM
 #include <string.h>
 
-#ifndef VCZH_GCC
-static_assert(false, "Do not build this file for Windows applications.");
-#endif
 
 namespace vl
 {
@@ -91,3 +90,5 @@ TestEncoding
 		}
 	}
 }
+
+#endif

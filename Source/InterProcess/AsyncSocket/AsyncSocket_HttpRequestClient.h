@@ -12,6 +12,8 @@ Interfaces:
 
 #include "AsyncSocket_HttpRequest.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 namespace vl::inter_process::async_tcp_socket
 {
 	/// <summary>Adapts an asynchronous TCP client to one HTTP/1.1 request connection.</summary>
@@ -31,5 +33,7 @@ namespace vl::inter_process::async_tcp_socket
 		virtual ClientStatus					GetStatus();
 	};
 }
+
+#endif
 
 #endif

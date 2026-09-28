@@ -4,6 +4,8 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "TUI.Input.h"
+
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include <limits>
 
 using namespace vl;
@@ -399,3 +401,5 @@ PosixTuiInputDecoder
 		}
 	}
 }
+
+#endif

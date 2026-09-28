@@ -1,5 +1,7 @@
 #include "AsyncSocket_HttpClient.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
+
 #include <chrono>
 
 namespace vl::inter_process::async_tcp_socket
@@ -1720,3 +1722,5 @@ SocketHttpClient
 		impl->Stop();
 	}
 }
+
+#endif

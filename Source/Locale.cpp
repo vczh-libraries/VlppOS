@@ -13,7 +13,7 @@ namespace vl
 EnUsLocaleImpl
 ***********************************************************************/
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 #define _wcsicmp wcscasecmp
 #define _wcsnicmp wcsncasecmp
 #endif
@@ -401,7 +401,7 @@ EnUsLocaleImpl
 		return false;
 	}
 
-#ifdef VCZH_GCC
+#if defined VCZH_GCC || defined VCZH_WASM
 #undef _wcsicmp
 #undef _wcsnicmp
 #endif
