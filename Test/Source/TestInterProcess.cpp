@@ -732,7 +732,7 @@ namespace mynamespace
 
 	struct ChannelChatData
 	{
-		EventObject						eventClientsConnected, eventClientIdsReceived, eventServer, eventTom, eventJerry;
+		EventObject						eventClientsConnected, eventClientIdsReceived, eventServerClientReady, eventServer, eventTom, eventJerry;
 
 		// covers clientId1, clientId2, serverClientId, client1ReceivedIds, client2ReceivedIds, client1Stopped, client2Stopped, clientId1ReceivedHello and clientId2ReceivedHello
 		SpinLock						lockServer;
@@ -752,6 +752,7 @@ namespace mynamespace
 		{
 			eventClientsConnected.CreateManualUnsignal(false);
 			eventClientIdsReceived.CreateManualUnsignal(false);
+			eventServerClientReady.CreateManualUnsignal(false);
 			eventServer.CreateManualUnsignal(false);
 			eventTom.CreateManualUnsignal(false);
 			eventJerry.CreateManualUnsignal(false);
@@ -1319,6 +1320,7 @@ namespace mynamespace
 				CHECK_ERROR(serverClientId > 0 && serverClientId != clientId1 && serverClientId != clientId2, L"Channel server should assign a different id to the server channel client.");
 				CHECK_ERROR(server->IsLocalClient(serverClientId), L"Channel server should recognize the server channel client as local.");
 				CHECK_ERROR(server->GetClientIds().Count() == 3, L"Channel server should have three client ids.");
+				CHECK_ERROR(chatData.eventServerClientReady.Signal(), L"Failed to signal that the server channel client is ready.");
 				chatData.eventServer.Wait();
 				server->Stop();
 			}
@@ -1335,6 +1337,7 @@ namespace mynamespace
 				auto client = Ptr(new TomChannelClient(createClient(), chatData));
 				client->WaitForServer();
 				CHECK_ERROR(chatData.eventClientIdsReceived.Wait(), L"Failed to wait until both channel clients received their ids.");
+				CHECK_ERROR(chatData.eventServerClientReady.Wait(), L"Failed to wait until the server channel client is ready.");
 				client->SendHello();
 				chatData.eventTom.Wait();
 			}
