@@ -105,3 +105,19 @@ Firefox reproduced `vl::filesystem::GetFileSystemInjection()#File system access 
 Enable the requested Wasm test files and run them against the existing implementation to reproduce missing filesystem support. Add coverage for OPFS paths, buffered read/write/close, file and folder operations, and UTF-16 names. Verify browser fixture prefill, minimum input lists, fresh OPFS state on reload, binary fidelity, and read-only host access. Run all four Wasm suites and native regression suites. Regenerate and verify downstream releases and Ubuntu tool copies.
 
 # PROPOSALS
+
+- No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
+
+## No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
+
+Implement `OpfsFileSystemImpl` in `Source/FileSystem.Wasm.cpp`, selected by the existing injection chain. Keep root-relative POSIX paths in C++ and use small `EM_ASYNC_JS` adapters to await native OPFS JavaScript APIs. Link with Asyncify and await the Embind entry in the worker, retaining synchronous C++ operations and real pthread tests. The Emscripten [Asyncify documentation](https://emscripten.org/docs/porting/asyncify.html) and the installed SDK's Embind adapter support this boundary.
+
+Each file stream loads readable content into `stream::MemoryStream`; writable close replaces the entire OPFS file. ReadWrite retains existing content as requested, while WriteOnly starts with an empty buffer. File and directory operations report ordinary I/O failures, and failed close raises a C++ error. Directory rename uses copy/delete because portable OPFS directory handles do not provide native rename; reject root, existing destinations and descendant moves before mutation.
+
+Move the canonical launcher into `Tools/Ubuntu/vl/wasm-unittest/app.{html,sh,js}`. Pass the project vbuild path into app.sh, read its JSON in Node, and expose a sorted manifest plus binary GET endpoints for only the included files. Union includes, subtract excludes, infer parent folders, and keep only explicitly requested leaf empty directories. Clear OPFS and populate it before starting the tests. Changes remain in OPFS. Use Node's built-in glob API rather than introduce a custom pattern language.
+
+The existing Regex file is `TestAutomaton.cpp` (the request's `TestAutomation.cpp` is a typo). Its 34 comparisons read exactly `Resources/Baseline/*.txt`; no other inputs are needed. Reflection's builder only writes `Metadata/ReflectionWithTestTypes32.txt`, so preload no files and create `Metadata`. Vlpp maps nothing; VlppOS begins empty and its tests create `/Output`.
+
+### CODE CHANGE
+
+Add/register the backend; remove the Wasm injection failure; enable the requested tests and adapt their paths; add buffered-stream and OPFS operation regressions. Update canonical packaging, launcher, quoted opt-in checks and documentation, verify them, commit/push Tools, and propagate through `vgo uci` to the four libraries. Regenerate releases and synchronize imports in dependency order. Verify all four full Wasm suites and native regressions.
