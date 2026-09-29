@@ -1,6 +1,6 @@
 ﻿#include "../../Source/FileSystem.h"
 
-#if defined VCZH_MSVC || defined VCZH_GCC
+#if defined VCZH_MSVC || defined VCZH_GCC || defined VCZH_WASM
 #include "../../Source/Locale.h"
 #include "../../Source/Stream/FileStream.h"
 #include "../../Source/Encoding/CharFormat/CharFormat.h"
@@ -27,7 +27,7 @@ void ClearTestFolders()
 #if defined VCZH_MSVC
 		TEST_ASSERT(folderPath[1] == L':');
 		TEST_ASSERT(INVLOC.FindLast(folderPath, L"\\FileSystem", Locale::None).key == folderPath.Length() - 11);
-#elif defined VCZH_GCC
+#elif defined VCZH_GCC || defined VCZH_WASM
 		TEST_ASSERT(folderPath[0] == L'/');
 		TEST_ASSERT(INVLOC.FindLast(folderPath, L"/FileSystem", Locale::None).key == folderPath.Length() - 11);
 #endif
@@ -45,6 +45,17 @@ void ClearTestFolders()
 
 TEST_FILE
 {
+#if defined VCZH_WASM
+	TEST_CASE(L"OPFS starts at the root and creates the output folder")
+	{
+		TEST_ASSERT(FilePath().GetFullPath() == L"/");
+		TEST_ASSERT(FilePath(L".").GetFullPath() == L"/");
+		TEST_ASSERT(FilePath(L"Output/../Output").GetFullPath() == L"/Output");
+		TEST_ASSERT(FilePath().IsFolder());
+		Folder output(GetTestOutputPath());
+		TEST_ASSERT(output.Create(false));
+	});
+#endif
 	TEST_CATEGORY(L"File Paths")
 	{
 	#if defined VCZH_MSVC

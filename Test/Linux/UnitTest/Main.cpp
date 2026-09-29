@@ -2,10 +2,17 @@
 
 using namespace vl;
 
+#if defined VCZH_GCC
 WString GetTestOutputPath()
 {
 	return L"../../Output/";
 }
+#elif defined VCZH_WASM
+WString GetTestOutputPath()
+{
+	return L"/Output/";
+}
+#endif
 
 #if defined VCZH_WASM
 #include <emscripten.h>
