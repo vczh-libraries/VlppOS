@@ -15,6 +15,24 @@ using namespace vl::stream;
 
 extern WString GetTestOutputPath();
 
+#if defined VCZH_WASM
+class OpfsTestThread : public Thread
+{
+protected:
+	void Run() override
+	{
+		File file(GetTestOutputPath() + L"thread" + itow(index) + L".txt");
+		passed = file.WriteAllText(L"Worker 𩰪") && file.ReadAllTextByBom() == L"Worker 𩰪";
+		finished.Signal();
+	}
+
+public:
+	vint			index = 0;
+	bool			passed = false;
+	EventObject		finished;
+};
+#endif
+
 void ClearTestFolders()
 {
 	TEST_CASE(L"Ensure clearing test folder")
@@ -54,6 +72,99 @@ TEST_FILE
 		TEST_ASSERT(FilePath().IsFolder());
 		Folder output(GetTestOutputPath());
 		TEST_ASSERT(output.Create(false));
+	});
+
+	TEST_CASE(L"OPFS preserves binary snapshots and writes back only on close")
+	{
+		auto path = FilePath(GetTestOutputPath()) / L"文件-𩰪.bin";
+		Array<vuint8_t> bytes(70000);
+		for (vint i = 0; i < bytes.Count(); i++) bytes[i] = (vuint8_t)i;
+		{
+			stream::FileStream output(path.GetFullPath(), stream::FileStream::WriteOnly);
+			TEST_ASSERT(output.Write(&bytes[0], bytes.Count()) == bytes.Count());
+		}
+		stream::FileStream snapshot(path.GetFullPath(), stream::FileStream::ReadOnly);
+		TEST_ASSERT(snapshot.Size() == bytes.Count());
+		stream::FileStream update(path.GetFullPath(), stream::FileStream::ReadWrite);
+		TEST_ASSERT(update.Size() == bytes.Count());
+		vuint8_t changed[] = { 255, 0, 128 };
+		TEST_ASSERT(update.Write(changed, 3) == 3);
+		{
+			stream::FileStream beforeClose(path.GetFullPath(), stream::FileStream::ReadOnly);
+			vuint8_t original = 255;
+			TEST_ASSERT(beforeClose.Read(&original, 1) == 1 && original == 0);
+		}
+		update.Close();
+		update.Close();
+		Array<vuint8_t> original(bytes.Count());
+		TEST_ASSERT(snapshot.Read(&original[0], original.Count()) == original.Count());
+		TEST_ASSERT(memcmp(&original[0], &bytes[0], bytes.Count()) == 0);
+		TEST_ERROR(snapshot.Write(changed, 3));
+		snapshot.Close();
+		{
+			stream::FileStream persisted(path.GetFullPath(), stream::FileStream::ReadOnly);
+			TEST_ASSERT(persisted.Read(&original[0], original.Count()) == original.Count());
+			TEST_ASSERT(memcmp(&original[0], changed, 3) == 0);
+			TEST_ASSERT(memcmp(&original[3], &bytes[3], bytes.Count() - 3) == 0);
+		}
+		{
+			stream::FileStream empty(path.GetFullPath(), stream::FileStream::WriteOnly);
+			TEST_ASSERT(empty.Size() == 0);
+			TEST_ERROR(empty.Read(changed, 1));
+			TEST_ERROR(empty.Peek(changed, 1));
+		}
+		TEST_ASSERT(stream::FileStream(path.GetFullPath(), stream::FileStream::ReadOnly).Size() == 0);
+		TEST_ASSERT(File(path).Delete());
+		TEST_ASSERT(!stream::FileStream(path.GetFullPath(), stream::FileStream::ReadOnly).IsAvailable());
+		{
+			stream::FileStream created(path.GetFullPath(), stream::FileStream::ReadWrite);
+			TEST_ASSERT(created.IsAvailable() && created.Size() == 0);
+			TEST_ASSERT(created.Write(changed, 3) == 3);
+		}
+		TEST_ASSERT(stream::FileStream(path.GetFullPath(), stream::FileStream::ReadOnly).Size() == 3);
+	});
+
+	TEST_CASE(L"OPFS runs independently on concurrent pthread workers")
+	{
+		for (vint round = 0; round < 4; round++)
+		{
+			OpfsTestThread workers[2];
+			for (vint i = 0; i < 2; i++)
+			{
+				workers[i].index = round * 2 + i;
+				TEST_ASSERT(workers[i].finished.CreateManualUnsignal(false));
+				TEST_ASSERT(workers[i].Start());
+			}
+			for (auto& worker : workers)
+			{
+				TEST_ASSERT(worker.finished.WaitForTime(10000));
+				TEST_ASSERT(worker.Wait());
+				TEST_ASSERT(worker.passed);
+			}
+		}
+	});
+
+	TEST_CASE(L"OPFS paths and folder rename preserve the tree")
+	{
+		TEST_ASSERT((FilePath(L"/Output") / L"/replacement").GetFullPath() == L"/replacement");
+		TEST_ASSERT(FilePath(L"//Output///./folder/../").GetFullPath() == L"/Output");
+		TEST_EXCEPTION(FilePath(L"/../../escape"), ArgumentException, [](const ArgumentException&) {});
+		auto source = FilePath(GetTestOutputPath()) / L"目录-𩰪";
+		auto target = source.GetFolder() / L"renamed";
+		TEST_ASSERT(Folder(source / L"nested/empty").Create(true));
+		TEST_ASSERT(File(source / L"nested/file.txt").WriteAllText(L"Unicode 𩰪"));
+		TEST_ASSERT(source.GetRelativePathFor(source / L"nested/file.txt") == L"nested/file.txt");
+		TEST_ASSERT(!Folder(source).Rename(L"目录-𩰪/nested/child"));
+		TEST_ASSERT(!Folder(source).Rename(L"missing/child"));
+		TEST_ASSERT(Folder(source).Rename(L"renamed"));
+		TEST_ASSERT(!source.IsFolder());
+		TEST_ASSERT((target / L"nested/empty").IsFolder());
+		TEST_ASSERT(File(target / L"nested/file.txt").ReadAllTextByBom() == L"Unicode 𩰪");
+		TEST_ASSERT(!File(target).Delete());
+		TEST_ASSERT(!Folder(target / L"nested/file.txt").Delete(false));
+		TEST_ASSERT(!Folder(L"/").Delete(false));
+		TEST_ASSERT(!Folder(L"/").Rename(L"new-root"));
+		TEST_ASSERT(Folder(target).Delete(true));
 	});
 #endif
 	TEST_CATEGORY(L"File Paths")

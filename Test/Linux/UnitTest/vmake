@@ -16,7 +16,6 @@ CPP_REMOVES=(
     "../../../Source/Threading.Windows.cpp"
     "../../../Source/TUI/TUI.Windows.cpp"
     "../../../Source/Encoding/CharFormat/CharFormat.Windows.cpp"
-    "../../Source/TestLocale.cpp"
     "../../UnitTest/UnitTest/Main.cpp"
     )
 CPP_ADDS=("Main.cpp")

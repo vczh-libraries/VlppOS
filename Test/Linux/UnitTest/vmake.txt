@@ -8,6 +8,7 @@
 ../../../Source/FileSystem.cpp
 ../../../Source/FileSystem.Injectable.cpp
 ../../../Source/FileSystem.Linux.cpp
+../../../Source/FileSystem.Wasm.cpp
 ../../../Source/InterProcess/NetworkProtocolHttp.cpp
 ../../../Source/InterProcess/StdioRedirection/StdioRedirection.cpp
 ../../../Source/InterProcess/StdioRedirection/StdioRedirection.Linux.cpp
@@ -46,6 +47,7 @@
 ../../Source/TestInterProcess_HttpRequest.cpp
 ../../Source/TestStreamBase64.cpp
 ../../Source/TestFileSystem.cpp
+../../Source/TestLocale.cpp
 ../../Source/TestLocaleString.cpp
 ../../Source/TestSerialization.cpp
 ../../Source/TestStream.cpp

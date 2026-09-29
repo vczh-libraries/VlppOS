@@ -1,6 +1,6 @@
 ﻿#include "../../Source/Locale.h"
 
-#if defined VCZH_MSVC || defined VCZH_GCC
+#if defined VCZH_MSVC || defined VCZH_GCC || defined VCZH_WASM
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Encoding/CharFormat/CharFormat.h"
@@ -54,17 +54,21 @@ TEST_FILE
 			Locale locale = Locale::UserDefault();
 			WString input = L"abcdeABCDEａｂｃｄｅＡＢＣＤＥ战斗戰鬥あいうえおアイウエオｱｲｳｴｵ";
 			writer.WriteLine(L"[Normal] => " + input);
+#if defined VCZH_MSVC
 			writer.WriteLine(L"[ToFullWidth] => " + locale.ToFullWidth(input));
 			writer.WriteLine(L"[ToHalfWidth] => " + locale.ToHalfWidth(input));
 			writer.WriteLine(L"[ToHiragana] => " + locale.ToHiragana(input));
 			writer.WriteLine(L"[ToKatagana] => " + locale.ToKatagana(input));
+#endif
 			writer.WriteLine(L"[ToLower] => " + locale.ToLower(input));
 			writer.WriteLine(L"[ToUpper] => " + locale.ToUpper(input));
 			writer.WriteLine(L"[ToLinguisticLower] => " + locale.ToLinguisticLower(input));
 			writer.WriteLine(L"[ToLinguisticUpper] => " + locale.ToLinguisticUpper(input));
+#if defined VCZH_MSVC
 			writer.WriteLine(L"[ToSimplifiedChinese] => " + locale.ToSimplifiedChinese(input));
 			writer.WriteLine(L"[ToTraditionalChinese] => " + locale.ToTraditionalChinese(input));
 			writer.WriteLine(L"[ToTileCase] => " + locale.ToTileCase(input));
+#endif
 		}
 
 		List<Locale> locales;

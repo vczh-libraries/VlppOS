@@ -153,6 +153,9 @@
     <ClCompile Include="..\..\..\Source\FileSystem.Linux.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Source\FileSystem.Wasm.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\Source\Encoding\CharFormat\CharFormat.cpp">
       <Filter>Common\Encoding\CharFormat</Filter>
     </ClCompile>

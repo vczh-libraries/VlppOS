@@ -9,18 +9,12 @@ namespace vl
 {
 	namespace filesystem
 	{
-#if defined VCZH_MSVC || defined VCZH_GCC
 		extern IFileSystemImpl* GetOSFileSystemImpl();
-#endif
 
 		feature_injection::FeatureInjection<IFileSystemImpl>& GetFileSystemInjection()
 		{
-#if defined VCZH_MSVC || defined VCZH_GCC
 			static feature_injection::FeatureInjection<IFileSystemImpl> injection(GetOSFileSystemImpl());
 			return injection;
-#elif defined VCZH_WASM
-			CHECK_FAIL(L"vl::filesystem::GetFileSystemInjection()#File system access is not supported in WebAssembly.");
-#endif
 		}
 
 		void InjectFileSystemImpl(IFileSystemImpl* impl)

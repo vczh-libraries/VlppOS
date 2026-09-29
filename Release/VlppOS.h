@@ -148,7 +148,7 @@ Locale
 		/// <param name="month">Month, begins from 1 as January.</param>
 		WString						GetLongMonthName(vint month)const;
 		
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 		/// <summary>Convert characters to the full width.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
@@ -188,7 +188,7 @@ Locale
 		/// <param name="str">The string to convert.</param>
 		WString						ToLinguisticUpper(const WString& str)const;
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 		/// <summary>Convert characters to Simplified Chinese.</summary>
 		/// <returns>The converted string.</returns>
 		/// <param name="str">The string to convert.</param>
@@ -213,7 +213,7 @@ Locale
 			None=0,
 			/// <summary>Ignore case using the file system rule.</summary>
 			IgnoreCase=1,
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 			/// <summary>Ignore case using the linguistic rule. This value is only available in Windows.</summary>
 			IgnoreCaseLinguistic=2,
 			/// <summary>Ignore the difference between between hiragana and katakana characters. This value is only available in Windows.</summary>
@@ -5717,6 +5717,7 @@ namespace vl
 		class FilePath : public Object
 		{
 			friend class LinuxFileSystemImpl;
+			friend class OpfsFileSystemImpl;
 			friend class WindowsFileSystemImpl;
 		protected:
 			WString						fullPath;
