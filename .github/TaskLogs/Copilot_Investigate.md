@@ -11,3 +11,15 @@ Source inspection reproduces the scope error in VlppOS commit `970e4c0`: TUI.h, 
 Success requires all TUI implementation and provider tests to remain native-only, without Wasm stubs, constructors or width logic added solely for TUI. Shared GacUI coordinate, key and input declarations must retain one owner and unchanged definitions. Run the complete VlppOS native and browser suites, native GacUI TestTuiProvider.cpp and the complete GacUI browser suite. Browser output must omit both TUI test files entirely and complete once with return zero and no browser errors. Build and exercise the native TuiPlayground through a real PTY. Regenerate releases and check downstream import consistency. Inspect the final native TUI source against its pre-Wasm version.
 
 # PROPOSALS
+
+- No.1 Restore native-only TUI and separate shared window input types
+
+## No.1 Restore native-only TUI and separate shared window input types
+
+Restore the VlppOS TUI files and TestTui.cpp to their versions before `970e4c0`, removing all Wasm-only terminal support and compatibility edits. GacUI's general UI code depends on the coordinates, VKEY and input payloads currently declared in TUITypes.h, independently of its terminal provider. Move these declarations unchanged to Source/WindowTypes.h, with a normal inclusion guard and no platform restriction. Keep TUITypes.h as a native-only forwarding header so existing native includes still work and every Source/TUI/TUI* file retains its native guard. Register WindowTypes.h in both owning Visual Studio project/filter inventories; CodePack will publish its declarations through VlppOS.h.
+
+Guard GacUI's TuiController, TuiWindow, TuiGraphics, TuiGraphicsRenderers and TuiTextLayout declarations/implementations and TestTuiProvider.cpp with the same native platform condition. Keep renderer-independent reflected types, resources and skin declarations available to the resource compiler; none supplies a terminal backend on Wasm. Preserve the shared ITuiApplication accessor, which ordinary GUI initialization and reflection already reference and which remains null without a native terminal provider.
+
+### CODE CHANGE
+
+Restore the five changed TUI implementation/header files and TestTui.cpp from the parent of `970e4c0`; replace TUITypes.h with the guarded include of the unchanged declarations in WindowTypes.h. Add native guards to the nine GacUI provider files and its test. Update the TUI specification and both Project.md files to state browser exclusions and the new shared declaration owner. Regenerate VlppOS and GacUI releases with CodePack and copy the changed VlppOS release artifacts to the five existing downstream Import directories. Verify native behavior, browser exclusion and generated-file consistency before confirming the proposal.
