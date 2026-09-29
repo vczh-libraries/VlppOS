@@ -227,6 +227,7 @@ namespace vl::inter_process::async_tcp_socket
 										lifecycle;
 
 			static vint CurrentCallbackDepth(Ptr<SocketHttpServerConnectionLifecycle> state);
+			static void ReleaseStoppedConnection(Ptr<SocketHttpServerConnectionLifecycle> state);
 			static bool ClaimPollUnsafe(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork& work);
 			static void StartPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork work);
 			static void FinishPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, Ptr<SocketHttpRequestContext> context, bool succeeded);
@@ -494,20 +495,12 @@ namespace vl::inter_process::async_tcp_socket
 		SocketHttpServerConnection::CallbackFrame::~CallbackFrame()
 		{
 			currentCallbackFrame = previous;
-			Ptr<SocketHttpServerLifecycle> server;
-			SocketHttpServerConnection* owner = nullptr;
 			CS_LOCK(state->lockState)
 			{
 				state->activeCallbacks--;
-				if (state->activeCallbacks == 0 && state->stopFinished && state->server)
-				{
-					server = state->server;
-					owner = state->owner;
-				}
 				state->cvState.WakeAllPendings();
 			}
-			Ptr<SocketHttpServerConnection> releasing;
-			if (server && owner) releasing = server->ReleaseStoppedConnection(owner);
+			ReleaseStoppedConnection(state);
 		}
 
 		SocketHttpServerConnection::InboundFrame::InboundFrame(Ptr<SocketHttpServerConnectionLifecycle> _state)
@@ -530,6 +523,22 @@ namespace vl::inter_process::async_tcp_socket
 				if (frame->state == state) depth++;
 			}
 			return depth;
+		}
+
+		void SocketHttpServerConnection::ReleaseStoppedConnection(Ptr<SocketHttpServerConnectionLifecycle> state)
+		{
+			Ptr<SocketHttpServerLifecycle> server;
+			SocketHttpServerConnection* owner = nullptr;
+			CS_LOCK(state->lockState)
+			{
+				if (state->stopFinished && state->activeCallbacks == 0 && !state->inFlightPoll && !state->pollRegistrationProcessing)
+				{
+					server = state->server;
+					owner = state->owner;
+				}
+			}
+			Ptr<SocketHttpServerConnection> releasing;
+			if (server && owner) releasing = server->ReleaseStoppedConnection(owner);
 		}
 
 		bool SocketHttpServerConnection::ClaimPollUnsafe(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork& work)
@@ -622,6 +631,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			if (!completed) return;
 			InvokePollCompleted(state->token, succeeded);
+			ReleaseStoppedConnection(state);
 			if (installed)
 			{
 				bool promoted = false;
@@ -1030,7 +1040,6 @@ namespace vl::inter_process::async_tcp_socket
 				}
 			}
 
-			Ptr<SocketHttpServerLifecycle> releasingServer;
 			CS_LOCK(state->lockState)
 			{
 				state->callback = nullptr;
@@ -1041,12 +1050,9 @@ namespace vl::inter_process::async_tcp_socket
 				if (first)
 				{
 					state->stopFinished = true;
-					if (state->activeCallbacks == 0) releasingServer = state->server;
 				}
 				state->cvState.WakeAllPendings();
 			}
-			Ptr<SocketHttpServerConnection> releasing;
-			if (releasingServer) releasing = releasingServer->ReleaseStoppedConnection(this);
 			if (first && waitForPoll)
 			{
 				CS_LOCK(state->lockState)
@@ -1054,6 +1060,7 @@ namespace vl::inter_process::async_tcp_socket
 					while (state->inFlightPoll) state->cvState.SleepWith(state->lockState);
 				}
 			}
+			ReleaseStoppedConnection(state);
 		}
 
 		void SocketHttpServerConnection::StopFromServer()
