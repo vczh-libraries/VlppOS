@@ -216,7 +216,7 @@ Handle exact case-insensitive `HELP` and `EXIT` controls before painting-command
 
 ## Shared TUI input declarations have one upstream owner
 
-Keep shared `vl::presentation` coordinates, mouse/key/character payloads, `VKEY`, and its complete macro dependencies in `VlppOS/Source/TUI/TUITypes.h`, with their comments and aliases. The header may depend on upstream Vlpp but must not acquire GacUI or reflection dependencies. GacUI consumes this header and retains its own reflection registration and platform key-name tables; delete superseded declarations instead of maintaining compatibility copies.
+Keep shared `vl::presentation` coordinates, mouse/key/character payloads, `VKEY`, and its complete macro dependencies in the platform-independent `VlppOS/Source/WindowTypes.h`, with their comments and aliases. `Source/TUI/TUITypes.h` is a native-only forwarding header, not a second declaration owner. The header may depend on upstream Vlpp but must not acquire GacUI or reflection dependencies. GacUI consumes this header and retains its own reflection registration and platform key-name tables; delete superseded declarations instead of maintaining compatibility copies.
 
 When these shared declarations or semantics change, regenerate the VlppOS release and verify matching downstream protocol, reflection, native-provider, and browser-generated surfaces. Public defaults do not initialize JavaScript payloads, so inspect field construction and forwarding as well as C++ compilation.
 
