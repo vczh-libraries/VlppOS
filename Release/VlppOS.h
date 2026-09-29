@@ -7885,8 +7885,6 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_TUI_TYPES
 
 
-#if defined VCZH_MSVC || defined VCZH_GCC
-
 namespace vl
 {
 	namespace presentation
@@ -8268,8 +8266,6 @@ ITEM(OEM_NEC_EQUAL,       0x92)		/* '=' key on numpad */						\
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\TUI\TUI.H
@@ -8283,7 +8279,6 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_TUI
 
 
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl
 {
@@ -8381,6 +8376,8 @@ namespace vl
 			};
 			TuiColor						foregroundColor = { 255, 255, 255 };
 			TuiColor						backgroundColor = { 0, 0, 0 };
+
+			TuiPixel() :character{} {}
 
 			char32_t						GetChar32() const;
 			wchar_t							GetWChar() const;
@@ -8550,8 +8547,6 @@ namespace vl
 
 #endif
 
-#endif
-
 
 /***********************************************************************
 .\TUI\TUI.INTERNAL.H
@@ -8565,7 +8560,6 @@ Licensed under https://github.com/vczh-libraries/License
 #define VCZH_TUI_INTERNAL
 
 
-#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl
 {
@@ -8582,8 +8576,6 @@ namespace vl
 		}
 	}
 }
-
-#endif
 
 #endif
 

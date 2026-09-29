@@ -1,6 +1,5 @@
 ﻿#include "../../Source/FileSystem.h"
 
-#if defined VCZH_MSVC || defined VCZH_GCC || defined VCZH_WASM
 #include "../../Source/Locale.h"
 #include "../../Source/Stream/FileStream.h"
 #include "../../Source/Encoding/CharFormat/CharFormat.h"
@@ -683,5 +682,3 @@ TEST_FILE
 		}
 	});
 }
-
-#endif

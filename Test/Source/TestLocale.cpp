@@ -1,6 +1,5 @@
 ﻿#include "../../Source/Locale.h"
 
-#if defined VCZH_MSVC || defined VCZH_GCC || defined VCZH_WASM
 #include "../../Source/Stream/Accessor.h"
 #include "../../Source/Stream/EncodingStream.h"
 #include "../../Source/Encoding/CharFormat/CharFormat.h"
@@ -160,5 +159,3 @@ TEST_FILE
 		}
 	});
 }
-
-#endif

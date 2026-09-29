@@ -1,5 +1,10 @@
 #include "../../Source/Threading.h"
 
+#if defined VCZH_WASM
+#include <emscripten/val.h>
+#include <exception>
+#endif
+
 using namespace vl;
 using namespace vl::collections;
 
@@ -308,6 +313,87 @@ using namespace mynamespace;
 
 TEST_FILE
 {
+#if defined VCZH_WASM
+	TEST_CASE(L"Browser console works from a pthread")
+	{
+		using namespace vl::console;
+		using emscripten::val;
+		auto global = val::global();
+		auto originalRead = global["vlConsoleRead"];
+		auto inputs = val::array();
+		inputs.call<void>("push", std::u16string(u"A\u4E2D\U0001F600\0B", 6), std::u16string());
+		global.set("vlConsoleRead", inputs["shift"].call<val>("bind", inputs));
+		Nullable<WString> text, empty, eof;
+		std::exception_ptr failure;
+		auto thread = Thread::CreateAndStart([&]()
+		{
+			try
+			{
+				Console::SetTitle(L"VlppOS pthread \u4E2D\U0001F600");
+				Console::SetColor(true, false, true, true);
+				Console::WriteLine(L"@pthread-console:\u4E2D\U0001F600");
+				text = Console::TryRead();
+				empty = Console::TryRead();
+				eof = Console::TryRead();
+			}
+			catch (...)
+			{
+				failure = std::current_exception();
+			}
+		}, false);
+		TEST_ASSERT(thread);
+		auto joined = thread->Wait();
+		delete thread;
+		global.set("vlConsoleRead", originalRead);
+		if (failure) std::rethrow_exception(failure);
+		TEST_ASSERT(joined);
+		TEST_ASSERT(text && text.Value() == WString::CopyFrom(L"A\u4E2D\U0001F600\0B", 5));
+		TEST_ASSERT(empty && empty.Value() == WString::Empty);
+		TEST_ASSERT(!eof);
+	});
+
+	TEST_CASE(L"Browser console callback failures return to the calling pthread")
+	{
+		using namespace vl::console;
+		using emscripten::val;
+		auto global = val::global();
+		auto originalWrite = global["vlConsoleWrite"];
+		auto originalColor = global["vlConsoleColor"];
+		auto originalTitle = global["vlConsoleTitle"];
+		auto originalRead = global["vlConsoleRead"];
+		auto parse = global["JSON"]["parse"];
+		auto invalid = parse.call<val>("bind", val::undefined(), val("invalid JSON"));
+		global.set("vlConsoleWrite", invalid);
+		global.set("vlConsoleColor", invalid);
+		global.set("vlConsoleTitle", invalid);
+		global.set("vlConsoleRead", invalid);
+		std::exception_ptr failure;
+		auto thread = Thread::CreateAndStart([&]()
+		{
+			try
+			{
+				TEST_ERROR(Console::Write(L"callback failure"));
+				TEST_ERROR(Console::SetColor(true, true, true, true));
+				TEST_ERROR(Console::SetTitle(L"callback failure"));
+				TEST_ERROR(Console::TryRead());
+			}
+			catch (...)
+			{
+				failure = std::current_exception();
+			}
+		}, false);
+		TEST_ASSERT(thread);
+		auto joined = thread->Wait();
+		delete thread;
+		global.set("vlConsoleWrite", originalWrite);
+		global.set("vlConsoleColor", originalColor);
+		global.set("vlConsoleTitle", originalTitle);
+		global.set("vlConsoleRead", originalRead);
+		if (failure) std::rethrow_exception(failure);
+		TEST_ASSERT(joined);
+	});
+#endif
+
 	TEST_CASE(L"Test Thread")
 	{
 		ThreadData data;

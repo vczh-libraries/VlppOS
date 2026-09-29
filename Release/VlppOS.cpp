@@ -12375,6 +12375,7 @@ namespace vl::inter_process::async_tcp_socket
 										lifecycle;
 
 			static vint CurrentCallbackDepth(Ptr<SocketHttpServerConnectionLifecycle> state);
+			static void ReleaseStoppedConnection(Ptr<SocketHttpServerConnectionLifecycle> state);
 			static bool ClaimPollUnsafe(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork& work);
 			static void StartPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork work);
 			static void FinishPollResponse(Ptr<SocketHttpServerConnectionLifecycle> state, Ptr<SocketHttpRequestContext> context, bool succeeded);
@@ -12642,20 +12643,12 @@ namespace vl::inter_process::async_tcp_socket
 		SocketHttpServerConnection::CallbackFrame::~CallbackFrame()
 		{
 			currentCallbackFrame = previous;
-			Ptr<SocketHttpServerLifecycle> server;
-			SocketHttpServerConnection* owner = nullptr;
 			CS_LOCK(state->lockState)
 			{
 				state->activeCallbacks--;
-				if (state->activeCallbacks == 0 && state->stopFinished && state->server)
-				{
-					server = state->server;
-					owner = state->owner;
-				}
 				state->cvState.WakeAllPendings();
 			}
-			Ptr<SocketHttpServerConnection> releasing;
-			if (server && owner) releasing = server->ReleaseStoppedConnection(owner);
+			ReleaseStoppedConnection(state);
 		}
 
 		SocketHttpServerConnection::InboundFrame::InboundFrame(Ptr<SocketHttpServerConnectionLifecycle> _state)
@@ -12678,6 +12671,22 @@ namespace vl::inter_process::async_tcp_socket
 				if (frame->state == state) depth++;
 			}
 			return depth;
+		}
+
+		void SocketHttpServerConnection::ReleaseStoppedConnection(Ptr<SocketHttpServerConnectionLifecycle> state)
+		{
+			Ptr<SocketHttpServerLifecycle> server;
+			SocketHttpServerConnection* owner = nullptr;
+			CS_LOCK(state->lockState)
+			{
+				if (state->stopFinished && state->activeCallbacks == 0 && !state->inFlightPoll && !state->pollRegistrationProcessing)
+				{
+					server = state->server;
+					owner = state->owner;
+				}
+			}
+			Ptr<SocketHttpServerConnection> releasing;
+			if (server && owner) releasing = server->ReleaseStoppedConnection(owner);
 		}
 
 		bool SocketHttpServerConnection::ClaimPollUnsafe(Ptr<SocketHttpServerConnectionLifecycle> state, PollWork& work)
@@ -12770,6 +12779,7 @@ namespace vl::inter_process::async_tcp_socket
 			}
 			if (!completed) return;
 			InvokePollCompleted(state->token, succeeded);
+			ReleaseStoppedConnection(state);
 			if (installed)
 			{
 				bool promoted = false;
@@ -13178,7 +13188,6 @@ namespace vl::inter_process::async_tcp_socket
 				}
 			}
 
-			Ptr<SocketHttpServerLifecycle> releasingServer;
 			CS_LOCK(state->lockState)
 			{
 				state->callback = nullptr;
@@ -13189,12 +13198,9 @@ namespace vl::inter_process::async_tcp_socket
 				if (first)
 				{
 					state->stopFinished = true;
-					if (state->activeCallbacks == 0) releasingServer = state->server;
 				}
 				state->cvState.WakeAllPendings();
 			}
-			Ptr<SocketHttpServerConnection> releasing;
-			if (releasingServer) releasing = releasingServer->ReleaseStoppedConnection(this);
 			if (first && waitForPoll)
 			{
 				CS_LOCK(state->lockState)
@@ -13202,6 +13208,7 @@ namespace vl::inter_process::async_tcp_socket
 					while (state->inFlightPoll) state->cvState.SleepWith(state->lockState);
 				}
 			}
+			ReleaseStoppedConnection(state);
 		}
 
 		void SocketHttpServerConnection::StopFromServer()
@@ -15520,7 +15527,6 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 
-#if defined VCZH_MSVC || defined VCZH_GCC
 #include <algorithm>
 
 using namespace vl;
@@ -15533,6 +15539,13 @@ namespace vl
 	{
 		namespace tui_internal
 		{
+#if defined VCZH_WASM
+			Ptr<unittest::ITuiBackend> CreateTuiBackend()
+			{
+				CHECK_FAIL(L"vl::console::tui_internal::CreateTuiBackend()#A TUI backend must be injected in WebAssembly.");
+			}
+#endif
+
 			struct ListenerEntry
 			{
 				ITuiCallback*				listener = nullptr;
@@ -16396,21 +16409,16 @@ TUI
 			if (charWidth == 2 && x + 1 >= clip.x2) return;
 			RepairWide(buffer, width, height, x, y);
 			if (charWidth == 2) RepairWide(buffer, width, height, x + 1, y);
-			buffer[y * width + x] = TuiPixel
-			{
-				.glyph = TuiPixelGlyph::Char,
-				.character = { .c = code, .style = options.style },
-				.foregroundColor = options.foregroundColor,
-				.backgroundColor = options.backgroundColor,
-			};
+			TuiPixel pixel;
+			pixel.character = { .c = code, .style = options.style };
+			pixel.foregroundColor = options.foregroundColor;
+			pixel.backgroundColor = options.backgroundColor;
+			buffer[y * width + x] = pixel;
 			if (charWidth == 2)
 			{
-				buffer[y * width + x + 1] = TuiPixel
-				{
-					.glyph = TuiPixelGlyph::WideCharContinuation,
-					.foregroundColor = options.foregroundColor,
-					.backgroundColor = options.backgroundColor,
-				};
+				pixel.glyph = TuiPixelGlyph::WideCharContinuation;
+				pixel.character = {};
+				buffer[y * width + x + 1] = pixel;
 			}
 		}
 
@@ -16531,8 +16539,6 @@ ScopedTuiBackend
 		}
 	}
 }
-
-#endif
 
 
 /***********************************************************************

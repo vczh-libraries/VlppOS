@@ -451,7 +451,7 @@ The public header exposes a test-only boundary in `vl::console::unittest`:
 
 Create or destroy a `ScopedTuiBackend` only while TUI is inactive. The backend must be non-null. While installed, it is also used by `TUI::TryGetConsoleSize`.
 
-This boundary enables deterministic lifecycle, callback, timer, resize, rendering, and failure tests without controlling a real terminal. Production applications should use the platform backend selected by `TUI::Start`.
+This boundary enables deterministic lifecycle, callback, timer, resize, rendering, and failure tests without controlling a real terminal. The shared coordinates/input types and portable TUI core are also available in WebAssembly, where `ScopedTuiBackend` is required to start an event loop or query a console size. Requesting the default backend there fails explicitly. `MeasureChar` uses the Emscripten SDK's Unicode `wcwidth`; native Unix retains its thread-local environment locale. Native production applications use the platform backend selected by `TUI::Start`.
 
 
 ### Emission and Colors
