@@ -141,7 +141,7 @@ For the continuation, run the requested Parser2 generated-parser suite, all five
 # PROPOSALS
 
 - No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher [CONFIRMED]
-- No.2 Extend browser verification to Parser2, Workflow and GacUI
+- No.2 Extend browser verification to Parser2, Workflow and GacUI [CONFIRMED]
 
 ## No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
 
@@ -296,3 +296,45 @@ Forced page garbage collection confirms the launcher defect: the original worker
 All 25 consecutive retained-worker startup checks pass under forced garbage collection, downloading all 242 files each time without an error. The unfixed baseline loses its worker after two collections and never reports completion. The canonical launcher is also exercised without the diagnostic startup route by complete Workflow CppTest_Reflection (232 cases) and LibraryTest (21 cases). Commit the two-line launcher correction and its documentation separately; distributed library copies remain in the port patch.
 
 The user requests a checkpoint commit of everything before continuing tests. Commit and push the reviewed port in all seven libraries now, keeping No.2 pending until the remaining verification finishes. Tools launcher fix `0a2f00e` is already pushed. After the restart, Parser2 passes 463 cases and all five Workflow browser suites pass (Library 21, Runtime 264, and each CppTest variant 232); Parser2 and Runtime read all 328/242 fixtures. Runtime also passes with the final packaged launcher. GacUI's complete browser run is still progressing through its control matrix without failures. Its focused asynchronous file passed 3 cases after the console correction. The final VlppOS browser regression build is ready. Continue GacUI and that regression after the checkpoint; do not claim the unfinished full GacUI run as a pass.
+
+### CONFIRMED
+
+No.2 extends the confirmed No.1 OPFS implementation; both are retained. No.2 is selected because it covers all seven additional browser projects and the requested cleanup.
+
+All requested projects pass through the generated Firefox launcher using Emscripten 3.1.6, cross-origin isolation and 32 preloaded pthread workers. Each completed run returns zero exactly once, without browser errors or C++ assertion failures. Fixture reads are audited after prefill without changing C++ test selection.
+
+| Project | Browser files / cases | Native Clang files / cases | Input fixtures |
+| --- | --- | --- | --- |
+| Parser2 ParserTest_ParserGen_Generated | 2 / 463 | 2 / 463 | 328 |
+| Workflow LibraryTest | 3 / 21 | 3 / 21 | 0 |
+| Workflow RuntimeTest | 4 / 264 | 4 / 264 | 242 |
+| Workflow CppTest | 2 / 232 | 2 / 232 | 0 |
+| Workflow CppTest_Metaonly | 2 / 232 | 2 / 232 | 0 |
+| Workflow CppTest_Reflection | 2 / 232 | 2 / 232 | 0 |
+| GacUI UnitTest | 93 / 1813 | 93 / 1812 | 96 |
+
+Parser2 reads all 328 mapped fixtures and Workflow RuntimeTest reads all 242. GacUI reads all 96 mapped fixtures, including the 32-bit compiler baselines; no mapped input is unused. Existing host snapshots are not preloaded; the explicit GacUI snapshot directory is output-only. Zero-input projects use an empty mapping.
+
+The reflection size workaround, fallback storage/lifetime/lookup and aligned regression all use `#ifdef VCZH_WASM`. Removing those additions from the header and implementation reproduces the original native code apart from whitespace. Reflection passes 54 browser cases and 53 native cases; native metadata generation and validation pass 175 and 174 cases. Explicit size-equality assertions protect the regression, which covers registration timing, unregistered derived/sibling types, reflected construction and type-manager reset. Native Clang originally passed because the original cell/row layouts were 272/280 bytes; the original Wasm layouts were both 144 bytes.
+
+The full GacUI browser run exposed a separate missing-console-callback error on a pthread. Vlpp's Wasm console now synchronously dispatches to the main runtime worker, keeping JavaScript callbacks and Embind handles in that worker. JavaScript failures become C++ errors, and exceptions raised during dispatch are rethrown on the caller. The implementation remains inside the existing Wasm-only file guard. The focused GacUI asynchronous file passes 3 cases; VlppOS's new pthread regressions cover output, color/title, Unicode and embedded-zero input, empty input, EOF, and all four callback failures. Temporary diagnostic logging and file filters are removed.
+
+Upstream browser suites pass Vlpp 473 cases, VlppOS 109 cases across 11 files, Regex 226 cases and Reflection 54 cases. Native Vlpp passes 467 cases under both Clang and GCC, VlppOS 279 cases across 15 files and Regex 226 cases. TuiPlayground builds and its real PTY exercise verifies Unicode, colors/styles, overwrite, normal exit and terminal restoration; this does not claim the full visual SOP.
+
+All five native Parser2 projects pass: generated parsers 463, parser compiler 294, JSON 130, XML 25 and Workflow parser 717 cases. TypeScript checks pass 833 exported AST samples. Workflow metadata generation and load/compile pass 2 and 710 cases, refreshing both 32-bit and 64-bit assemblies. Workflow stdio RPC verification passes 126 cases with three documented SharedMemsp exclusions. TypeScript checks pass 129 Values and 129 Request samples per architecture plus Rpc.d.ts; browser CppTest/CppTest_Metaonly exports also typecheck their corresponding 32-bit samples.
+
+Native GacUI passes 93 files / 1812 cases, including focused ColorDialog and EasyLayout checks. Its initial 1813 count included creating an absent output directory; other test-case names are unchanged. Snapshots regenerated in the isolated native checkout reflect Unix paths, current date and character-width/async ordering differences and are excluded from the patch. The subsequent native HTTP correction is verified directly in VlppOS; it is excluded from Wasm builds.
+
+Two pre-existing native interprocess races were fixed separately: stopped HTTP connections were released before held polls drained, and the channel chat test could lose a client before checking its three-client invariant. The complete interprocess file passes 25 consecutive runs of 29 cases, followed by the complete native suite. Original timeouts and assertions remain. The fixes are committed separately as `3a9be0f` and `b278bae`.
+
+A separate Firefox launcher lifetime defect is fixed in Tools commit `0a2f00e`: the page retains its worker through a pagehide listener while asynchronous prefill/module initialization is pending. The unfixed baseline loses its worker after two forced garbage collections; the retained worker passes 25 consecutive complete 242-file startup prefills. These are startup stress checks, distinct from the complete C++ suite results. The canonical packaged launcher also passes all five complete Workflow suites; the final RuntimeTest run passes 264 cases and reads all 242 fixtures without the retention diagnostic route. Its copies are distributed through `vgo uci` to all seven libraries.
+
+wGac and iGac have no dependencies on the three removed GacUI Linux CppTest projects or Linux/Main.cpp. Both repositories remain unchanged; their retained dependencies use RemotingTest_Core/RemotingTest_RvmHost and the separate CppTest_Rvm/CppTest_Tui source projects. The obsolete directories are absent. All three Project.md files list the requested supported browser projects and relevant prerequisites/optimization settings.
+
+Imports match their owning releases byte for byte. Nine distributed Ubuntu tooling files in each new repository match Tools. The only remaining three-compiler conditional is the intentional exactly-one-compiler assertion. Project XML parses and all seven repositories pass whitespace checks. Generated host snapshots/parser logs and temporary diagnostics are excluded. The host restart interrupted some builds and cleared /tmp; incomplete object files were removed, surviving objects validated, and interrupted browser verification restarted. Final browser records are retained in `~/.cache/vlpp-wasm-extend`.
+
+The full GacUI run completes 93/93 files and 1813/1813 cases, with one zero return and no browser errors. Its extra case compared with the final native run creates the absent compiler output directory in fresh OPFS. The run started before the pagehide-only launcher correction; that correction is separately verified by the forced-GC startup regression and the complete Workflow and VlppOS runs. The full GacUI C++ sources match the committed implementation.
+
+After the user-requested checkpoint, the committed VlppOS browser suite passes 109/109 cases across 11 files. Browser DOM checks also verify the pthread-set title, Unicode output marker and magenta color. Code review is complete; native reflection behavior is preserved, generated imports/tooling match their owners, and no diagnostic source selection or host snapshot changes remain. Verification servers are stopped.
+
+The implementation was committed and pushed before the remaining tests at the user's request: Vlpp `b2bb81ebe`, VlppOS `970e4c012`, VlppRegex `69effc7a0`, VlppReflection `75133b90d`, VlppParser2 `33104dad8`, Workflow `62b0502dd`, GacUI `e5dcac87d`. The confirmed report is committed separately after verification.
