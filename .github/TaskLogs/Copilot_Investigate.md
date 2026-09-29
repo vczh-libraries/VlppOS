@@ -98,6 +98,26 @@ For `VlppRegex` and `VlppReflection`, you are going to figure out the minimum li
 
 Update any document in `Tools` repo saying about web assembly file system, now you have the default `OPFS` implementation.
 
+# UPDATES
+
+## UPDATE
+
+a little fix
+- `#if defined VCZH_MSVC || defined VCZH_GCC || defined VCZH_WASM` code like that could just be removed because it means every platform
+
+And follow the original request to enable these unit test projects:
+- `VlppParser2/Test/Linux/ParserTest_ParserGen_Generated`
+- `Workflow/Test/Linux/(LibraryTest|RuntimeTest|CppTest|CppTest_Metaonly|CppTest_Reflection)`
+- `GacUI/Test/Linux/UnitTest`
+
+By the way, in `GacUI/Test/Linux`, the following test projects are not needed anymore:
+- `CppTest`
+- `CppTest_Metaonly`
+- `CppTest_Reflection`
+Make sure the `wGac` and `iGac` repo (no need to update them) really don't depend on these 3 test projects, and if yes, remove them.
+
+Follow `Project.md` in the previous 4 repos to update the new 3 repos to mention which projects work with web assembly.
+
 # TEST [CONFIRMED]
 
 Firefox reproduced `vl::filesystem::GetFileSystemInjection()#File system access is not supported in WebAssembly.` in the OPFS root test, followed by exactly one `wasm_main returns 1.` line and no browser errors. The reproduction compiled successfully using the repository build wrapper.
@@ -107,6 +127,7 @@ Enable the requested Wasm test files and run them against the existing implement
 # PROPOSALS
 
 - No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher [CONFIRMED]
+- No.2 Extend browser verification to Parser2, Workflow and GacUI
 
 ## No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
 
@@ -161,3 +182,15 @@ Canonical Tools changes were committed/pushed before distribution through `vgo u
 Select No.1, the sole confirmed proposal. Source review found no additional changes necessary after the runtime continuation and recursive-glob corrections. Windows and macOS were not run; native Linux and browser Wasm coverage are recorded above. Directory rename is deliberately a non-atomic copy/delete operation, and streams retain complete files in memory, as documented.
 
 Final verification after selecting the confirmed proposal rebuilt VlppOS from clean Wasm objects and reran all 105 cases successfully, including concurrent filesystem workers, with the current canonical launcher package. Its manifest was empty, its default-page symlink and Wasm target copy were correct, and no browser errors or duplicate completion were reported.
+
+## No.2 Extend browser verification to Parser2, Workflow and GacUI
+
+Keep the confirmed OPFS implementation and extend its production launcher to the seven requested projects. Remove redundant guards that cover all supported compiler families, including the equivalent CHECK_ERROR condition in Vlpp, while preserving genuinely platform-specific branches. Regenerate releases and synchronize dependency imports in order.
+
+Reuse the existing Embind entry-point and exception-reporting pattern, retaining each project's initialization and cleanup. Map test paths to the OPFS root and declare only input fixtures and necessary empty directories in each vbuild file. RuntimeTest needs the compiler's generated 32-bit assemblies; GacUI needs its 32-bit compiler baselines and generated skin implementations. Keep the source inventory stable across compilers by selecting architecture-specific generated skin files in small registered Unix translation units, without editing generated C++.
+
+Tracked scripts and CMake files in wGac and iGac reference GacUI's RemotingTest_Core, RemotingTest_RvmHost, CppTest_Rvm and CppTest_Tui sources, but not the three obsolete Linux CppTest configurations or their shared Linux/Main.cpp. Remove only those obsolete configurations and their otherwise unreferenced entry point. Leave wGac and iGac unchanged. Document the browser-capable projects in each of the three Project.md files.
+
+### CODE CHANGE
+
+Distribute the canonical Ubuntu tools to the three repositories. Add seven JSON vbuild configurations, pthread pools, Wasm entry points and root-relative filesystem paths. Refresh dependency imports, register architecture-selecting skin translation units for GacUI's Unix unit test, and remove the obsolete Linux configurations. Verify each requested suite in the browser through the generated launcher, checking one successful completion and no failed assertions/browser errors. Run the required native project sequences and upstream regression suites, including Workflow's compiler fixture generation and RPC stdio verification. Record fixture counts, test counts, dependency audit evidence and any portability fixes discovered before selecting the completed implementation.
