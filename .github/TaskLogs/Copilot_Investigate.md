@@ -106,7 +106,7 @@ Enable the requested Wasm test files and run them against the existing implement
 
 # PROPOSALS
 
-- No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
+- No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher [CONFIRMED]
 
 ## No.1 Supply an OPFS backend and preload fixtures through the Wasm launcher
 
@@ -121,3 +121,41 @@ The existing Regex file is `TestAutomaton.cpp` (the request's `TestAutomation.cp
 ### CODE CHANGE
 
 Add/register the backend; remove the Wasm injection failure; enable the requested tests and adapt their paths; add buffered-stream and OPFS operation regressions. Update canonical packaging, launcher, quoted opt-in checks and documentation, verify them, commit/push Tools, and propagate through `vgo uci` to the four libraries. Regenerate releases and synchronize imports in dependency order. Verify all four full Wasm suites and native regressions.
+
+The restored locale test referenced Windows-only transformations; guard only those calls, and retain its portable comparisons/formatting/output on both native Unix and Wasm. Register TestLocale.cpp in the stable Unix inventory. The initial compile also corrected the stream position type to `vl::pos_t`.
+
+The first browser run passed binary snapshot/writeback tests but failed recursive folder deletion. `OpfsGetEntries` compared a JavaScript boolean with a numeric Wasm boolean using strict equality, so both enumeration lists were empty. Convert the imported flag with `!!directory` before comparing; retain the tree-preservation test and the existing enumeration suite as regression coverage.
+
+Restoring TestLocale.cpp reproduced an upstream Unicode corruption: `Vlpp/Source/Strings/String.cpp` narrowed `towlower`/`towupper` results to `char`. The written OPFS log showed the intact original text followed by truncated/non-Unicode case output. Preserve `wchar_t`, add a Vlpp regression for ASCII case changes with unchanged Chinese and supplementary characters, regenerate Vlpp, and import its release into all three consumers. Also exercise OPFS on two concurrent pthread workers with bounded completion waits.
+
+The concurrent check completed both files but hung in `pthread_join`: Emscripten 3.1.6 resumes `EM_ASYNC_JS` promises without its managed callback's thread-exit handling. This matches upstream [issue 17552](https://github.com/emscripten-core/emscripten/issues/17552) and [issue 16940](https://github.com/emscripten-core/emscripten/issues/16940). Complete OPFS calls on pthreads with one `emscripten_sleep(0)` continuation, a public Asyncify API that resumes through the runtime's managed callback. Keep this at the filesystem boundary, so arbitrary pthread callers benefit without changing generic threading or the SDK. Test several pairs of workers to verify joining and worker reuse.
+
+Final runner review found that Node's `**` glob includes the root directory (`.`). Filter glob results to regular files before validating their OPFS names, so broad include patterns work while directory paths remain inferred. The server regression checks union/deduplication, excludes, empty leaves, binary transport, isolation headers and read-only routes.
+
+
+### CONFIRMED
+
+The default injection now opens OPFS without app-specific hooks. Browser runs used the production generated launcher in isolated Firefox workers with Emscripten 3.1.6. Each suite reported exactly one successful `wasm_main returns 0.` completion, no browser errors and no diagnostic failures. The three VlppOS consumers retained their 32-worker pthread pools.
+
+| Project | Wasm test files / cases | Native Clang test files / cases | Prefilled files / empty folders |
+| --- | --- | --- | --- |
+| Vlpp | 32 / 473 | 32 / 467 | 0 / 0 |
+| VlppOS | 10 / 105 | 15 / 279 | 0 / 0 |
+| VlppRegex | 9 / 226 | 9 / 226 | 34 / Output |
+| VlppReflection | 9 / 53 | 9 / 53 | 0 / Metadata |
+
+Vlpp also passed 32 files / 467 cases with native GCC. Build commands used each repository's `.github/Ubuntu/build.sh`: full Wasm `-fbw`, incremental Wasm `-bw`, full native Clang `-f`, and Vlpp full GCC `--full-build-gcc`. Native executables ran as `./Bin/UnitTest /C` from their project directories. The upstream Unicode fix was committed and pushed separately as Vlpp `665fef3`.
+
+The OPFS regressions verify 70,000 binary bytes and supplementary Unicode names; whole-file snapshots; retained ReadWrite content; persistence only at close; read-only close; truncation, unavailable streams and access rights; normalization and relative paths; directory enumeration; tree-preserving rename; invalid/root/descendant operations; and four pairs of concurrent workers that finish and join. Existing FileStream, CacheStream, locale output, LZW and threading tests also execute. Regex and Reflection compile the generated VlppOS release, verifying the downstream packaging and filesystem consumers.
+
+Fixture evidence:
+
+- Regex's five pure expressions need five baselines each and its three other expressions need three each: `5 * 5 + 3 * 3 = 34`. The exact set of executed `.txt` comparison names in the browser log equals `Resources/Baseline/*.txt`; there are no unused files. The 34 binary fixture requests equal the manifest.
+- Reflection reads no input files. It writes `Metadata/ReflectionWithTestTypes32.txt` in OPFS; the browser verified its nonempty 23,765-byte output.
+- A separate production-page prefill check used a Unicode filename containing spaces, `#` and `?`, binary bytes including NUL and 255, and a nested empty folder. Reload removed a stale OPFS entry and restored original fixture bytes after browser-side mutation; the host file stayed unchanged.
+- Server checks cover `**`, include unions and deduplication, excludes, inferred parents, explicit empty leaves, binary responses, COOP/COEP isolation, unavailable/unselected routes and rejected PUT requests. Optional mappings without a root and configurations without includes preload no files.
+- Bare `WASM=YES` is rejected for both Wasm build modes before cleaning, while the quoted key opts in. JavaScript syntax and shell syntax checks passed.
+
+Canonical Tools changes were committed/pushed before distribution through `vgo uci`. All four Ubuntu tool copies match Tools byte for byte, old flat templates are removed, and the build/launch guidelines use `./Bin/app.sh ./vbuild [port]`. CodePack regenerated releases in dependency order; all affected dependency imports match their owning releases byte for byte. `git diff --check` passed in all five repositories.
+
+Select No.1, the sole confirmed proposal. Source review found no additional changes necessary after the runtime continuation and recursive-glob corrections. Windows and macOS were not run; native Linux and browser Wasm coverage are recorded above. Directory rename is deliberately a non-atomic copy/delete operation, and streams retain complete files in memory, as documented.
