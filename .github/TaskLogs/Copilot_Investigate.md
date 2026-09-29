@@ -23,3 +23,5 @@ Guard GacUI's TuiController, TuiWindow, TuiGraphics, TuiGraphicsRenderers and Tu
 ### CODE CHANGE
 
 Restore the five changed TUI implementation/header files and TestTui.cpp from the parent of `970e4c0`; replace TUITypes.h with the guarded include of the unchanged declarations in WindowTypes.h. Add native guards to the nine GacUI provider files and its test. Update the TUI specification and both Project.md files to state browser exclusions and the new shared declaration owner. Regenerate VlppOS and GacUI releases with CodePack and copy the changed VlppOS release artifacts to the five existing downstream Import directories. Verify native behavior, browser exclusion and generated-file consistency before confirming the proposal.
+
+Source review also found TUI.Windows.cpp using a negative compiler guard and a failing fallback. Replace it with the positive VCZH_MSVC guard required by the shared coding guideline, including its platform-only implementation. This keeps inactive platform sources harmless and does not change the Windows branch.

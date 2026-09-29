@@ -351,6 +351,7 @@
     <ClInclude Include="..\..\..\Source\Stream\RecorderStream.h" />
     <ClInclude Include="..\..\..\Source\Stream\Serialization.h" />
     <ClInclude Include="..\..\..\Source\Threading.h" />
+    <ClInclude Include="..\..\..\Source\WindowTypes.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Input.Windows.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Input.h" />

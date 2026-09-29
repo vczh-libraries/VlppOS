@@ -4,11 +4,9 @@ Licensed under https://github.com/vczh-libraries/License
 ***********************************************************************/
 
 #include "TUI.Input.Windows.h"
-#include <exception>
 
-#ifndef VCZH_MSVC
-static_assert(false, "Do not build this file for non-Windows applications.");
-#endif
+#if defined VCZH_MSVC
+#include <exception>
 
 using namespace vl;
 using namespace vl::presentation;
@@ -572,3 +570,5 @@ namespace vl
 		}
 	}
 }
+
+#endif

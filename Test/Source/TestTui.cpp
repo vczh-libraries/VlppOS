@@ -2784,32 +2784,4 @@ TEST_FILE
 	});
 }
 
-#elif defined VCZH_WASM
-
-using namespace vl;
-using namespace vl::console;
-
-TEST_FILE
-{
-	TEST_CASE(L"TUI pixels default to empty characters")
-	{
-		TuiPixel pixel;
-		TEST_ASSERT(pixel.glyph == TuiPixelGlyph::Char);
-		TEST_ASSERT(pixel.GetChar32() == 0);
-		TEST_ASSERT(pixel.character.style == TuiTextStyle{});
-		TEST_ASSERT(pixel.foregroundColor == TuiColor({ 255, 255, 255 }));
-		TEST_ASSERT(pixel.backgroundColor == TuiColor{});
-	});
-
-	TEST_CASE(L"WebAssembly requires an injected TUI backend")
-	{
-		vint width = 0;
-		vint height = 0;
-		TEST_ERROR(TUI::TryGetConsoleSize(width, height));
-		TEST_ERROR(TUI::Start({}));
-		TEST_ASSERT(!TUI::IsInUse());
-		TEST_ASSERT(Console::IsEnabled());
-	});
-}
-
 #endif

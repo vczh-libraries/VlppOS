@@ -8,6 +8,7 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "TUI.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 
 namespace vl
 {
@@ -24,5 +25,7 @@ namespace vl
 		}
 	}
 }
+
+#endif
 
 #endif

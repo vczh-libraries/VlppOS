@@ -8,6 +8,7 @@ Licensed under https://github.com/vczh-libraries/License
 
 #include "../Threading.h"
 
+#if defined VCZH_MSVC || defined VCZH_GCC
 #include "TUITypes.h"
 
 namespace vl
@@ -106,8 +107,6 @@ namespace vl
 			};
 			TuiColor						foregroundColor = { 255, 255, 255 };
 			TuiColor						backgroundColor = { 0, 0, 0 };
-
-			TuiPixel() :character{} {}
 
 			char32_t						GetChar32() const;
 			wchar_t							GetWChar() const;
@@ -274,5 +273,7 @@ namespace vl
 		}
 	}
 }
+
+#endif
 
 #endif

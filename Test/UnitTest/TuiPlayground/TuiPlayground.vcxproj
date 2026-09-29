@@ -144,6 +144,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\..\Import\Vlpp.h" />
     <ClInclude Include="..\..\..\Source\Threading.h" />
+    <ClInclude Include="..\..\..\Source\WindowTypes.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Input.Windows.h" />
     <ClInclude Include="..\..\..\Source\TUI\TUI.Input.h" />
