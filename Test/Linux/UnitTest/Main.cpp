@@ -2,11 +2,6 @@
 
 using namespace vl;
 
-WString GetTestResourcePath()
-{
-	return L"../../Resources/";
-}
-
 WString GetTestOutputPath()
 {
 	return L"../../Output/";

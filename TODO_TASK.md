@@ -4,7 +4,7 @@ Main goal of this task is to make an implementation of default `IFileSystemImpl`
 - Although the coding convention is limiting the usage of embedded JavaScript in `EM_JS`, but this implementation is not app specific, you can call any JavaScript code to access OPFS in `EM_JS`, keep them short, and do not use the C++ side of OPFS integration.
 
 In order to verify `OpfsFileSystemImpl`, we are going to update web assembly enabled unit test projects in:
-- `Vlpp/Test/Linux`: Rewrite `vbuild` to an empty JSON configuration: `{ "WASM=YES": {}}`
+- `Vlpp/Test/Linux`: Rewrite `vbuild` to an empty JSON configuration: `{"WASM=YES": {}}`
 - `VlppOS/Test/Linux/UnitTest`: enable following test files with web assembly:
   - `TestFileSystem.cpp`
   - `TestLocale.cpp`
@@ -24,8 +24,72 @@ The `vbuild` file is currently having a "WASM=YES" stream, and `vbuild -bw|-fbw`
   - We are going to add a `app.js`, currently `app.sh` starts node directly to serve files, we should instead let `app.sh` starts `node` with `app.js`, and `app.js` will start an http service, as well as reading `vbuild` configurations to serve files to `app.html`.
   - Before `app.html` running the unit test, it should ask the http server for the file list:
     - If `OPFS` already stores something for this website, clean everything.
-    - GET `/OPFS` -> a list of file names, or a tree, you make your decision according to the convenience of calling OPFS to prefill files, this request returns JSON.
+    - GET `/OPFS` -> a list of file names, empty folder names (non-empty folder is not included as they can be inferred by file names), or in a tree data structure, you make your decision according to the convenience of calling OPFS to prefill files, this request returns JSON.
     - GET `/OPFS/path/to/the/file` -> `app.js` will read the file from disk and the request gets the binary content, `app.html` and then stores the file to `OPFS`.
     - Now `OPFS` has prefilled files, we can run unit test and the unit test has access to file system.
     - When a file is changed, we don't need to write it back to the disk.
   - Fix everything in `Tools` and release the ubuntu tool to all mentioned 4 repos.
+
+The format of `vbuild` looks like this:
+```JSON
+{
+    "WASM=YES": {
+        "rootFolder": "relative/path/to/the/folder/containing/this/file",
+        "folders": [
+            "list/of/empty/folder/to/create",
+            "these/are/not/patterns"
+        ],
+        "includes": [
+            "folder/**/*.txt",
+            ...
+        ],
+        "excludes": [
+            "folder/**/IDoNotLikeThese/*.txt",
+            ...
+        ]
+    }
+}
+```
+
+All fields are optional, when `rootFolder` absents, the rest of 3 are ignored. When `includes` absents, no files are pre-loaded (because excludes anything from an empty set is still empty).
+
+Although native apps have the concept of pwd, but since OPFS is owned by the app, so the pwd in web assembly will always report the root aka "/".
+`rootFolder` here means the place being mapped to "/", first match all files with includes (combine all result together from each array item but no duplication), and then excludes those patterns from includes, the rest of the files will be copied into `OPFS`.
+
+`Vlpp/Test/Linux` does not read file, so it maps nothing.
+
+For `VlppOS/Test/Linux/UnitTest`, here is an example. In `main.cpp` we will see
+```C++
+WString GetTestOutputPath()
+{
+	return L"../../Output/";
+}
+```
+And scan all cpp files in the list above we could know it only create files in the `Output` folder, so the `vbuild` looks like:
+```JSON
+{
+    "WASM=YES": {
+        "rootFolder": "../../"
+    }
+}
+```
+So `OPFS` is empty from the beginning. The `Output` folder will be created in the unit test.
+
+And `main.cpp` becomes
+```C++
+#if defined VCZH_GCC
+WString GetTestOutputPath()
+{
+	return L"../../Output/";
+}
+#elif defined VCZH_WASM
+WString GetTestOutputPath()
+{
+	return L"/Output/";
+}
+#endif
+```
+
+For `VlppRegex` and `VlppReflection`, you are going to figure out the minimum list to mirror, and the simplest way to write file patterns in `vbuild`. I will verify later if the list of loaded files are actually minimum or not.
+
+Update any document in `Tools` repo saying about web assembly file system, now you have the default `OPFS` implementation.
