@@ -2,7 +2,7 @@
 
 # Orders
 
-- `vl::inter_process` shutdown must finish callbacks before returning [6]
+- `vl::inter_process` shutdown must finish callbacks before returning [7]
 - Use `HttpClientApi` and `HttpServerApi` for reusable Windows HTTP transport code [3]
 - `NetworkProtocolLocalChannelClient` owns server-local behavior [2]
 - `NetworkProtocolChannel` queues should stay grouped for `BatchWrite` [2]
@@ -16,6 +16,8 @@
 - `HttpServerConnection` queues pending outbound `/Request` responses [2]
 - Store semantic TUI state and derive each frame [2]
 - Use one general information overlay for TUI help and errors [2]
+- Preserve real concurrency and explicit unsupported services on Wasm [2]
+- Shared TUI input declarations have one upstream owner [2]
 - Template `NetworkProtocolChannelServer` over the protocol server base [1]
 - Use `IChannelServer::OnClientConnected` `localClient` to identify local clients [1]
 - Start `INetworkProtocolServer` / `IChannelServer` after construction [1]
@@ -33,10 +35,10 @@
 - `NativeWindowCharInfo::code` carries one native `wchar_t` unit [1]
 - Convert TUI native units to scalars in the consumer [1]
 - Synchronize Windows TUI buffer geometry with the visible viewport [1]
-- Shared TUI input declarations have one upstream owner [1]
 - Populate TUI modifiers only from observable input [1]
-- Preserve real concurrency and explicit unsupported services on Wasm [1]
 - Keep protocol-independent ChannelImpls available on Wasm [1]
+- Complete OPFS Asyncify continuations before joining pthreads [1]
+- Keep TUI implementations and injected backends native-only [1]
 
 # Refinements
 
@@ -83,6 +85,8 @@ For WinHTTP requests, track request lifetime before `WinHttpSendRequest` and rel
 For named-pipe connections, cancel pending overlapped pipe I/O before waiting for callbacks to drain when the remote side can close first. `NetworkProtocolChannelClient` destruction should also check whether the transport connection is already disconnected before trying to stop it.
 
 An `IAsyncSocketServerCallback` passed non-owningly to `IAsyncSocketServer::Start` must remain valid until the server reaches its callback-drain boundary. An external `Stop()` waits for already-entered accept callbacks; a callback-reentrant stop prevents later callbacks and defers self-dependent cleanup so it does not deadlock, with a later idempotent external stop completing finalization before the callback owner is released.
+
+For `SocketHttpServerConnection` in `Source/InterProcess/AsyncSocket/AsyncSocket_HttpServer.cpp`, keep a stopped connection in the server stopping list until callbacks, poll registration and its in-flight poll all drain. Callback completion alone is insufficient: otherwise a concurrent whole-server `Stop()` can miss a deliberately held poll. Reevaluate release from callback, poll and stop completion paths.
 
 ## Keep `IChannelServer` delivery-only; use local clients for server speech
 
@@ -233,3 +237,11 @@ Keep the complete threading contract through Emscripten pthreads and shared POSI
 ## Keep protocol-independent ChannelImpls available on Wasm
 
 `Source/InterProcess/ChannelImpls` is portable channel logic, not a concrete native transport. Keep all seven implementation/header files available on Wasm through the existing threading backend; preserve ordinary header guards when removing inappropriate native-platform wrappers. Apply native-only guards to the actual transport implementations instead of excluding every nested InterProcess file. Regenerate the Linux release and verify that a Wasm consumer can instantiate the channel/client/server types and round-trip a package with client and receiver IDs.
+
+## Complete OPFS Asyncify continuations before joining pthreads
+
+In `Source/FileSystem.Wasm.cpp`, test filesystem calls from reusable pthread workers as well as the main runtime worker. With Emscripten 3.1.6, an `EM_ASYNC_JS` promise can finish the file operation yet leave `pthread_join` waiting because thread-exit handling was bypassed. Keep the managed `emscripten_sleep(0)` continuation at the OPFS boundary, where every caller benefits, instead of patching generic threading or the SDK. Require several worker pairs to complete and join before claiming concurrency works.
+
+## Keep TUI implementations and injected backends native-only
+
+Keep `Source/TUI/TUI*` APIs, implementations and forwarding declarations under positive native platform guards (`VCZH_MSVC || VCZH_GCC`, narrowed for each backend). WebAssembly has no planned TUI backend; do not expose the portable buffer core, unsupported stubs, Wasm width logic or compatibility constructors merely to run injected TUI tests. General GacUI input types remain available independently through `Source/WindowTypes.h`, with unchanged names, defaults and key values. Verify downstream TUI providers remain native-only while renderer-independent resources and shared public types still compile.

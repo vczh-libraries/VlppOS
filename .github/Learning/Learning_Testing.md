@@ -5,17 +5,20 @@
 - Use focused `TestInterProcess.cpp` runs for inter-process work [10]
 - Debug UnitTest logs append memory leaks after the pass summary [9]
 - Split channel clients by role when validating sender ids [5]
-- Repeat inter-process transport scenarios instead of sleeping after `Stop()` [4]
+- Repeat inter-process transport scenarios instead of sleeping after `Stop()` [5]
 - Verify Windows TUI geometry with the production backend [3]
 - `TestInterProcess_AsyncSocket.cpp` registers shared scenarios once across platforms [2]
+- Check Wasm threading in an isolated browser and generated release consumer [2]
+- Separate TUI attribute transport from visible font effects [2]
 - Search project metadata after source file renames [1]
 - Test inherited `Thread` completion with a custom subclass [1]
 - Synchronize server startup outside dedicated retry tests [1]
 - Test shared Socket HTTP routing through one injected listener and client [1]
 - Inject response failure when testing Socket HTTP poll requeue [1]
 - Test the production TUI decoder across input boundaries [1]
-- Separate TUI attribute transport from visible font effects [1]
-- Check Wasm threading in an isolated browser and generated release consumer [1]
+- Gate channel traffic until client-count validation finishes [1]
+- Test Wasm console callbacks from real pthread callers [1]
+- Verify native-only TUI exclusions with complete browser inventories [1]
 
 # Refinements
 
@@ -92,3 +95,15 @@ For Windows visual acceptance, use the Windows Terminal setup in `.github/Jobs/D
 ## Check Wasm threading in an isolated browser and generated release consumer
 
 Use the generated HTTP launcher with COOP/COEP isolation and the configured preloaded pthread workers, then run every retained test, including concurrency and repeated/concurrent thread waits. Check exactly one successful completion and no browser errors. Compile a separate consumer of the generated Vlpp/VlppOS release to verify memory streams, OPFS persistence and supported channel APIs. Keep native regression tests and confirm projects without the quoted `"WASM=YES"` key reject both incremental and full Wasm commands before cleaning.
+
+## Gate channel traffic until client-count validation finishes
+
+In `Test/Source/TestInterProcess.cpp`, `ConnectLocalClient` can synchronously broadcast IDs and greetings, allowing the chat to finish and a client to disappear before the server validates its three-client invariant. Signal a server-client-ready event only after validating those IDs, and make the first sender wait for that event. Preserve the original count assertion and bounded timeout; do not blame an idle socket completion worker or modify transport code without a trace identifying the failing transition.
+
+## Test Wasm console callbacks from real pthread callers
+
+Keep the Wasm-only console regressions in `Test/Source/TestThread.cpp` exercising actual pthread calls to output, color, title and input. Cover Unicode and embedded-zero text, present empty input, EOF, and failures of every callback returning as C++ errors to the caller. Verify observable browser output, title and color as well as thread completion; a successful main-worker console test does not prove callback availability or exception propagation on pthreads.
+
+## Verify native-only TUI exclusions with complete browser inventories
+
+Keep `Test/Source/TestTui.cpp` native-only and compare complete unfiltered browser file/case inventories against the previous run to prove only intended TUI coverage was removed. Check inactive Wasm objects for absent implementation and test-registration symbols rather than using runtime file filters. Verify GacUI TUI-provider and TUI-backed EasyLayout cases are also excluded, while portable resource helpers remain usable by other tests. Run affected native suites and a real TuiPlayground PTY exercise, including resize, Unicode, normal exit and exact terminal restoration; report visual-font verification separately.
