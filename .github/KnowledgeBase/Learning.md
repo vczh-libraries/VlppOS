@@ -2,11 +2,11 @@
 
 # Orders
 
-- Verify generated artifacts with downstream consumer checks [29]
-- Keep design documentation aligned with code after refactoring [25]
-- Proactively remove code made redundant by refactoring [24]
-- Process staged tasks one by one with verification [24]
-- Port fixes from imports to source repositories [21]
+- Verify generated artifacts with downstream consumer checks [32]
+- Keep design documentation aligned with code after refactoring [26]
+- Proactively remove code made redundant by refactoring [26]
+- Process staged tasks one by one with verification [25]
+- Port fixes from imports to source repositories [23]
 - Verify and localize portability on every target OS [20]
 - Crash early instead of adding error-tolerance fallbacks [16]
 - Extract abstractions only for real shared behavior [16]
@@ -20,8 +20,8 @@
 - Treat environment correlation as evidence, not a cause [4]
 - Don't assume observable changes are batched [3]
 - Use RAII scope cleanup instead of manual catch cleanup [3]
-- Keep encoding and exception adapters at the C++/JavaScript boundary [3]
 - Use explicit positive compiler and platform guards [3]
+- Keep encoding and exception adapters at the C++/JavaScript boundary [3]
 - Capture dependent lambdas explicitly [2]
 - Use `ERROR_MESSAGE_PREFIX` for meaningful `CHECK_ERROR` / `CHECK_FAIL` messages [2]
 - Prefer simple calls before interface casts [2]
@@ -59,6 +59,8 @@
 - Revalidate mutable external state immediately before mutation [1]
 - Retain browser workers through asynchronous initialization [1]
 - Minimize browser fixture manifests and audit consumed inputs [1]
+- Preserve compiler-generated modules during packaging [1]
+- Validate complete deployment inputs before writing outputs [1]
 
 # Refinements
 
@@ -163,6 +165,8 @@ Shared Ubuntu build infrastructure must be changed in the canonical `Tools/Ubunt
 If a Workflow task exposes a `VlppReflection` collection-wrapper issue, fix the wrapper behavior in `VlppReflection`, regenerate and verify its release output, then update the Workflow import from that release instead of patching Workflow's imported copy.
 
 When a VlppOS public namespace refactor changes released APIs, regenerate the VlppOS release and update Workflow and GacUI from that release before repairing downstream build breaks; do not patch imported copies.
+
+When an upstream fix already exists but downstream suites reproduce the old failure, compare the imported amalgamation with the current owning release before changing source again. Regenerate and propagate the existing fix, then rebuild the affected consumers; stale imports can preserve an already-fixed optimization or encoding defect.
 
 ## Validate expectations against implementation and existing tests
 
@@ -288,6 +292,10 @@ When a new platform backend is packed into an existing release pair, compile and
 
 For compiler refactors intended to preserve valid resource behavior, rebuild the deployed release tools, invalidate resource caches that do not track compiler binaries, and inspect each downstream architecture's outputs. A driver that catches errors and continues cannot be validated by its exit alone. Explain the complete generated diff, including unchanged consumers, and avoid inserting runtime checks for constraints that the authoring compiler can validate directly.
 
+After refreshing shared release imports, rebuild every requested browser-compatible consumer and run its complete retained suite through the generated HTTP launcher. Require readable output, the expected case counts, exactly one successful completion marker, cross-origin isolation and no browser diagnostics; a passing foundational library does not establish that its downstream amalgamations are current.
+
+Include the optimized amalgamated downstream application when verifying conversion or boundary fixes. Inlining and optimization can expose aliasing defects that the upstream source-project suite does not reproduce; inspect values before and after the suspected boundary and confirm the repaired generated release in the actual consumer.
+
 ## `vl::regex` separator regex: `L"[\\/\\\\]+"`
 
 In `vl::regex::Regex`, both `/` and `\\` are escaping characters, and incorrect escaping inside `[]` can throw errors like `Illegal character set definition.`
@@ -337,6 +345,8 @@ When a shared event-information type can own a newly common field, move the fiel
 When a documented build invariant guarantees that `CPP_TARGET` and its package outputs are files under `Bin`, removing `Bin` already cleans them. Remove redundant file-by-file cleanup instead of preserving commands for target layouts the build no longer supports.
 
 Before adding persistent validation state, check whether the existing input contract can provide the complete set of values in one batch. If it can, validate with local state and remove the state map, wrapper type and alternate authoring paths that existed only to support incremental arrival. Preserve ordinary runtime mutation when the restriction belongs specifically to authoring.
+
+When retiring a build option, remove its implementation and active configuration/documentation references together. Before deleting a configuration file that becomes nearly empty, check whether its presence or minimal contents still opt the project into the build mode; remove the obsolete option while preserving that independent purpose.
 
 ## Keep design documentation aligned with code after refactoring
 
@@ -461,3 +471,11 @@ Keep a strongly reachable `Worker` reference for the page lifetime while asynchr
 ## Minimize browser fixture manifests and audit consumed inputs
 
 Map only the input files and explicitly needed empty directories used by the retained browser suite. Union and deduplicate include results, apply exclusions, filter broad glob results to regular files, and infer nonempty parent directories. Compare actual reads with the manifest so an overly broad pattern cannot silently preload unused fixtures. Verify binary fidelity, fresh origin-private state on reload, and that browser writes never alter host fixtures.
+
+## Preserve compiler-generated modules during packaging
+
+When a toolchain already supports loading adjacent runtime files, deploy those files instead of rewriting its generated module or replacing its export with an embedding wrapper. For Emscripten pthread builds, preserve `app.mjs` byte-for-byte and package the matching `app.worker.js` and `app.wasm` beside it, allowing the original factory and worker imports to resolve normally. Verify unchanged generated bytes after packaging and distinguish application-host workers from compiler-generated pthread workers.
+
+## Validate complete deployment inputs before writing outputs
+
+Validate every required source artifact and destination prerequisite across the complete deployment before copying any file. Share one artifact inventory between validation and copying, and reject missing, empty or non-regular source files before altering existing output. Exercise rejection at the last application or artifact as well as the first, require all deployed files to remain unchanged on rejection, and keep a successful control that copies every matching artifact.
