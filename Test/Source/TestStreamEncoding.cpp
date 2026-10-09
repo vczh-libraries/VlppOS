@@ -3,6 +3,11 @@
 #include "../../Source/Encoding/CharFormat/CharFormat.h"
 #include "../../Source/Locale.h"
 
+#if defined VCZH_MSVC
+#define _WINSOCKAPI_
+#include <Windows.h>
+#endif
+
 using namespace vl;
 using namespace vl::stream;
 using namespace vl::collections;
@@ -307,6 +312,17 @@ TEST_FILE
 
 	TEST_CATEGORY(L"Predefined UTF Encoding")
 	{
+#if defined VCZH_MSVC
+		TEST_CASE(L"MBCS follows the thread code page")
+		{
+			auto originalLocale = GetThreadLocale();
+			TEST_ASSERT(SetThreadLocale(0x0409));
+			TestEncodingWithoutBOM<char, wchar_t, MbcsEncoder, MbcsDecoder>(L"A\u00E9", "A\xE9");
+			TEST_ASSERT(SetThreadLocale(0x0804));
+			TestEncodingWithoutBOM<char, wchar_t, MbcsEncoder, MbcsDecoder>(L"A\u00E9\u4E2D", "A\xA8\xA6\xD6\xD0");
+			TEST_ASSERT(SetThreadLocale(originalLocale));
+		});
+#endif
 		TEST_CASE(L"<MBCS, NO-BOM>")
 		{
 			TestEncodingWithoutBOM<char, wchar_t, MbcsEncoder, MbcsDecoder>(
