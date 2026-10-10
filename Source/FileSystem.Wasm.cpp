@@ -34,6 +34,15 @@ OPFS JavaScript boundary (requires Asyncify)
 		} catch { return 0; }
 	});
 
+	EM_ASYNC_JS(emscripten::EM_VAL, OpfsReadInfo, (emscripten::EM_VAL handle), {
+		try {
+			const entry = Emval.toValue(handle);
+			if (entry.kind === "directory") return Emval.toHandle({ directory: true });
+			const file = await entry.getFile();
+			return Emval.toHandle({ directory: false, size: file.size, modified: file.lastModified });
+		} catch { return 0; }
+	});
+
 	EM_ASYNC_JS(emscripten::EM_VAL, OpfsReadFile, (emscripten::EM_VAL handle), {
 		try {
 			const file = await Emval.toValue(handle).getFile();
@@ -303,6 +312,33 @@ OpfsFileSystemImpl
 			for (vint i = common; i < source.Count(); i++) result.Add(L"..");
 			for (vint i = common; i < target.Count(); i++) result.Add(target[i]);
 			return FilePath::ComponentsToPath(result);
+		}
+
+		FileInfo GetFileInfo(const FilePath& path) const override
+		{
+			auto handle = GetOpfsHandle(path, false);
+			if (handle.isNull()) handle = GetOpfsHandle(path, true);
+			CHECK_ERROR(!handle.isNull(), L"vl::filesystem::OpfsFileSystemImpl::GetFileInfo()#Entry does not exist.");
+			auto result = CompleteOpfsOperation(OpfsReadInfo(handle.as_handle()));
+			CHECK_ERROR(result, L"vl::filesystem::OpfsFileSystemImpl::GetFileInfo()#Cannot read metadata.");
+			auto data = val::take_ownership(result);
+			FileInfo info;
+			info.isDirectory = data["directory"].as<bool>();
+			info.canRead = true;
+			info.canWrite = true;
+			if (!info.isDirectory)
+			{
+				info.size = static_cast<vuint64_t>(data["size"].as<double>());
+				auto modified = data["modified"].as<double>();
+				if (modified >= 0) info.lastModifiedTime = DateTime::FromOSInternal(static_cast<vuint64_t>(modified));
+			}
+			return info;
+		}
+
+		bool FileCopy(const FilePath&, const FilePath&) const override
+		{
+			// OPFS cannot set file timestamps, so it cannot preserve copy metadata.
+			return false;
 		}
 
 		bool FileDelete(const FilePath& path) const override { return DeleteEntry(path, false); }

@@ -87,6 +87,12 @@ File
 			return GetFileSystemImpl()->FileDelete(filePath);
 		}
 
+		FileInfo File::GetFileInfo() const
+		{
+			CHECK_ERROR(Exists(), L"vl::filesystem::File::GetFileInfo()#File does not exist.");
+			return GetFileSystemImpl()->GetFileInfo(filePath);
+		}
+
 		bool File::Rename(const WString& newName) const
 		{
 			return GetFileSystemImpl()->FileRename(filePath, newName);
@@ -99,6 +105,12 @@ Folder
 		bool Folder::GetFolders(collections::List<Folder>& folders) const
 		{
 			return GetFileSystemImpl()->GetFolders(filePath, folders);
+		}
+
+		FileInfo Folder::GetFileInfo() const
+		{
+			CHECK_ERROR(Exists(), L"vl::filesystem::Folder::GetFileInfo()#Folder does not exist.");
+			return GetFileSystemImpl()->GetFileInfo(filePath);
 		}
 
 		bool Folder::GetFiles(collections::List<File>& files) const

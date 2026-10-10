@@ -66,6 +66,11 @@ FilePath
 			Initialize();
 		}
 
+		bool FilePath::IsAbsolutePath(const WString& path)
+		{
+			return FilePath(path).GetFullPath() == path;
+		}
+
 		FilePath::FilePath(const WString& _filePath)
 			:fullPath(_filePath)
 		{
@@ -369,6 +374,19 @@ File
 			return filePath.IsFile();
 		}
 
+		bool File::CopyToFolder(const FilePath& destination, bool recursively)const
+		{
+			return CopyToFile(destination / filePath.GetName(), recursively);
+		}
+
+		bool File::CopyToFile(const FilePath& destination, bool recursively)const
+		{
+			if (!Exists() || destination == filePath || destination.IsFolder()) return false;
+			auto folder = destination.GetFolder();
+			if (!folder.IsFolder() && (!recursively || !Folder(folder).Create(true))) return false;
+			return GetFileSystemImpl()->FileCopy(filePath, destination);
+		}
+
 /***********************************************************************
 Folder
 ***********************************************************************/
@@ -390,6 +408,7 @@ Folder
 
 		bool Folder::Create(bool recursively)const
 		{
+			if (filePath.IsRoot()) return false;
 			if (recursively)
 			{
 				auto folder = filePath.GetFolder();
