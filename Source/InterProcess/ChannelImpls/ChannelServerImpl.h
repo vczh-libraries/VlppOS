@@ -526,11 +526,13 @@ NetworkProtocolChannelServer
 					{
 						connection->connection->SendString(NetworkPackage::ToString(NetworkPackage::Create(assignedClientId, WString::Empty, WString::Empty)));
 						bool deliverFatalAfterConnected = false;
+						bool notifyReady = false;
 						WString fatalErrorAfterConnected;
 						{
 							SPIN_LOCK(lockConnections)
 							{
 								connection->readyForBroadcast = true;
+								notifyReady = !broadcastingError && !stopped && connections.Keys().Contains(assignedClientId);
 								if (broadcastingError)
 								{
 									deliverFatalAfterConnected = true;
@@ -549,6 +551,10 @@ NetworkProtocolChannelServer
 							}
 							Thread::Sleep(200);
 							connection->connection->Stop();
+						}
+						else if (notifyReady)
+						{
+							OnClientReady(assignedClientId, nullptr);
 						}
 					}
 					else
@@ -787,6 +793,11 @@ NetworkProtocolChannelServer
 			return WaitForClientResult::Accept;
 		}
 
+		void OnClientReady(vint clientId, Ptr<IChannelClient<TPackage>> localClient) override
+		{
+			// default implementation does nothing
+		}
+
 		void OnClientDisconnected(vint clientId) override
 		{
 			// default implementation does nothing
@@ -936,11 +947,13 @@ NetworkProtocolChannelServer
 				connectedException = std::current_exception();
 			}
 			bool deliverFatalAfterConnected = false;
+			bool notifyReady = false;
 			WString fatalErrorAfterConnected;
 			{
 				SPIN_LOCK(lockConnections)
 				{
 					localClientsAwaitingConnected.Remove(assignedClientId);
+					notifyReady = !broadcastingError && !stopped && localClients.Keys().Contains(assignedClientId);
 					if (broadcastingError)
 					{
 						deliverFatalAfterConnected = true;
@@ -965,6 +978,10 @@ NetworkProtocolChannelServer
 			if (connectedException)
 			{
 				std::rethrow_exception(connectedException);
+			}
+			if (notifyReady)
+			{
+				OnClientReady(assignedClientId, localClient);
 			}
 			return assignedClientId;
 		}

@@ -215,7 +215,8 @@ IChannelServer
 		using ClientIdList = typename ClientChannelMap::KeyContainer;
 
 		/// <summary>
-		/// Called when any client connects to the server.
+		/// Called to accept or reject a client before its channels are ready.
+		/// Use <see cref="OnClientReady"/> to begin sending messages to an accepted client.
 		/// The server begins listening to client connections after <see cref="Start"/> is called.
 		/// No callback happens before <see cref="Start"/> or after <see cref="Stop"/> is called.
 		/// This function will be implemented by the user, the default implementation will return true.
@@ -225,6 +226,16 @@ IChannelServer
 		/// <param name="localClient">The local client. It is null for network clients.</param>
 		/// <returns>Returns "Reject" to disconnect the client immediatelly.</returns>
 		virtual WaitForClientResult			OnClientConnected(vint clientId, const typename IChannelClient<TPackage>::ChannelNameList& availableChannels, Ptr<IChannelClient<TPackage>> localClient) = 0;
+
+		/// <summary>
+		/// Called after an accepted client's channels are registered and its connection notification completes.
+		/// For network clients, the assigned client id has been sent before this callback.
+		/// For local clients, their OnConnected callback has returned before this callback.
+		/// The default implementation does nothing. This callback runs outside the server's connection lock.
+		/// </summary>
+		/// <param name="clientId">The client id.</param>
+		/// <param name="localClient">The local client. It is null for network clients.</param>
+		virtual void						OnClientReady(vint clientId, Ptr<IChannelClient<TPackage>> localClient) = 0;
 
 		/// <summary>
 		/// Start the server.

@@ -671,6 +671,9 @@ namespace mynamespace
 		EventObject						eventSecondAdmissionEntered;
 		EventObject						eventReleaseSecondAdmission;
 		EventObject						eventReentrantBroadcastReturned;
+		atomic_vint						readyCount = 0;
+		Func<void(vint, Ptr<IChannelClient<WString>>)>
+										clientReady;
 
 		ChannelAdmissionServer()
 		{
@@ -712,6 +715,15 @@ namespace mynamespace
 		void EnableReentrantBroadcast()
 		{
 			broadcastOnSecondAdmission = true;
+		}
+
+		void OnClientReady(vint clientId, Ptr<IChannelClient<WString>> localClient) override
+		{
+			readyCount++;
+			if (clientReady)
+			{
+				clientReady(clientId, localClient);
+			}
 		}
 
 		void DisableSecondAdmissionBlock()
@@ -4749,6 +4761,125 @@ TEST_FILE
 		TEST_ASSERT(!emptyPackage.extraClientIds);
 		TEST_ASSERT(emptyPackage.channelName == ChatChannelName);
 		TEST_ASSERT(emptyPackage.messageBody == L"Message");
+	});
+
+	TEST_CASE(L"Channel readiness follows remote admission and confirmation before sending")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto sender = Ptr(new ChannelAdmissionLocalClient);
+		auto connection = Ptr(new ChannelAdmissionConnection(server.Obj(), false, true));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		EventObject eventFinished;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventFinished.CreateManualUnsignal(false), L"Failed to create the channel-ready-finished event.");
+		server->clientReady = [sender](vint clientId, Ptr<IChannelClient<WString>> localClient)
+		{
+			if (!localClient)
+			{
+				auto channel = sender->GetChannels()[ChatChannelName];
+				channel->SendToClient(clientId, L"Ready");
+				bool disconnected = false;
+				channel->BatchWrite(disconnected);
+				CHECK_ERROR(!disconnected, L"The ready client should receive its first message.");
+			}
+		};
+
+		server->Start();
+		TEST_ASSERT(server->ConnectLocalClient(sender) == 1);
+		TEST_ASSERT(server->OnClientConnected(connection) == WaitForClientResult::Accept);
+		ThreadPoolLite::QueueLambda([connection, handshake, &threadErrors, &eventFinished]()
+		{
+			try
+			{
+				connection->ReadString(handshake);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventFinished.Signal();
+		});
+		auto admissionEntered = server->eventSecondAdmissionEntered.WaitForTime(timeout);
+		auto readyDuringAdmission = server->readyCount.load();
+		server->eventReleaseSecondAdmission.Signal();
+		auto confirmationEntered = connection->eventClientIdSendEntered.WaitForTime(timeout);
+		auto readyDuringConfirmation = server->readyCount.load();
+		auto messagesDuringConfirmation = connection->GetSentMessageCount();
+		connection->eventReleaseClientIdSend.Signal();
+		auto finished = eventFinished.WaitForTime(timeout);
+
+		TEST_ASSERT(admissionEntered);
+		TEST_ASSERT(readyDuringAdmission == 1);
+		TEST_ASSERT(confirmationEntered);
+		TEST_ASSERT(readyDuringConfirmation == 1);
+		TEST_ASSERT(messagesDuringConfirmation == 0);
+		TEST_ASSERT(finished);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(server->readyCount == 2);
+		TEST_ASSERT(connection->GetSentMessageCount() == 2);
+		TEST_ASSERT(connection->GetSentMessage(0) == NetworkPackage::ToString(NetworkPackage::Create(2, WString::Empty, WString::Empty)));
+		TEST_ASSERT(connection->GetSentMessage(1) == NetworkPackage::ToString(NetworkPackage::Create(1, ChatChannelName, L"5:Ready")));
+		server->Stop();
+	});
+
+	TEST_CASE(L"Channel readiness follows the local OnConnected callback before sending")
+	{
+		constexpr vint timeout = 30000;
+		auto server = Ptr(new ChannelAdmissionServer);
+		auto connection = Ptr(new ChannelAdmissionConnection(server.Obj()));
+		auto sender = Ptr(new ChannelAdmissionLocalClient(nullptr, true));
+		auto handshake = NetworkPackage::ToString(NetworkPackage::Create({}, WString::Empty, ChatChannelName));
+		EventObject eventFinished;
+		atomic_vint assignedClientId = -1;
+		atomic_vint threadErrors = 0;
+		CHECK_ERROR(eventFinished.CreateManualUnsignal(false), L"Failed to create the local-channel-ready-finished event.");
+		server->DisableSecondAdmissionBlock();
+		server->clientReady = [](vint clientId, Ptr<IChannelClient<WString>> localClient)
+		{
+			if (localClient)
+			{
+				CHECK_ERROR(localClient->GetClientId() == clientId, L"The ready local client should have its assigned id.");
+				CHECK_ERROR(localClient->GetStatus() == ClientStatus::Connected, L"The ready local client should be connected.");
+				auto channel = localClient->GetChannels()[ChatChannelName];
+				channel->SendToClient(1, L"Ready");
+				bool disconnected = false;
+				channel->BatchWrite(disconnected);
+				CHECK_ERROR(!disconnected, L"The ready local client should send its first message.");
+			}
+		};
+
+		server->Start();
+		TEST_ASSERT(server->OnClientConnected(connection) == WaitForClientResult::Accept);
+		connection->ReadString(handshake);
+		ThreadPoolLite::QueueLambda([server, sender, &assignedClientId, &threadErrors, &eventFinished]()
+		{
+			try
+			{
+				assignedClientId = server->ConnectLocalClient(sender);
+			}
+			catch (...)
+			{
+				threadErrors++;
+			}
+			eventFinished.Signal();
+		});
+		auto connectedEntered = sender->eventConnectedEntered.WaitForTime(timeout);
+		auto readyDuringConnected = server->readyCount.load();
+		auto messagesDuringConnected = connection->GetSentMessageCount();
+		sender->eventReleaseConnected.Signal();
+		auto finished = eventFinished.WaitForTime(timeout);
+
+		TEST_ASSERT(connectedEntered);
+		TEST_ASSERT(readyDuringConnected == 1);
+		TEST_ASSERT(messagesDuringConnected == 1);
+		TEST_ASSERT(finished);
+		TEST_ASSERT(threadErrors == 0);
+		TEST_ASSERT(assignedClientId == 2);
+		TEST_ASSERT(server->readyCount == 2);
+		TEST_ASSERT(connection->GetSentMessageCount() == 2);
+		TEST_ASSERT(connection->GetSentMessage(1) == NetworkPackage::ToString(NetworkPackage::Create(2, ChatChannelName, L"5:Ready")));
+		server->Stop();
 	});
 
 	TEST_CASE(L"Channel server promotes raw local errors only after admission")
