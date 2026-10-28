@@ -61,6 +61,8 @@ namespace vl
 		public:
 			/// <summary>Get the delimiter character used in a file path.</summary>
 			static wchar_t				GetPathDelimiter();
+			/// <summary>Get alternate delimiter characters normalized by the current file system.</summary>
+			static WString				GetCompatibleDelimiters();
 			/// <summary>Test whether a path is already in normalized absolute form, without resolving symbolic links.</summary>
 			/// <param name="path">The path to compare with its normalized full path.</param>
 			/// <returns>True when normalization does not change the path.</returns>
