@@ -96,6 +96,8 @@ HttpServer
 public:
 	HttpServer(const WString _baseUrl, vint port);
 	~HttpServer();
+	/// <summary>Whether URL registration selected localhost after the wildcard prefix failed.</summary>
+	bool											GetLocalhostOnly();
 	
 	WaitForClientResult								OnClientConnected(Ptr<INetworkProtocolConnection> connection) override;
 	void											Start() override;

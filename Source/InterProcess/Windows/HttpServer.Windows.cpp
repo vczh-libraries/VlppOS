@@ -436,7 +436,11 @@ HttpServer
 ***********************************************************************/
 
 HttpServer::HttpServer(const WString _baseUrl, vint port)
-	: HttpServerApi(WString::Unmanaged(L"http://+:") + itow(port) + _baseUrl + L"/", true)
+	: HttpServerApi(
+		WString::Unmanaged(L"http://+:") + itow(port) + _baseUrl + L"/",
+		true,
+		WString::Unmanaged(L"http://localhost:") + itow(port) + _baseUrl + L"/"
+		)
 	, baseUrl(_baseUrl)
 {
 	urlConnect = baseUrl + HttpServerUrl_Connect;
@@ -447,6 +451,11 @@ HttpServer::HttpServer(const WString _baseUrl, vint port)
 HttpServer::~HttpServer()
 {
 	Stop();
+}
+
+bool HttpServer::GetLocalhostOnly()
+{
+	return usedFallbackUrlPrefix;
 }
 
 WaitForClientResult HttpServer::OnClientConnected(Ptr<INetworkProtocolConnection> connection)

@@ -20,11 +20,18 @@
 using namespace vl;
 using namespace vl::collections;
 using namespace vl::inter_process;
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 using namespace vl::inter_process::named_pipe;
 using namespace vl::inter_process::windows_http;
 #elif defined VCZH_GCC && defined VCZH_APPLE
 #elif defined VCZH_GCC && !defined VCZH_APPLE
+#endif
+
+#if defined VCZH_MSVC
+namespace vl::inter_process::windows_http
+{
+	extern bool RegisterHttpServerUrlPrefix(WString& prefix, const WString& fallback, const Func<ULONG(const WString&)>& registerUrl);
+}
 #endif
 
 namespace vl::inter_process::async_tcp_socket
@@ -1731,7 +1738,7 @@ namespace mynamespace
 		}
 	};
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 	class WindowsHttpShutdownServer : public HttpServerApi
 	{
 	protected:
@@ -3046,7 +3053,7 @@ namespace mynamespace
 		}
 	};
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 
 	bool CanRegisterWindowsHttpProtocol(vint port, const WString& baseUrl)
 	{
@@ -3057,12 +3064,18 @@ namespace mynamespace
 		TEST_ASSERT(HttpCreateUrlGroup(session, &group, 0) == NO_ERROR);
 		auto prefix = L"http://+:" + itow(port) + baseUrl + L"/";
 		auto result = HttpAddUrlToUrlGroup(group, prefix.Buffer(), 0, 0);
+		if (result != NO_ERROR)
+		{
+			TEST_PRINT(L"Wildcard registration returned Windows error " + itow(result) + L" for " + prefix);
+			prefix = L"http://localhost:" + itow(port) + baseUrl + L"/";
+			result = HttpAddUrlToUrlGroup(group, prefix.Buffer(), 0, 0);
+		}
 		HttpCloseUrlGroup(group);
 		HttpCloseServerSession(session);
 		HttpTerminate(HTTP_INITIALIZE_SERVER, nullptr);
 		if (result == ERROR_ACCESS_DENIED)
 		{
-			TEST_PRINT(L"[UNAVAILABLE] HTTP.sys wildcard registration requires a URL reservation or elevation: " + prefix);
+			TEST_PRINT(L"[UNAVAILABLE] HTTP.sys localhost registration requires URL permission: " + prefix);
 			return false;
 		}
 		TEST_ASSERT(result == NO_ERROR);
@@ -3234,7 +3247,7 @@ void RunSocketHttpNetworkProtocolTestCases()
 	});
 }
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 class ObservableWindowsHttpClient : public HttpClient
 {
 public:
@@ -3287,13 +3300,68 @@ public:
 
 void RunSocketHttpWindowsInteropTestCases()
 {
+	TEST_CASE(L"Windows HTTP registration preserves prefixes and both failure diagnostics")
+	{
+		const WString wildcard = L"http://+:39653/VlppOSRegistration/Nested/";
+		const WString localhost = L"http://localhost:39653/VlppOSRegistration/Nested/";
+		for (vint scenario = 0; scenario < 4; scenario++)
+		{
+			auto prefix = wildcard;
+			List<WString> attempts;
+			bool failed = false;
+			try
+			{
+				auto fallback = RegisterHttpServerUrlPrefix(prefix, scenario == 3 ? WString::Empty : localhost, [&](const WString& url) -> ULONG
+				{
+					attempts.Add(url);
+					return scenario == 0 || (scenario == 1 && attempts.Count() == 2) ? NO_ERROR
+						: attempts.Count() == 1 ? ERROR_ACCESS_DENIED : ERROR_ALREADY_EXISTS;
+				});
+				TEST_ASSERT(fallback == (scenario == 1));
+				TEST_ASSERT(prefix == (fallback ? localhost : wildcard));
+			}
+			catch (const Exception& e)
+			{
+				failed = true;
+				auto expected = L"HttpAddUrlToUrlGroup failed with Windows error 5 for " + wildcard + L".";
+				if (scenario == 2) expected += L" Fallback failed with Windows error 183 for " + localhost + L".";
+				TEST_ASSERT(e.Message() == expected);
+				TEST_ASSERT(prefix == wildcard);
+			}
+			TEST_ASSERT(failed == (scenario >= 2));
+			TEST_ASSERT(attempts.Count() == (scenario == 0 || scenario == 3 ? 1 : 2));
+			TEST_ASSERT(attempts[0] == wildcard);
+			if (attempts.Count() == 2) TEST_ASSERT(attempts[1] == localhost);
+		}
+	});
+
 	TEST_CASE(L"Windows HTTP protocol registration falls back to localhost")
 	{
-		HttpServer server(L"/VlppOSRegistration/Nested", 39653);
-		server.Start();
-		server.Stop();
-	}
-	);
+		for (vint i = 0; i < 2; i++)
+		{
+			HttpServer server(L"/VlppOSRegistration/Nested", 39653);
+			TEST_PRINT(server.GetLocalhostOnly() ? L"Actual registration: localhost fallback" : L"Actual registration: wildcard");
+			server.Start();
+			if (!server.GetLocalhostOnly())
+			{
+				server.Stop();
+				continue;
+			}
+			bool failed = false;
+			try
+			{
+				HttpServer duplicate(L"/VlppOSRegistration/Nested", 39653);
+			}
+			catch (const Exception& e)
+			{
+				failed = true;
+				TEST_ASSERT(e.Message() == L"HttpAddUrlToUrlGroup failed with Windows error 5 for http://+:39653/VlppOSRegistration/Nested/. Fallback failed with Windows error 183 for http://localhost:39653/VlppOSRegistration/Nested/.");
+				TEST_PRINT(e.Message());
+			}
+			TEST_ASSERT(failed);
+			server.Stop();
+		}
+	});
 
 	TEST_CASE(L"Windows HTTP host overload reaches MiniHTTP through IPv4 IPv6 and machine DNS")
 	{
@@ -4486,7 +4554,7 @@ void RunSocketHttpFocusedTestCases()
 		VerifyMissingPollAcknowledgement(server.Obj(), callback, baseUrl, port, true);
 	});
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 	TEST_CASE(L"Windows HttpServer disconnects when a successful server delivery is not acknowledged by a replacement poll")
 	{
 		if (!CanRegisterWindowsHttpProtocol(39641, L"/VlppOSTestWindowsHttpPollAcknowledgement")) return;
@@ -4874,7 +4942,7 @@ void RunSocketHttpFocusedTestCases()
 
 TEST_FILE
 {
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 	TEST_CASE(L"Windows HTTP Stop completes its outstanding receive")
 	{
 		{
@@ -5511,7 +5579,7 @@ TEST_FILE
 	RunSocketHttpNetworkProtocolTestCases();
 	RunSocketHttpFocusedTestCases();
 
-#ifdef VCZH_MSVC
+#if defined VCZH_MSVC
 	RunAsyncSocketNetworkProtocolTestCases<
 		async_tcp_socket::windows_socket::AsyncSocketServer,
 		async_tcp_socket::windows_socket::AsyncSocketClient
