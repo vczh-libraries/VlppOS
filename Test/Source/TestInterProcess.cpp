@@ -3287,6 +3287,14 @@ public:
 
 void RunSocketHttpWindowsInteropTestCases()
 {
+	TEST_CASE(L"Windows HTTP protocol registration falls back to localhost")
+	{
+		HttpServer server(L"/VlppOSRegistration/Nested", 39653);
+		server.Start();
+		server.Stop();
+	}
+	);
+
 	TEST_CASE(L"Windows HTTP host overload reaches MiniHTTP through IPv4 IPv6 and machine DNS")
 	{
 		wchar_t computerName[MAX_COMPUTERNAME_LENGTH + 1] = {};
