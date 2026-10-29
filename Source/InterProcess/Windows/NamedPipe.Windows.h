@@ -142,11 +142,12 @@ public:
 class NamedPipeClient : public NamedPipeConnection, public virtual INetworkProtocolClient
 {
 protected:
-	static HANDLE									ClientCreatePipe(const WString& pipeName);
+	static HANDLE									ClientCreatePipe(const WString& host, const WString& pipeName);
 	ClientStatus									status = ClientStatus::Ready;
 
 public:
 	NamedPipeClient(const WString& _pipeName);
+	NamedPipeClient(const WString& host, const WString& _pipeName);
 	~NamedPipeClient();
 
 	INetworkProtocolConnection*						GetConnection() override;

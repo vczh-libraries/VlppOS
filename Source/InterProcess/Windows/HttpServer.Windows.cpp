@@ -436,7 +436,7 @@ HttpServer
 ***********************************************************************/
 
 HttpServer::HttpServer(const WString _baseUrl, vint port)
-	: HttpServerApi(WString::Unmanaged(L"http://localhost:") + itow(port) + _baseUrl + L"/", true)
+	: HttpServerApi(WString::Unmanaged(L"http://+:") + itow(port) + _baseUrl + L"/", true)
 	, baseUrl(_baseUrl)
 {
 	urlConnect = baseUrl + HttpServerUrl_Connect;

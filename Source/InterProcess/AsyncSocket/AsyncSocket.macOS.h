@@ -39,6 +39,7 @@ namespace vl::inter_process::async_tcp_socket::macos_socket
 
 	public:
 		AsyncSocketClient(vint port);
+		AsyncSocketClient(const WString& host, vint port);
 		~AsyncSocketClient();
 
 		vint								GetPort() override;

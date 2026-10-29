@@ -516,7 +516,7 @@ HANDLE NamedPipeServer::ServerCreatePipe(const WString& pipeName)
 	HANDLE hPipe = CreateNamedPipe(
 		(L"\\\\.\\pipe\\" + pipeName).Buffer(),
 		PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_REJECT_REMOTE_CLIENTS,
+		PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE,
 		PIPE_UNLIMITED_INSTANCES,
 		65536,
 		65536,
@@ -781,9 +781,15 @@ bool NamedPipeServer::IsStopped()
 NamedPipeClient
 ***********************************************************************/
 
-HANDLE NamedPipeClient::ClientCreatePipe(const WString& pipeName)
+HANDLE NamedPipeClient::ClientCreatePipe(const WString& host, const WString& pipeName)
 {
-	auto fullPipeName = L"\\\\.\\pipe\\" + pipeName;
+	CHECK_ERROR(host.Length() > 0, L"NamedPipeClient requires a server name.");
+	for (vint i = 0; i < host.Length(); i++)
+	{
+		CHECK_ERROR(host[i] > L' ' && host[i] != L'/' && host[i] != L'\\' && host[i] != L':' && host[i] != L'[' && host[i] != L']', L"NamedPipeClient requires a UNC server name, not a URL or a raw IPv6 address.");
+	}
+	auto server = _wcsicmp(host.Buffer(), L"localhost") == 0 ? WString::Unmanaged(L".") : host;
+	auto fullPipeName = L"\\\\" + server + L"\\pipe\\" + pipeName;
 	auto start = GetTickCount64();
 	while (true)
 	{
@@ -815,7 +821,12 @@ HANDLE NamedPipeClient::ClientCreatePipe(const WString& pipeName)
 }
 
 NamedPipeClient::NamedPipeClient(const WString& _pipeName)
-	: NamedPipeConnection(ClientCreatePipe(_pipeName))
+	: NamedPipeClient(L"localhost", _pipeName)
+{
+}
+
+NamedPipeClient::NamedPipeClient(const WString& host, const WString& _pipeName)
+	: NamedPipeConnection(ClientCreatePipe(host, _pipeName))
 {
 }
 

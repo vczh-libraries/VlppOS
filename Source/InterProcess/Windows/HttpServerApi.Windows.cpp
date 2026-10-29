@@ -457,7 +457,12 @@ HttpServerApi::HttpServerApi(const WString& _urlPrefix, bool _respondToOptions)
 		urlPrefix.Buffer(),
 		0,
 		0);
-	CHECK_ERROR(result == NO_ERROR, L"HttpAddUrlToUrlGroup failed.");
+	if (result != NO_ERROR)
+	{
+		Stop();
+		CloseHandle(hEventRequest);
+		throw Exception(L"HttpAddUrlToUrlGroup failed with Windows error " + itow(result) + L" for " + urlPrefix + L".");
+	}
 
 	HTTP_BINDING_INFO bindingInfo;
 	ZeroMemory(&bindingInfo, sizeof(bindingInfo));

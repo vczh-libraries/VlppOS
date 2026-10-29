@@ -7,6 +7,42 @@
 
 namespace vl::inter_process::async_tcp_socket
 {
+	// Implemented using the native address parser in each socket backend.
+	extern bool IsSocketIpv6Address(const WString& host);
+
+	bool IsValidSocketHost(const WString& host)
+	{
+		if (host.Length() == 0 || host.Length() > 253) return false;
+		for (vint i = 0; i < host.Length(); i++)
+		{
+			if (host[i] <= L' ' || host[i] == L'/' || host[i] == L'\\' || host[i] == L'[' || host[i] == L']' || host[i] == L'@' || host[i] == L'?' || host[i] == L'#') return false;
+		}
+		if (host.IndexOf(L':') != -1) return IsSocketIpv6Address(host);
+		vint labelLength = 0;
+		for (vint i = 0; i < host.Length(); i++)
+		{
+			auto c = host[i];
+			if (c == L'.')
+			{
+				if (labelLength == 0 || host[i - 1] == L'-') return false;
+				labelLength = 0;
+			}
+			else
+			{
+				if (!((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || (c == L'-' && labelLength > 0))) return false;
+				if (++labelLength > 63) return false;
+			}
+		}
+		return host[host.Length() - 1] != L'-';
+	}
+
+	WString CreateSocketHttpAuthority(const WString& host, vint port)
+	{
+		CHECK_ERROR(IsValidSocketHost(host), L"An HTTP authority requires a hostname or an unbracketed IP address.");
+		CHECK_ERROR(1 <= port && port <= 65535, L"An HTTP authority requires a port in 1..65535.");
+		return (host.IndexOf(L':') == -1 ? host : L"[" + host + L"]") + L":" + itow(port);
+	}
+
 	thread_local NetworkProtocolCallbackDomain::CallbackFrame*	NetworkProtocolCallbackDomain::currentCallbackFrame = nullptr;
 	thread_local NetworkProtocolConnection::CallbackFrame*	NetworkProtocolConnection::currentCallbackFrame = nullptr;
 	thread_local NetworkProtocolConnection::SocketCallbackFrame*

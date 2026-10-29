@@ -8,6 +8,8 @@
 #include "../../Source/InterProcess/Windows/NamedPipe.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpClient.Windows.h"
 #include "../../Source/InterProcess/Windows/HttpServer.Windows.h"
+#include <iphlpapi.h>
+#pragma comment(lib, "Iphlpapi.lib")
 #elif defined VCZH_GCC && defined VCZH_APPLE
 #include "../../Source/InterProcess/AsyncSocket/AsyncSocket.macOS.h"
 #elif defined VCZH_GCC && !defined VCZH_APPLE
@@ -1159,6 +1161,15 @@ namespace mynamespace
 				stopServer = chatData->client1Stopped && chatData->client2Stopped;
 			}
 
+			// Keep each client alive until its queued final message reaches the server.
+			if (senderClientId == clientId1)
+			{
+				chatData->eventTom.Signal();
+			}
+			else
+			{
+				chatData->eventJerry.Signal();
+			}
 			if (stopServer)
 			{
 				chatData->eventServer.Signal();
@@ -1179,7 +1190,6 @@ namespace mynamespace
 			{
 				stopped = true;
 				SendTo(serverClientId, L"Stop");
-				chatData->eventTom.Signal();
 			}
 		}
 
@@ -1246,7 +1256,6 @@ namespace mynamespace
 			{
 				stopped = true;
 				SendTo(serverClientId, L"Stop");
-				chatData->eventJerry.Signal();
 			}
 		}
 
@@ -3039,6 +3048,27 @@ namespace mynamespace
 
 #ifdef VCZH_MSVC
 
+	bool CanRegisterWindowsHttpProtocol(vint port, const WString& baseUrl)
+	{
+		TEST_ASSERT(HttpInitialize(HTTPAPI_VERSION_2, HTTP_INITIALIZE_SERVER, nullptr) == NO_ERROR);
+		HTTP_SERVER_SESSION_ID session = HTTP_NULL_ID;
+		HTTP_URL_GROUP_ID group = HTTP_NULL_ID;
+		TEST_ASSERT(HttpCreateServerSession(HTTPAPI_VERSION_2, &session, 0) == NO_ERROR);
+		TEST_ASSERT(HttpCreateUrlGroup(session, &group, 0) == NO_ERROR);
+		auto prefix = L"http://+:" + itow(port) + baseUrl + L"/";
+		auto result = HttpAddUrlToUrlGroup(group, prefix.Buffer(), 0, 0);
+		HttpCloseUrlGroup(group);
+		HttpCloseServerSession(session);
+		HttpTerminate(HTTP_INITIALIZE_SERVER, nullptr);
+		if (result == ERROR_ACCESS_DENIED)
+		{
+			TEST_PRINT(L"[UNAVAILABLE] HTTP.sys wildcard registration requires a URL reservation or elevation: " + prefix);
+			return false;
+		}
+		TEST_ASSERT(result == NO_ERROR);
+		return true;
+	}
+
 	class NamedPipeTextServer : protected TextServerCallbackHost, public NamedPipeServer
 	{
 	public:
@@ -3257,12 +3287,39 @@ public:
 
 void RunSocketHttpWindowsInteropTestCases()
 {
+	TEST_CASE(L"Windows HTTP host overload reaches MiniHTTP through IPv4 IPv6 and machine DNS")
+	{
+		wchar_t computerName[MAX_COMPUTERNAME_LENGTH + 1] = {};
+		DWORD computerNameLength = MAX_COMPUTERNAME_LENGTH + 1;
+		TEST_ASSERT(GetComputerNameW(computerName, &computerNameLength));
+		const WString hosts[] = { L"localhost", L"127.0.0.2", L"::1", WString::CopyFrom(computerName, computerNameLength) };
+		for (auto&& host : hosts)
+		{
+			const vint port = 39651;
+			const WString baseUrl = L"/VlppOSWindowsHttpHost";
+			ExactMessageCallback serverCallback(L"host-request", L"host-reply");
+			auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
+			server->Start();
+			ExactMessageCallback clientCallback(L"host-reply");
+			auto client = Ptr(new HttpClient(host, baseUrl, port));
+			client->InstallCallback(&clientCallback);
+			client->WaitForServer();
+			client->BeginReadingLoopUnsafe();
+			client->SendString(L"host-request");
+			TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(serverCallback.exact && clientCallback.exact);
+			client->Stop();
+			server->Stop();
+		}
+	});
+
 	TEST_CASE(L"Windows HttpServer drains extra callback responses through an existing poll")
 	{
 		for (vint existingPoll = 0; existingPoll < 2; existingPoll++)
 		{
 			const vint port = 39643 + existingPoll;
 			const WString baseUrl = L"/VlppOSTestWinServerResponseBurst";
+			if (!CanRegisterWindowsHttpProtocol(port, baseUrl)) return;
 			BurstResponseCallback callback;
 			auto server = Ptr(new ObservableWindowsHttpServer(baseUrl, port, &callback));
 			server->Start();
@@ -3402,6 +3459,7 @@ void RunSocketHttpWindowsInteropTestCases()
 		const vint port = 39642;
 		const vint messageCount = 64;
 		const WString baseUrl = L"/VlppOSTestWinClientOrderedResponses";
+		if (!CanRegisterWindowsHttpProtocol(port, baseUrl)) return;
 		OrderedMessagesCallback serverCallback(messageCount, true);
 		auto server = Ptr(new SingleConnectionWindowsHttpServer(baseUrl, port, &serverCallback));
 		server->Start();
@@ -3495,6 +3553,7 @@ void RunSocketHttpWindowsInteropTestCases()
 		{
 			const vint port = 39400 + i;
 			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpProtocol";
+			if (!CanRegisterWindowsHttpProtocol(port, baseUrl)) return;
 			RunTextNetworkProtocol(
 				[port, baseUrl](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new HttpTextServer(chatData, baseUrl, port)); },
 				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
@@ -3509,6 +3568,7 @@ void RunSocketHttpWindowsInteropTestCases()
 		{
 			const vint port = 39500 + i;
 			const WString baseUrl = L"/VlppOSTestWinServerSocketHttpChannel";
+			if (!CanRegisterWindowsHttpProtocol(port, baseUrl)) return;
 			RunNetworkProtocolChannel(
 				[port, baseUrl](ChannelChatData& chatData)->Ptr<IChannelServer<WString>> { return Ptr<IChannelServer<WString>>(new HttpChannelServer(chatData, baseUrl, port)); },
 				[port, baseUrl]()->Ptr<INetworkProtocolClient> { return CreateSocketHttpProtocolClient(baseUrl, port); },
@@ -4312,6 +4372,45 @@ void RunSocketHttpFocusedTestCases()
 		server->Stop();
 	});
 
+#if defined VCZH_MSVC
+	TEST_CASE(L"Every MiniHTTP physical lane retains the explicit IPv4 destination")
+	{
+		const vint port = 39650;
+		const WString baseUrl = L"/VlppOSHostLanes";
+		ExactMessageCallback serverCallback(L"host-request", L"host-reply");
+		auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &serverCallback));
+		server->Start();
+		ExactMessageCallback clientCallback(L"host-reply");
+		auto client = Ptr(new async_tcp_socket::SocketHttpClient(async_tcp_socket::CreateDefaultAsyncSocketClient(L"127.0.0.2", port), L"127.0.0.2", baseUrl));
+		client->GetConnection()->InstallCallback(&clientCallback);
+		client->WaitForServer();
+		client->GetConnection()->BeginReadingLoopUnsafe();
+		client->GetConnection()->SendString(L"host-request");
+		TEST_ASSERT(clientCallback.eventRead.WaitForTime(SocketHttpFocusedTimeout));
+		TEST_ASSERT(serverCallback.exact && clientCallback.exact);
+
+		DWORD size = 0;
+		TEST_ASSERT(GetExtendedTcpTable(nullptr, &size, FALSE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) == ERROR_INSUFFICIENT_BUFFER);
+		Array<BYTE> bytes(size + 4096);
+		size = (DWORD)bytes.Count();
+		TEST_ASSERT(GetExtendedTcpTable(&bytes[0], &size, FALSE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) == NO_ERROR);
+		auto table = (MIB_TCPTABLE_OWNER_PID*)&bytes[0];
+		vint physicalConnections = 0;
+		for (DWORD i = 0; i < table->dwNumEntries; i++)
+		{
+			auto& row = table->table[i];
+			if (row.dwOwningPid == GetCurrentProcessId() && ntohs((u_short)row.dwRemotePort) == port && row.dwState == MIB_TCP_STATE_ESTAB)
+			{
+				TEST_ASSERT(row.dwRemoteAddr == htonl(0x7F000002));
+				physicalConnections++;
+			}
+		}
+		TEST_ASSERT(physicalConnections >= 2);
+		client->Stop();
+		server->Stop();
+	});
+#endif
+
 	TEST_CASE(L"SocketHttp accepts the UTF-8 body limit and rejects one encoded byte beyond each FIFO")
 	{
 		const vint port = 39603;
@@ -4382,6 +4481,7 @@ void RunSocketHttpFocusedTestCases()
 #ifdef VCZH_MSVC
 	TEST_CASE(L"Windows HttpServer disconnects when a successful server delivery is not acknowledged by a replacement poll")
 	{
+		if (!CanRegisterWindowsHttpProtocol(39641, L"/VlppOSTestWindowsHttpPollAcknowledgement")) return;
 		const vint port = 39641;
 		const WString baseUrl = L"/VlppOSTestWindowsHttpPollAcknowledgement";
 		ExactMessageCallback callback(L"unused");
@@ -5382,8 +5482,24 @@ TEST_FILE
 		client->GetConnection()->Stop();
 	});
 
+	TEST_CASE(L"NamedPipe host overload preserves local aliases")
+	{
+		const WString hosts[] = { L"localhost", L"LOCALHOST", L"." };
+		for (auto&& host : hosts)
+		{
+			RunTextNetworkProtocol(
+				[](ChatData& chatData)->Ptr<INetworkProtocolServer> { return Ptr<INetworkProtocolServer>(new NamedPipeTextServer(chatData, L"VlppOSHostPipe")); },
+				[host]()->Ptr<INetworkProtocolClient> { return Ptr<INetworkProtocolClient>(new NamedPipeClient(host, L"VlppOSHostPipe")); },
+				true
+			);
+		}
+		TEST_ERROR(Ptr(new NamedPipeClient(L"::1", L"VlppOSHostPipe")));
+		TEST_ERROR(Ptr(new NamedPipeClient(L"", L"VlppOSHostPipe")));
+	});
+
 	TEST_CASE(L"HttpServer (NetworkProtocol)")
 	{
+		if (!CanRegisterWindowsHttpProtocol(8765, L"/VlppOSTestHttpServer")) return;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			RunTextNetworkProtocol(
@@ -5406,6 +5522,7 @@ TEST_FILE
 
 	TEST_CASE(L"HttpServer (Channel)")
 	{
+		if (!CanRegisterWindowsHttpProtocol(8766, L"/VlppOSTestHttpServerChannel")) return;
 		for (vint i = 0; i < InterProcessTestRepeatCount; i++)
 		{
 			RunNetworkProtocolChannel(

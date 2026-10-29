@@ -8,138 +8,118 @@ namespace vl::inter_process::async_tcp_socket
 {
 	using namespace vl::collections;
 
-	namespace
+	constexpr vint				HttpRequestMaxAttempts = 3;
+	constexpr vint				SendDrainTimeout = 1000;
+
+	class SameEndpointClientContractException : public Exception
 	{
-		constexpr vint				HttpRequestMaxAttempts = 3;
-		constexpr vint				SendDrainTimeout = 1000;
-
-		class SameEndpointClientContractException : public Exception
+	public:
+		SameEndpointClientContractException(const WString& message)
+			: Exception(message)
 		{
-		public:
-			SameEndpointClientContractException(const WString& message)
-				: Exception(message)
-			{
-			}
-		};
-
-		wchar_t FoldServerCharacter(wchar_t c)
-		{
-			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
 		}
+	};
 
-		bool ValidateLoopbackServer(const WString& server)
+	WString NormalizeUrlPrefix(const WString& urlPrefix)
+	{
+		auto normalizedUrlPrefix = urlPrefix;
+		while (normalizedUrlPrefix.Length() > 0 && normalizedUrlPrefix[normalizedUrlPrefix.Length() - 1] == L'/')
 		{
-			if (server == L"127.0.0.1") return true;
-			const wchar_t localhost[] = L"localhost";
-			if (server.Length() != 9) return false;
-			for (vint i = 0; i < 9; i++)
-			{
-				if (FoldServerCharacter(server[i]) != localhost[i]) return false;
-			}
-			return true;
+			normalizedUrlPrefix = normalizedUrlPrefix.Left(normalizedUrlPrefix.Length() - 1);
 		}
-
-		WString NormalizeUrlPrefix(const WString& urlPrefix)
-		{
-			auto normalizedUrlPrefix = urlPrefix;
-			while (normalizedUrlPrefix.Length() > 0 && normalizedUrlPrefix[normalizedUrlPrefix.Length() - 1] == L'/')
-			{
-				normalizedUrlPrefix = normalizedUrlPrefix.Left(normalizedUrlPrefix.Length() - 1);
-			}
-			return normalizedUrlPrefix;
-		}
-
-		WString DescribeHttpError(const wchar_t* operation, const windows_http::HttpError& error)
-		{
-			return WString::Unmanaged(operation) + L" failed: " + error.message;
-		}
-
-		bool DecodeSuccessfulResponse(
-			const windows_http::HttpResponse& response,
-			const wchar_t* operation,
-			WString& body,
-			WString& error
-			)
-		{
-			if (response.statusCode != 200)
-			{
-				error = WString::Unmanaged(operation) + L" returned status code " + itow(response.statusCode) + L".";
-				return false;
-			}
-			if (response.contentType != HttpNetworkProtocolContentType)
-			{
-				error = WString::Unmanaged(operation) + L" did not return the required content type.";
-				return false;
-			}
-			if (!response.TryGetBodyUtf8(body) || (body.Length() > 0 && !IsValidHttpNetworkProtocolMessage(body)))
-			{
-				error = WString::Unmanaged(operation) + L" returned malformed UTF-8 or an embedded NUL.";
-				return false;
-			}
-			return true;
-		}
-
-		BEGIN_GLOBAL_STORAGE_CLASS(SocketHttpClientTestHooks)
-			SpinLock						lock;
-			Func<void()>					receiveSubmitted;
-			Func<void()>					fatalReserved;
-			Func<void()>					stopStarted;
-		INITIALIZE_GLOBAL_STORAGE_CLASS
-		FINALIZE_GLOBAL_STORAGE_CLASS
-			SPIN_LOCK(lock)
-			{
-				receiveSubmitted = {};
-				fatalReserved = {};
-				stopStarted = {};
-			}
-		END_GLOBAL_STORAGE_CLASS(SocketHttpClientTestHooks)
-
-		void InvokeReceiveSubmittedForTesting()
-		{
-			Func<void()> callback;
-			auto& hooks = GetSocketHttpClientTestHooks();
-			SPIN_LOCK(hooks.lock)
-			{
-				callback = hooks.receiveSubmitted;
-			}
-			if (callback)
-			{
-				try { callback(); }
-				catch (...) {}
-			}
-		}
-
-		void InvokeFatalReservedForTesting()
-		{
-			Func<void()> callback;
-			auto& hooks = GetSocketHttpClientTestHooks();
-			SPIN_LOCK(hooks.lock)
-			{
-				callback = hooks.fatalReserved;
-			}
-			if (callback)
-			{
-				try { callback(); }
-				catch (...) {}
-			}
-		}
-
-		void InvokeStopStartedForTesting()
-		{
-			Func<void()> callback;
-			auto& hooks = GetSocketHttpClientTestHooks();
-			SPIN_LOCK(hooks.lock)
-			{
-				callback = hooks.stopStarted;
-			}
-			if (callback)
-			{
-				try { callback(); }
-				catch (...) {}
-			}
-		}
-
+		return normalizedUrlPrefix;
 	}
+
+	WString DescribeHttpError(const wchar_t* operation, const windows_http::HttpError& error)
+	{
+		return WString::Unmanaged(operation) + L" failed: " + error.message;
+	}
+
+	bool DecodeSuccessfulResponse(
+		const windows_http::HttpResponse& response,
+		const wchar_t* operation,
+		WString& body,
+		WString& error
+		)
+	{
+		if (response.statusCode != 200)
+		{
+			error = WString::Unmanaged(operation) + L" returned status code " + itow(response.statusCode) + L".";
+			return false;
+		}
+		if (response.contentType != HttpNetworkProtocolContentType)
+		{
+			error = WString::Unmanaged(operation) + L" did not return the required content type.";
+			return false;
+		}
+		if (!response.TryGetBodyUtf8(body) || (body.Length() > 0 && !IsValidHttpNetworkProtocolMessage(body)))
+		{
+			error = WString::Unmanaged(operation) + L" returned malformed UTF-8 or an embedded NUL.";
+			return false;
+		}
+		return true;
+	}
+
+	BEGIN_GLOBAL_STORAGE_CLASS(SocketHttpClientTestHooks)
+		SpinLock						lock;
+		Func<void()>					receiveSubmitted;
+		Func<void()>					fatalReserved;
+		Func<void()>					stopStarted;
+	INITIALIZE_GLOBAL_STORAGE_CLASS
+	FINALIZE_GLOBAL_STORAGE_CLASS
+		SPIN_LOCK(lock)
+		{
+			receiveSubmitted = {};
+			fatalReserved = {};
+			stopStarted = {};
+		}
+	END_GLOBAL_STORAGE_CLASS(SocketHttpClientTestHooks)
+
+	void InvokeReceiveSubmittedForTesting()
+	{
+		Func<void()> callback;
+		auto& hooks = GetSocketHttpClientTestHooks();
+		SPIN_LOCK(hooks.lock)
+		{
+			callback = hooks.receiveSubmitted;
+		}
+		if (callback)
+		{
+			try { callback(); }
+			catch (...) {}
+		}
+	}
+
+	void InvokeFatalReservedForTesting()
+	{
+		Func<void()> callback;
+		auto& hooks = GetSocketHttpClientTestHooks();
+		SPIN_LOCK(hooks.lock)
+		{
+			callback = hooks.fatalReserved;
+		}
+		if (callback)
+		{
+			try { callback(); }
+			catch (...) {}
+		}
+	}
+
+	void InvokeStopStartedForTesting()
+	{
+		Func<void()> callback;
+		auto& hooks = GetSocketHttpClientTestHooks();
+		SPIN_LOCK(hooks.lock)
+		{
+			callback = hooks.stopStarted;
+		}
+		if (callback)
+		{
+			try { callback(); }
+			catch (...) {}
+		}
+	}
+
 
 	void SetSocketHttpClientReceiveSubmittedCallbackForTesting(const Func<void()>& callback)
 	{
@@ -1245,7 +1225,7 @@ SocketHttpClient::Impl
 		{
 			CHECK_ERROR(owner, L"SocketHttpClient requires an owning adapter.");
 			CHECK_ERROR(initialClient, L"SocketHttpClient requires an initial native client.");
-			CHECK_ERROR(ValidateLoopbackServer(server), L"SocketHttpClient requires an explicit loopback server.");
+			CHECK_ERROR(IsValidSocketHost(server), L"SocketHttpClient requires a hostname or an unbracketed IP address.");
 			port = initialClient->GetPort();
 			CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClient requires the initial client port to be in 1..65535.");
 			CHECK_ERROR(initialClient->GetStatus() == ClientStatus::Ready, L"SocketHttpClient requires an initial client in the ready state.");

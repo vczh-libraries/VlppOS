@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <netinet/in.h>
+#include <netdb.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -56,6 +58,43 @@ namespace vl::inter_process::async_tcp_socket::linux_socket
 			close((int)fileDescriptor);
 		}
 	}
+
+	// glibc may be unable to cancel a resolver already inside NSS. Its notification
+	// owns only this request, never a connection, callback or io_uring runtime.
+	class NativeResolution : public Object
+	{
+	public:
+		U8String host;
+		AString service;
+		addrinfo hints = {};
+		gaicb request = {};
+		EventObject completed;
+
+		NativeResolution(const WString& _host, vint port)
+			: host(wtou8(_host))
+			, service(itoa(port))
+		{
+			hints.ai_family = AF_UNSPEC;
+			hints.ai_socktype = SOCK_STREAM;
+			hints.ai_protocol = IPPROTO_TCP;
+			request.ar_name = (const char*)host.Buffer();
+			request.ar_service = service.Buffer();
+			request.ar_request = &hints;
+			CHECK_ERROR(completed.CreateManualUnsignal(false), L"AsyncSocketClient failed to create its resolution event.");
+		}
+
+		~NativeResolution()
+		{
+			if (request.ar_result) freeaddrinfo(request.ar_result);
+		}
+
+		static void Notify(sigval value)
+		{
+			auto retained = (Ptr<NativeResolution>*)value.sival_ptr;
+			(*retained)->completed.Signal();
+			delete retained;
+		}
+	};
 
 /***********************************************************************
 OwnedFileDescriptor
@@ -609,6 +648,7 @@ ConnectionState
 		class WriteOperation;
 		class ConnectOperation;
 		class RetryOperation;
+		class ConnectTimeoutOperation;
 		class CancelOperation;
 
 		Ptr<RingRuntime>					runtime;
@@ -631,13 +671,18 @@ ConnectionState
 		vuint64_t						writeOperationId = 0;
 		vuint64_t						connectOperationId = 0;
 		vuint64_t						retryOperationId = 0;
+		vuint64_t						connectTimeoutOperationId = 0;
 		bool								readCancelRequested = false;
 		bool								writeCancelRequested = false;
 		bool								connectCancelRequested = false;
 		bool								retryCancelRequested = false;
+		bool								connectTimeoutCancelRequested = false;
 		vint								targetOperations = 0;
 
 		bool								clientMode = false;
+		WString								clientHost;
+		Ptr<NativeResolution>				clientResolution;
+		List<sockaddr_storage>				clientAddresses;
 		vint								clientPort = 0;
 		ClientStatus						clientStatus = ClientStatus::Ready;
 		vint								clientAttempts = 0;
@@ -764,13 +809,15 @@ ConnectionState
 		void PostRead(Ptr<ConnectionState> retainedState);
 		void BeginTerminal(Ptr<ConnectionState> retainedState, vint error, bool reportError);
 		void StartConnectAttempt(Ptr<ConnectionState> retainedState);
+		void ResolveServer(Ptr<ConnectionState> retainedState);
 		void DeliverConnectFailure(Ptr<ConnectionState> retainedState, vint error, bool fatal);
 		void ScheduleRetry(Ptr<ConnectionState> retainedState);
 
 	public:
-		ConnectionState(Ptr<RingRuntime> _runtime, bool _clientMode, vint _clientPort)
+		ConnectionState(Ptr<RingRuntime> _runtime, const WString& _clientHost, vint _clientPort)
 			: runtime(_runtime)
-			, clientMode(_clientMode)
+			, clientMode(true)
+			, clientHost(_clientHost)
 			, clientPort(_clientPort)
 		{
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::ConnectionState::ConnectionState(Ptr<RingRuntime>, bool, vint)#"
@@ -1056,21 +1103,19 @@ ConnectionState::ConnectOperation
 	public:
 		Ptr<ConnectionState>					connection;
 		OwnedFileDescriptor					ownedSocket;
-		sockaddr_in							address = {};
+		sockaddr_storage						address = {};
 
-		ConnectOperation(vuint64_t id, Ptr<ConnectionState> _connection, vint _fileDescriptor, vint port)
+		ConnectOperation(vuint64_t id, Ptr<ConnectionState> _connection, vint _fileDescriptor, const sockaddr_storage& _address)
 			: RingOperation(id, _connection, true)
 			, connection(_connection)
 			, ownedSocket(_fileDescriptor)
+			, address(_address)
 		{
-			address.sin_family = AF_INET;
-			address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-			address.sin_port = htons((vuint16_t)port);
 		}
 
 		void Prepare(io_uring_sqe* sqe) noexcept override
 		{
-			io_uring_prep_connect(sqe, (int)ownedSocket.Get(), (sockaddr*)&address, sizeof(address));
+			io_uring_prep_connect(sqe, (int)ownedSocket.Get(), (sockaddr*)&address, address.ss_family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in));
 		}
 
 		void Handle(vint result) override
@@ -1084,6 +1129,17 @@ ConnectionState::ConnectOperation
 				{
 					connection->connectOperationId = 0;
 					connection->connectCancelRequested = false;
+					if (connection->connectTimeoutOperationId && !connection->connectTimeoutCancelRequested)
+					{
+						auto cancellation = new CancelOperation(connection->runtime->ReserveOperationId(), connection, connection->connectTimeoutOperationId);
+						connection->connectTimeoutCancelRequested = true;
+						connection->BeginCancelLocked();
+						if (!connection->runtime->Submit(cancellation))
+						{
+							connection->connectTimeoutCancelRequested = false;
+							connection->RollbackCancelLocked();
+						}
+					}
 					if (!connection->stopping && connection->clientStatus == ClientStatus::WaitingForServer)
 					{
 						if (result == 0)
@@ -1122,6 +1178,56 @@ ConnectionState::ConnectOperation
 			{
 				connection->DeliverConnectFailure(connection, result < 0 ? -result : EIO, fatal);
 			}
+		}
+	};
+
+/***********************************************************************
+ConnectionState::ConnectTimeoutOperation
+***********************************************************************/
+
+	class ConnectionState::ConnectTimeoutOperation : public RingOperation
+	{
+	public:
+		Ptr<ConnectionState> connection;
+		vuint64_t connectId;
+		__kernel_timespec timeout = {};
+
+		ConnectTimeoutOperation(vuint64_t id, Ptr<ConnectionState> _connection, vuint64_t _connectId)
+			: RingOperation(id, _connection, true)
+			, connection(_connection)
+			, connectId(_connectId)
+		{
+			timeout.tv_sec = AsyncSocketClientConnectTimeout / 1000;
+			timeout.tv_nsec = (AsyncSocketClientConnectTimeout % 1000) * 1000000;
+		}
+
+		void Prepare(io_uring_sqe* sqe) noexcept override
+		{
+			io_uring_prep_timeout(sqe, &timeout, 0, 0);
+		}
+
+		void Handle(vint result) override
+		{
+			bool submissionFailed = false;
+			CS_LOCK(connection->lockState)
+			{
+				if (connection->connectTimeoutOperationId != id) return;
+				connection->connectTimeoutOperationId = 0;
+				connection->connectTimeoutCancelRequested = false;
+				if (result == -ETIME && connection->connectOperationId == connectId && !connection->connectCancelRequested && !connection->stopping)
+				{
+					auto cancellation = new CancelOperation(connection->runtime->ReserveOperationId(), connection, connectId);
+					connection->connectCancelRequested = true;
+					connection->BeginCancelLocked();
+					if (!connection->runtime->Submit(cancellation))
+					{
+						connection->connectCancelRequested = false;
+						connection->RollbackCancelLocked();
+						submissionFailed = true;
+					}
+				}
+			}
+			if (submissionFailed) connection->BeginTerminal(connection, EIO, true);
 		}
 	};
 
@@ -1326,15 +1432,77 @@ ConnectionState
 		Stop(retainedState);
 	}
 
+	void ConnectionState::ResolveServer(Ptr<ConnectionState> retainedState)
+	{
+		auto resolution = Ptr(new NativeResolution(clientHost, clientPort));
+		auto notificationOwner = new Ptr<NativeResolution>(resolution);
+		sigevent notification = {};
+		notification.sigev_notify = SIGEV_THREAD;
+		notification.sigev_notify_function = &NativeResolution::Notify;
+		notification.sigev_value.sival_ptr = notificationOwner;
+		auto request = &resolution->request;
+		int error = EAI_CANCELED;
+		CS_LOCK(lockState)
+		{
+			if (!stopping)
+			{
+				clientResolution = resolution;
+				error = getaddrinfo_a(GAI_NOWAIT, &request, 1, &notification);
+			}
+		}
+		if (error != 0)
+		{
+			delete notificationOwner;
+		}
+		else
+		{
+			resolution->completed.WaitForTime(AsyncSocketClientResolveTimeout);
+			error = gai_error(request);
+			if (error == EAI_INPROGRESS) gai_cancel(request);
+		}
+		bool resolved = false;
+		CS_LOCK(lockState)
+		{
+			clientResolution = nullptr;
+			if (stopping) return;
+			if (error == 0)
+			{
+				for (auto address = request->ar_result; address; address = address->ai_next)
+				{
+					if ((address->ai_family == AF_INET || address->ai_family == AF_INET6) && address->ai_addrlen <= sizeof(sockaddr_storage))
+					{
+						sockaddr_storage copied = {};
+						memcpy(&copied, address->ai_addr, address->ai_addrlen);
+						clientAddresses.Add(copied);
+					}
+				}
+				resolved = clientAddresses.Count() > 0;
+			}
+		}
+		if (resolved)
+		{
+			StartConnectAttempt(retainedState);
+		}
+		else
+		{
+			InvokeCallback(false, [&](IAsyncSocketCallback* installed)
+			{
+				installed->OnError(L"AsyncSocketClient address resolution failed with error " + itow(error) + L".", true);
+			});
+			Stop(retainedState);
+		}
+	}
+
 	void ConnectionState::StartConnectAttempt(Ptr<ConnectionState> retainedState)
 	{
 		bool active = false;
 		bool fatal = false;
+		sockaddr_storage address = {};
 		CS_LOCK(lockState)
 		{
 			if (clientMode && !stopping && clientStatus == ClientStatus::WaitingForServer && connectOperationId == 0 && retryOperationId == 0)
 			{
-				clientAttempts++;
+				address = clientAddresses[clientAttempts++ % clientAddresses.Count()];
 				fatal = clientAttempts >= AsyncSocketClientRetryCount;
 				active = true;
 			}
@@ -1344,7 +1512,7 @@ ConnectionState
 			return;
 		}
 
-		OwnedFileDescriptor createdSocket(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP));
+		OwnedFileDescriptor createdSocket(socket(address.ss_family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP));
 		if (createdSocket.Get() < 0)
 		{
 			DeliverConnectFailure(retainedState, errno, fatal);
@@ -1359,7 +1527,7 @@ ConnectionState
 
 		auto operationId = runtime->ReserveOperationId();
 		auto createdSocketValue = createdSocket.Get();
-		auto operation = new ConnectOperation(operationId, retainedState, createdSocketValue, clientPort);
+		auto operation = new ConnectOperation(operationId, retainedState, createdSocketValue, address);
 		createdSocket.Detach();
 		bool attempted = false;
 		bool submissionFailed = false;
@@ -1379,6 +1547,18 @@ ConnectionState
 					RollbackTargetLocked();
 					submissionFailed = true;
 				}
+				else
+				{
+					connectTimeoutOperationId = runtime->ReserveOperationId();
+					connectTimeoutCancelRequested = false;
+					BeginTargetLocked();
+					if (!runtime->Submit(new ConnectTimeoutOperation(connectTimeoutOperationId, retainedState, operationId)))
+					{
+						connectTimeoutOperationId = 0;
+						RollbackTargetLocked();
+						submissionFailed = true;
+					}
+				}
 			}
 		}
 		if (attempted && !submissionFailed)
@@ -1391,7 +1571,7 @@ ConnectionState
 		}
 		else if (submissionFailed)
 		{
-			DeliverConnectFailure(retainedState, EIO, fatal);
+			BeginTerminal(retainedState, EIO, true);
 		}
 	}
 
@@ -1474,6 +1654,11 @@ ConnectionState
 				if (clientMode)
 				{
 					clientStatus = ClientStatus::Disconnected;
+					if (clientResolution)
+					{
+						gai_cancel(&clientResolution->request);
+						clientResolution->completed.Signal();
+					}
 				}
 			}
 
@@ -1499,6 +1684,7 @@ ConnectionState
 			collect(writeOperationId, writeCancelRequested);
 			collect(connectOperationId, connectCancelRequested);
 			collect(retryOperationId, retryCancelRequested);
+			collect(connectTimeoutOperationId, connectTimeoutCancelRequested);
 
 			if (firstStop && fileDescriptor >= 0)
 			{
@@ -1582,7 +1768,7 @@ ConnectionState
 			}
 		}
 		CHECK_ERROR(begin, ERROR_MESSAGE_PREFIX L"Can only be called once while the client is ready.");
-		StartConnectAttempt(retainedState);
+		ResolveServer(retainedState);
 		eventWaitForServer.Wait();
 #undef ERROR_MESSAGE_PREFIX
 	}
@@ -2026,7 +2212,20 @@ ServerState
 		}
 		StartScope startScope(this);
 
-		OwnedFileDescriptor createdListener(socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP));
+		auto listenerFamily = AF_INET6;
+		auto listenerSocket = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+		int ipv6Only = 0;
+		if (listenerSocket >= 0 && setsockopt(listenerSocket, IPPROTO_IPV6, IPV6_V6ONLY, &ipv6Only, sizeof(ipv6Only)) != 0)
+		{
+			CloseFileDescriptor(listenerSocket);
+			listenerSocket = -1;
+		}
+		if (listenerSocket < 0)
+		{
+			listenerFamily = AF_INET;
+			listenerSocket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+		}
+		OwnedFileDescriptor createdListener(listenerSocket);
 		vint setupError = createdListener.Get() < 0 ? errno : 0;
 		if (setupError == 0)
 		{
@@ -2037,11 +2236,18 @@ ServerState
 			}
 		}
 
-		sockaddr_in address = {};
-		address.sin_family = AF_INET;
-		address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-		address.sin_port = htons((vuint16_t)port);
-		if (setupError == 0 && bind(createdListener.Get(), (sockaddr*)&address, sizeof(address)) != 0)
+		sockaddr_storage address = {};
+		address.ss_family = listenerFamily;
+		if (listenerFamily == AF_INET6)
+		{
+			((sockaddr_in6*)&address)->sin6_port = htons((vuint16_t)port);
+		}
+		else
+		{
+			((sockaddr_in*)&address)->sin_port = htons((vuint16_t)port);
+		}
+		auto addressSize = listenerFamily == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
+		if (setupError == 0 && bind(createdListener.Get(), (sockaddr*)&address, addressSize) != 0)
 		{
 			setupError = errno;
 		}
@@ -2302,16 +2508,18 @@ AsyncSocketClient::Impl
 	class AsyncSocketClient::Impl : public Object
 	{
 	private:
+		WString								host;
 		vint								port = 0;
 		Ptr<RingRuntime>					runtime;
 		Ptr<ConnectionState>				state;
 		Ptr<AsyncSocketConnection>		connection;
 
 	public:
-		Impl(vint _port)
-			: port(_port)
+		Impl(const WString& _host, vint _port)
+			: host(_host)
+			, port(_port)
 			, runtime(RingRuntime::Create(true))
-			, state(Ptr(new ConnectionState(runtime, true, _port)))
+			, state(Ptr(new ConnectionState(runtime, _host, _port)))
 			, connection(Ptr(new AsyncSocketConnection(state)))
 		{
 		}
@@ -2319,6 +2527,11 @@ AsyncSocketClient::Impl
 		~Impl()
 		{
 			Stop();
+		}
+
+		const WString& GetHost()
+		{
+			return host;
 		}
 
 		vint GetPort()
@@ -2353,11 +2566,17 @@ AsyncSocketClient
 ***********************************************************************/
 
 	AsyncSocketClient::AsyncSocketClient(vint port)
+		: AsyncSocketClient(L"localhost", port)
 	{
+	}
+
+	AsyncSocketClient::AsyncSocketClient(const WString& host, vint port)
+	{
+		CHECK_ERROR(IsValidSocketHost(host), L"AsyncSocketClient requires a hostname or an unbracketed IP address.");
 #define ERROR_MESSAGE_PREFIX L"vl::inter_process::async_tcp_socket::linux_socket::AsyncSocketClient::AsyncSocketClient(vint)#"
 		CHECK_ERROR(1 <= port && port <= 65535, ERROR_MESSAGE_PREFIX L"The port must be in 1..65535.");
 #undef ERROR_MESSAGE_PREFIX
-		impl = new Impl(port);
+		impl = new Impl(host, port);
 	}
 
 	AsyncSocketClient::~AsyncSocketClient()
@@ -2372,7 +2591,7 @@ AsyncSocketClient
 
 	Ptr<IAsyncSocketClient> AsyncSocketClient::CreateSameEndpointClient()
 	{
-		return Ptr(new AsyncSocketClient(GetPort()));
+		return Ptr(new AsyncSocketClient(impl->GetHost(), GetPort()));
 	}
 
 	IAsyncSocketConnection* AsyncSocketClient::GetConnection()
@@ -2394,6 +2613,13 @@ AsyncSocketClient
 
 namespace vl::inter_process::async_tcp_socket
 {
+	bool IsSocketIpv6Address(const WString& host)
+	{
+		in6_addr address = {};
+		auto text = wtou8(host);
+		return inet_pton(AF_INET6, (const char*)text.Buffer(), &address) == 1;
+	}
+
 	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
 	{
 		return Ptr(new linux_socket::AsyncSocketServer(port));
@@ -2402,6 +2628,11 @@ namespace vl::inter_process::async_tcp_socket
 	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
 	{
 		return Ptr(new linux_socket::AsyncSocketClient(port));
+	}
+
+	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(const WString& host, vint port)
+	{
+		return Ptr(new linux_socket::AsyncSocketClient(host, port));
 	}
 }
 

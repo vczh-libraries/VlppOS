@@ -379,12 +379,18 @@ HttpClientApi::HttpClientApi(const WString& _server, vint _port)
 	WinHttpSetOption(httpSession, WINHTTP_OPTION_IPV6_FAST_FALLBACK, &ipv6FastFallback, sizeof(ipv6FastFallback));
 #endif
 
+	auto connectionHost = server.IndexOf(L':') != -1 && server[0] != L'[' ? L"[" + server + L"]" : server;
 	httpConnection = WinHttpConnect(
 		httpSession,
-		server.Buffer(),
+		connectionHost.Buffer(),
 		(INTERNET_PORT)port,
 		0);
-	CHECK_ERROR(httpConnection != NULL, L"WinHttpConnect failed.");
+	if (!httpConnection)
+	{
+		auto error = GetLastError();
+		WinHttpCloseHandle(httpSession);
+		throw Exception(L"WinHttpConnect failed with Windows error " + itow(error) + L" for " + connectionHost + L".");
+	}
 }
 
 HttpClientApi::~HttpClientApi()

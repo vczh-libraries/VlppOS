@@ -131,6 +131,7 @@ HttpClient
 
 public:
 	HttpClient(const WString _baseUrl, vint port);
+	HttpClient(const WString& host, const WString _baseUrl, vint port);
 	~HttpClient();
 
 	void											InstallCallback(INetworkProtocolCallback* _callback) override;

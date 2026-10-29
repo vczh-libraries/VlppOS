@@ -2,6 +2,10 @@
 
 #if defined VCZH_MSVC || defined VCZH_GCC
 #include "../../Source/Threading.h"
+#if defined VCZH_MSVC
+#include "../../Source/InterProcess/AsyncSocket/AsyncSocket.Windows.h"
+#include <WS2tcpip.h>
+#endif
 
 using namespace vl;
 using namespace vl::collections;
@@ -1402,7 +1406,7 @@ namespace async_socket_test
 	void RunAsyncSocketTestCases(vint maximumReadBlockSize, const WaitForEvent& waitForEvent)
 	{
 		CreateServer createServer(&CreateDefaultAsyncSocketServer);
-		CreateClient createClient(&CreateDefaultAsyncSocketClient);
+		CreateClient createClient([](vint port) { return CreateDefaultAsyncSocketClient(port); });
 
 		TEST_CASE(L"AsyncSocket full-duplex long data")
 		{
@@ -1441,7 +1445,7 @@ namespace async_socket_test
 	void RunWindowsAsyncSocketServerCallbackTestCases(const WaitForEvent& waitForEvent)
 	{
 		CreateServer createServer(&CreateDefaultAsyncSocketServer);
-		CreateClient createClient(&CreateDefaultAsyncSocketClient);
+		CreateClient createClient([](vint port) { return CreateDefaultAsyncSocketClient(port); });
 
 		TEST_CASE(L"AsyncSocket Start rejects a null server callback")
 		{
@@ -1492,8 +1496,146 @@ TEST_FILE
 	});
 
 	RunAsyncSocketTestCases(65536, WaitForEvent(&WaitForNativeEvent));
+	TEST_CASE(L"AsyncSocket explicit hosts and stopped endpoint clones transfer in both directions")
+	{
+		const WString hosts[] = { L"localhost", L"127.0.0.1", L"::1" };
+		for (auto&& host : hosts)
+		{
+			CreateClient createClient([host](vint port)
+			{
+				auto source = CreateDefaultAsyncSocketClient(host, port);
+				auto activeClone = source->CreateSameEndpointClient();
+				TEST_ASSERT(activeClone->GetStatus() == ClientStatus::Ready);
+				source->GetConnection()->Stop();
+				auto stoppedClone = source->CreateSameEndpointClient();
+				TEST_ASSERT(stoppedClone->GetPort() == port);
+				return stoppedClone;
+			});
+			RunLongFullDuplex(38710, 65536, CreateServer(&CreateDefaultAsyncSocketServer), createClient, WaitForEvent(&WaitForNativeEvent));
+			RunStopDuringRetry(38711, createClient, WaitForEvent(&WaitForNativeEvent));
+			for (vint i = 0; i < AsyncSocketTestRepeatCount; i++)
+			{
+				TestState state;
+				NoDataCallback callback(state, true);
+				auto client = createClient(38711);
+				client->GetConnection()->InstallCallback(&callback);
+				TEST_ASSERT(QueueWaitForServer(state, client));
+				for (vint wait = 0; wait < ConnectTimeout && client->GetStatus() == ClientStatus::Ready; wait++)
+				{
+					state.eventWaitForServerReturned.WaitForTime(1);
+				}
+				auto waiting = client->GetStatus() == ClientStatus::WaitingForServer;
+				// Cancel as soon as startup publishes its waiting state, without
+				// waiting for a failed attempt or a retry callback.
+				client->GetConnection()->Stop();
+				callback.MarkStopReturned();
+				DrainWaitForServer(state, WaitForEvent(&WaitForNativeEvent), L"Starting connection did not drain after Stop.");
+				client->GetConnection()->InstallCallback(nullptr);
+				AssertState(state);
+				TEST_ASSERT(waiting);
+				TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+				TEST_ASSERT(callback.connectedCount == 0);
+				TEST_ASSERT(callback.fatalErrorCount == 0);
+				TEST_ASSERT(callback.disconnectedCount == 1);
+				TEST_ASSERT(callback.callbacksAfterStop == 0);
+			}
+		}
+	});
+
+	TEST_CASE(L"AsyncSocket invalid hosts are rejected without starting a connection")
+	{
+		const WString hosts[] = { L"", L"localhost:8888", L"http://localhost", L"localhost/path", L"[::1]", L"a b", L"::g", L"a..b" };
+		for (auto&& host : hosts)
+		{
+			TEST_ASSERT(!IsValidSocketHost(host));
+			TEST_ERROR(CreateDefaultAsyncSocketClient(host, 38712));
+		}
+	});
+
+	TEST_CASE(L"AsyncSocket failed resolution terminates once and preserves the failed endpoint in clones")
+	{
+		atomic_vint accepted = 0;
+		auto serverCallback = Ptr(new TestServerCallback([&](Ptr<IAsyncSocketConnection>)
+		{
+			accepted++;
+			return WaitForClientResult::Reject;
+		}));
+		auto server = CreateDefaultAsyncSocketServer(38712);
+		server->Start(serverCallback.Obj());
+		auto source = CreateDefaultAsyncSocketClient(L"vlppos-unresolvable.invalid", 38712);
+		source->GetConnection()->Stop();
+		auto client = source->CreateSameEndpointClient();
+		TestState state;
+		NoDataCallback callback(state, true, true);
+		client->GetConnection()->InstallCallback(&callback);
+		TEST_ASSERT(QueueWaitForServer(state, client));
+		auto returned = state.eventWaitForServerReturned.WaitForTime(ConnectTimeout);
+		client->GetConnection()->Stop();
+		callback.MarkStopReturned();
+		DrainWaitForServer(state, WaitForEvent(&WaitForNativeEvent), L"Failed resolution did not drain after Stop.");
+		client->GetConnection()->InstallCallback(nullptr);
+		server->Stop();
+		AssertState(state);
+		TEST_ASSERT(returned);
+		TEST_ASSERT(client->GetStatus() == ClientStatus::Disconnected);
+		TEST_ASSERT(callback.connectedCount == 0);
+		TEST_ASSERT(callback.fatalErrorCount == 1);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+		TEST_ASSERT(callback.fatalErrorSequence < callback.disconnectedSequence);
+		TEST_ASSERT(callback.callbacksAfterStop == 0);
+		TEST_ASSERT(accepted == 0);
+	});
 #if defined VCZH_MSVC
 	RunWindowsAsyncSocketServerCallbackTestCases(WaitForEvent(&WaitForNativeEvent));
+	TEST_CASE(L"AsyncSocket tries a later localhost address when the first family has no listener")
+	{
+		auto client = CreateDefaultAsyncSocketClient(L"localhost", 38713);
+		ADDRINFOW hints = {};
+		hints.ai_family = AF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_protocol = IPPROTO_TCP;
+		ADDRINFOW* addresses = nullptr;
+		TEST_ASSERT(GetAddrInfoW(L"localhost", L"38713", &hints, &addresses) == 0);
+		auto firstFamily = addresses->ai_family;
+		SOCKADDR_STORAGE address = {};
+		vint addressSize = 0;
+		for (auto candidate = addresses; candidate; candidate = candidate->ai_next)
+		{
+			if ((candidate->ai_family == AF_INET || candidate->ai_family == AF_INET6) && candidate->ai_family != firstFamily)
+			{
+				addressSize = candidate->ai_addrlen;
+				memcpy(&address, candidate->ai_addr, addressSize);
+				break;
+			}
+		}
+		FreeAddrInfoW(addresses);
+		TEST_ASSERT(addressSize != 0);
+		auto listener = socket(address.ss_family, SOCK_STREAM, IPPROTO_TCP);
+		TEST_ASSERT(listener != INVALID_SOCKET);
+		if (address.ss_family == AF_INET6)
+		{
+			DWORD ipv6Only = 1;
+			TEST_ASSERT(setsockopt(listener, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6Only, sizeof(ipv6Only)) == 0);
+		}
+		TEST_ASSERT(bind(listener, (SOCKADDR*)&address, (int)addressSize) == 0);
+		TEST_ASSERT(listen(listener, 1) == 0);
+		TestState state;
+		NoDataCallback callback(state, true);
+		client->GetConnection()->InstallCallback(&callback);
+		TEST_ASSERT(QueueWaitForServer(state, client));
+		auto returned = state.eventWaitForServerReturned.WaitForTime(ConnectTimeout);
+		auto connected = client->GetStatus() == ClientStatus::Connected;
+		client->GetConnection()->Stop();
+		callback.MarkStopReturned();
+		DrainWaitForServer(state, WaitForEvent(&WaitForNativeEvent), L"Address fallback did not drain after Stop.");
+		client->GetConnection()->InstallCallback(nullptr);
+		closesocket(listener);
+		AssertState(state);
+		TEST_ASSERT(returned && connected);
+		TEST_ASSERT(callback.nonfatalErrorCount >= 1);
+		TEST_ASSERT(callback.fatalErrorCount == 0);
+		TEST_ASSERT(callback.disconnectedCount == 1);
+	});
 #endif
 }
 

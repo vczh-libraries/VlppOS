@@ -1727,6 +1727,56 @@ namespace mini_http_api_test
 			AssertState(*serverState.Obj());
 		});
 
+		TEST_CASE(L"MiniHTTP serializes DNS and bracketed IPv6 authorities and dispatches valid hosts")
+		{
+			const vint port = 38930;
+			auto state = Ptr(new TestState(3));
+			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(port), L"/host", false, state));
+			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([state](auto context)
+			{
+				auto host = GetAsciiFieldValue(context->GetRequest()->headers, L"host");
+				state->Expect(context->Respond(CreateResponse(200, host)), L"The Host echo response failed.");
+			}));
+			server->Start();
+			const WString hosts[] = { L"example.com", L"::1", L"LOCALHOST" };
+			for (auto&& host : hosts)
+			{
+				// Deliberately keep the socket local: DNS names in the HTTP authority
+				// are wire-validation fixtures, not public Internet dependencies.
+				auto client = CreateClientWithServer(port, host);
+				client->WaitForServer();
+				windows_http::HttpRequest request;
+				request.method = L"GET";
+				request.query = L"/host";
+				EventObject completed;
+				TEST_ASSERT(completed.CreateManualUnsignal(false));
+				auto authority = CreateSocketHttpAuthority(host, port);
+				client->HttpQuery(request, Func<void(Variant<windows_http::HttpResponse, windows_http::HttpError>)>([&](auto result)
+				{
+					if (auto response = result.TryGet<windows_http::HttpResponse>()) state->Expect(response->GetBodyUtf8() == authority, L"The serialized Host authority changed.");
+					else state->Fail(L"A valid Host authority failed.");
+					state->AddResult(std::move(result));
+					completed.Signal();
+				}));
+				TEST_ASSERT(completed.WaitForTime(TransferTimeout));
+				client->Stop();
+			}
+			auto wrongPort = Ptr(new RawSequenceState(1));
+			wrongPort->requests.Add(CreateRawRequest(L"GET", L"/host", 1));
+			RunRawSequence(port, wrongPort);
+			AssertState(*wrongPort.Obj());
+			TEST_ASSERT(wrongPort->responses.Count() == 1 && wrongPort->responses[0]->statusCode == 404);
+			const WString malformed[] = { L"localhost", L"[::1:38930", L"::1:38930", L"[localhost]:38930", L"[::g]:38930", L"a..b:38930", L"http://localhost:38930", L"localhost:38930/path" };
+			for (auto&& host : malformed)
+			{
+				TEST_ASSERT(ProbeWireStatus(port, L"GET /host HTTP/1.1\r\nHost: " + host + L"\r\n\r\n") == 400);
+			}
+			TEST_ASSERT(ProbeWireStatus(port, L"GET /host HTTP/1.1\r\nHost: example.com:38930\r\nhOsT: [::1]:38930\r\n\r\n") == 400);
+			server->Stop();
+			AssertState(*state.Obj());
+			TEST_ASSERT(state->records.Count() == 3);
+		});
+
 		TEST_CASE(L"SocketHttpClientApi validates its server and maps unsupported WinHTTP-shaped options to HttpError")
 		{
 			TEST_ERROR(CreateClientWithServer(38904, WString::Empty));

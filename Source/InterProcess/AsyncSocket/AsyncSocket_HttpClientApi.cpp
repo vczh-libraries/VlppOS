@@ -15,98 +15,88 @@ namespace vl::inter_process::async_tcp_socket
 {
 	using namespace vl::collections;
 
-	namespace
+	wchar_t FoldAscii(wchar_t c)
 	{
-		wchar_t FoldAscii(wchar_t c)
-		{
-			return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
-		}
+		return L'A' <= c && c <= L'Z' ? c - L'A' + L'a' : c;
+	}
 
-		bool AsciiEqualsIgnoreCase(const WString& a, const WString& b)
+	bool AsciiEqualsIgnoreCase(const WString& a, const WString& b)
+	{
+		if (a.Length() != b.Length()) return false;
+		for (vint i = 0; i < a.Length(); i++)
 		{
-			if (a.Length() != b.Length()) return false;
-			for (vint i = 0; i < a.Length(); i++)
-			{
-				if (FoldAscii(a[i]) != FoldAscii(b[i])) return false;
-			}
-			return true;
+			if (FoldAscii(a[i]) != FoldAscii(b[i])) return false;
 		}
+		return true;
+	}
 
-		WString FoldAsciiFieldName(const WString& name)
+	WString FoldAsciiFieldName(const WString& name)
+	{
+		Array<wchar_t> characters(name.Length());
+		for (vint i = 0; i < name.Length(); i++)
 		{
-			Array<wchar_t> characters(name.Length());
-			for (vint i = 0; i < name.Length(); i++)
-			{
-				characters[i] = FoldAscii(name[i]);
-			}
-			return characters.Count() == 0 ? WString() : WString::CopyFrom(&characters[0], characters.Count());
+			characters[i] = FoldAscii(name[i]);
 		}
+		return characters.Count() == 0 ? WString() : WString::CopyFrom(&characters[0], characters.Count());
+	}
 
-		WString TrimHttpWhitespace(const WString& value)
-		{
-			vint begin = 0;
-			vint end = value.Length();
-			while (begin < end && (value[begin] == L' ' || value[begin] == L'\t')) begin++;
-			while (begin < end && (value[end - 1] == L' ' || value[end - 1] == L'\t')) end--;
-			return value.Sub(begin, end - begin);
-		}
+	WString TrimHttpWhitespace(const WString& value)
+	{
+		vint begin = 0;
+		vint end = value.Length();
+		while (begin < end && (value[begin] == L' ' || value[begin] == L'\t')) begin++;
+		while (begin < end && (value[end - 1] == L' ' || value[end - 1] == L'\t')) end--;
+		return value.Sub(begin, end - begin);
+	}
 
-		bool ContainsOnlyIdentityCoding(const WString& value)
+	bool ContainsOnlyIdentityCoding(const WString& value)
+	{
+		vint begin = 0;
+		bool found = false;
+		while (begin <= value.Length())
 		{
-			vint begin = 0;
-			bool found = false;
-			while (begin <= value.Length())
-			{
-				vint end = begin;
-				while (end < value.Length() && value[end] != L',') end++;
-				auto coding = TrimHttpWhitespace(value.Sub(begin, end - begin));
-				if (!AsciiEqualsIgnoreCase(coding, L"identity")) return false;
-				found = true;
-				if (end == value.Length()) break;
-				begin = end + 1;
-			}
-			return found;
+			vint end = begin;
+			while (end < value.Length() && value[end] != L',') end++;
+			auto coding = TrimHttpWhitespace(value.Sub(begin, end - begin));
+			if (!AsciiEqualsIgnoreCase(coding, L"identity")) return false;
+			found = true;
+			if (end == value.Length()) break;
+			begin = end + 1;
 		}
+		return found;
+	}
 
-		bool ValidateServer(const WString& server)
+	HttpField CreateField(const WString& name, const WString& value)
+	{
+		HttpField field;
+		field.name = FoldAsciiFieldName(name);
+		auto utf8 = wtou8(value);
+		field.value.Resize(utf8.Length());
+		if (utf8.Length() > 0)
 		{
-			return
-				AsciiEqualsIgnoreCase(server, L"localhost") ||
-				server == L"127.0.0.1";
+			memcpy(&field.value[0], utf8.Buffer(), utf8.Length());
 		}
+		return field;
+	}
 
-		HttpField CreateField(const WString& name, const WString& value)
+	WString DecodeFieldValue(const Array<vuint8_t>& value)
+	{
+		if (value.Count() == 0) return WString::Empty;
+		Array<char8_t> utf8(value.Count());
+		for (vint i = 0; i < value.Count(); i++)
 		{
-			HttpField field;
-			field.name = FoldAsciiFieldName(name);
-			auto utf8 = wtou8(value);
-			field.value.Resize(utf8.Length());
-			if (utf8.Length() > 0)
-			{
-				memcpy(&field.value[0], utf8.Buffer(), utf8.Length());
-			}
-			return field;
+			utf8[i] = (char8_t)value[i];
 		}
+		return u8tow(U8String::CopyFrom(&utf8[0], utf8.Count()));
+	}
 
-		WString DecodeFieldValue(const Array<vuint8_t>& value)
-		{
-			if (value.Count() == 0) return WString::Empty;
-			Array<char8_t> utf8(value.Count());
-			for (vint i = 0; i < value.Count(); i++)
-			{
-				utf8[i] = (char8_t)value[i];
-			}
-			return u8tow(U8String::CopyFrom(&utf8[0], utf8.Count()));
-		}
-
-		windows_http::HttpError MakeError(const WString& operation, const WString& message, SocketHttpClientErrorCode code)
-		{
-			windows_http::HttpError error;
-			error.operation = operation;
-			error.errorCode = (vuint32_t)code;
-			error.message = message;
-			return error;
-		}
+	windows_http::HttpError MakeError(const WString& operation, const WString& message, SocketHttpClientErrorCode code)
+	{
+		windows_http::HttpError error;
+		error.operation = operation;
+		error.errorCode = (vuint32_t)code;
+		error.message = message;
+		return error;
 	}
 
 /***********************************************************************
@@ -917,10 +907,10 @@ SocketHttpClientApi
 	SocketHttpClientApi::SocketHttpClientApi(Ptr<IAsyncSocketClient> client, const WString& server)
 	{
 		CHECK_ERROR(client, L"SocketHttpClientApi requires an asynchronous socket client.");
-		CHECK_ERROR(ValidateServer(server), L"SocketHttpClientApi requires an explicit loopback server.");
+		CHECK_ERROR(IsValidSocketHost(server), L"SocketHttpClientApi requires a hostname or an unbracketed IP address.");
 		auto port = client->GetPort();
 		CHECK_ERROR(1 <= port && port <= 65535, L"SocketHttpClientApi requires the injected client port to be in 1..65535.");
-		auto authority = server + WString::Unmanaged(L":") + itow(port);
+		auto authority = CreateSocketHttpAuthority(server, port);
 		auto created = Ptr(new Impl(client, authority));
 		created->Initialize(created);
 		impl = created;

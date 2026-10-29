@@ -455,12 +455,17 @@ HttpClient
 ***********************************************************************/
 
 HttpClient::HttpClient(const WString _baseUrl, vint port)
+	: HttpClient(L"localhost", _baseUrl, port)
+{
+}
+
+HttpClient::HttpClient(const WString& host, const WString _baseUrl, vint port)
 	: baseUrl(_baseUrl)
 {
 	CHECK_ERROR(eventWaitForServer.CreateAutoUnsignal(false), L"HttpClient initialization failed on eventWaitForServer.CreateAutoUnsignal.");
 	CHECK_ERROR(eventResponseUploadsCompleted.CreateManualUnsignal(true), L"HttpClient initialization failed on eventResponseUploadsCompleted.CreateManualUnsignal.");
 
-	httpClientApi = Ptr(new HttpClientApi(L"localhost", port));
+	httpClientApi = Ptr(new HttpClientApi(host, port));
 	urlConnect = baseUrl + HttpServerUrl_Connect;
 }
 

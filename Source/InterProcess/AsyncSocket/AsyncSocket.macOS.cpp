@@ -4,6 +4,7 @@
 
 #include <Network/Network.h>
 #include <dispatch/dispatch.h>
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -39,6 +40,7 @@ NativeConnectionContext
 	private:
 		Ptr<ConnectionState>				state;
 		nw_connection_t					connection = nullptr;
+		dispatch_source_t				timeout = nullptr;
 		vint							generation = 0;
 		bool							started = false;
 		bool							cancelRequested = false;
@@ -80,6 +82,7 @@ ConnectionState
 		IAsyncSocketConnection*			owner = nullptr;
 		IAsyncSocketCallback*			callback = nullptr;
 		bool							clientMode = false;
+		WString							host;
 		vint							port = 0;
 		bool							logicalConnected = false;
 		bool							nativeReady = false;
@@ -274,6 +277,7 @@ ConnectionState
 				nw_connection_start(context->connection);
 			}
 			context->cancelRequested = true;
+			if (context->timeout) dispatch_source_cancel(context->timeout);
 			nw_connection_cancel(context->connection);
 		}
 
@@ -311,6 +315,29 @@ ConnectionState
 			});
 			if (start)
 			{
+				if (clientMode)
+				{
+					auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+					CHECK_ERROR(source != nullptr, L"AsyncSocketClient failed to create its connection deadline.");
+					context->timeout = source;
+					pendingLocalTasks++;
+					dispatch_source_set_event_handler(source, ^
+					{
+						retainedContext->state->OnNativeWaiting(retainedContext, nullptr);
+					});
+					dispatch_source_set_cancel_handler(source, ^
+					{
+						CS_LOCK(retainedContext->state->lockState)
+						{
+							retainedContext->timeout = nullptr;
+							retainedContext->state->pendingLocalTasks--;
+							retainedContext->state->cvState.WakeAllPendings();
+						}
+						dispatch_release(source);
+					});
+					dispatch_source_set_timer(source, dispatch_time(DISPATCH_TIME_NOW, AsyncSocketClientResolveTimeout * NSEC_PER_MSEC), DISPATCH_TIME_FOREVER, 0);
+					dispatch_activate(source);
+				}
 				context->started = true;
 				nw_connection_start(context->connection);
 			}
@@ -414,10 +441,14 @@ ConnectionState
 			}
 
 			auto portText = itoa(port);
-			auto endpoint = nw_endpoint_create_host("127.0.0.1", portText.Buffer());
+			auto hostText = wtou8(host);
+			auto endpoint = nw_endpoint_create_host((const char*)hostText.Buffer(), portText.Buffer());
 			auto parameters = nw_parameters_create_secure_tcp(
 				NW_PARAMETERS_DISABLE_PROTOCOL,
-				NW_PARAMETERS_DEFAULT_CONFIGURATION
+				^(nw_protocol_options_t options)
+				{
+					nw_tcp_options_set_connection_timeout(options, AsyncSocketClientConnectTimeout / 1000);
+				}
 			);
 			nw_connection_t connection = nullptr;
 			if (endpoint && parameters)
@@ -566,6 +597,7 @@ ConnectionState
 				)
 			{
 				nativeReady = true;
+				if (context->timeout) dispatch_source_cancel(context->timeout);
 				logicalConnected = true;
 				if (clientMode && clientStatus == ClientStatus::WaitingForServer)
 				{
@@ -604,7 +636,7 @@ ConnectionState
 				)
 			{
 				context->waitingHandled = true;
-				exhausted = clientAttempts >= AsyncSocketClientRetryCount;
+				exhausted = !error || nw_error_get_error_domain(error) == nw_error_domain_dns || clientAttempts >= AsyncSocketClientRetryCount;
 				retryable = !exhausted;
 				if (retryable)
 				{
@@ -617,7 +649,7 @@ ConnectionState
 				return;
 			}
 
-			auto message = NetworkErrorMessage(L"AsyncSocketClient connection attempt", error);
+			auto message = error ? NetworkErrorMessage(L"AsyncSocketClient connection attempt", error) : WString::Unmanaged(L"AsyncSocketClient address resolution or connection deadline expired.");
 			if (exhausted)
 			{
 				EnterTerminal(context, message, true);
@@ -646,6 +678,7 @@ ConnectionState
 			lockState.Enter();
 			if (!context->cancelledHandled)
 			{
+				if (context->timeout) dispatch_source_cancel(context->timeout);
 				context->cancelledHandled = true;
 				if (context->connection)
 				{
@@ -934,8 +967,9 @@ ConnectionState
 		}
 
 	public:
-		ConnectionState(bool _clientMode, vint _port)
+		ConnectionState(bool _clientMode, vint _port, const WString& _host = WString::Empty)
 			: clientMode(_clientMode)
+			, host(_host)
 			, port(_port)
 		{
 			queue = dispatch_queue_create("vlppos.async-socket.connection", DISPATCH_QUEUE_SERIAL);
@@ -1509,20 +1543,14 @@ ServerState
 			CHECK_ERROR(begin, ERROR_MESSAGE_PREFIX L"Can only be called once before stopping.");
 
 			auto portText = itoa(port);
-			auto endpoint = nw_endpoint_create_host("127.0.0.1", portText.Buffer());
 			auto parameters = nw_parameters_create_secure_tcp(
 				NW_PARAMETERS_DISABLE_PROTOCOL,
 				NW_PARAMETERS_DEFAULT_CONFIGURATION
 			);
 			nw_listener_t createdListener = nullptr;
-			if (endpoint && parameters)
+			if (parameters)
 			{
-				nw_parameters_set_local_endpoint(parameters, endpoint);
-				createdListener = nw_listener_create(parameters);
-			}
-			if (endpoint)
-			{
-				nw_release(endpoint);
+				createdListener = nw_listener_create_with_port(portText.Buffer(), parameters);
 			}
 			if (parameters)
 			{
@@ -1772,14 +1800,16 @@ AsyncSocketClient::Impl
 	class AsyncSocketClient::Impl : public Object
 	{
 	private:
+		WString								host;
 		vint								port = 0;
 		Ptr<ConnectionState>					state;
 		Ptr<AsyncSocketConnection>			connection;
 
 	public:
-		Impl(vint _port)
-			: port(_port)
-			, state(Ptr(new ConnectionState(true, _port)))
+		Impl(const WString& _host, vint _port)
+			: host(_host)
+			, port(_port)
+			, state(Ptr(new ConnectionState(true, _port, _host)))
 			, connection(Ptr(new AsyncSocketConnection(state)))
 		{
 		}
@@ -1787,6 +1817,11 @@ AsyncSocketClient::Impl
 		~Impl()
 		{
 			connection->Stop();
+		}
+
+		const WString& GetHost()
+		{
+			return host;
 		}
 
 		vint GetPort()
@@ -1815,9 +1850,15 @@ AsyncSocketClient
 ***********************************************************************/
 
 	AsyncSocketClient::AsyncSocketClient(vint port)
+		: AsyncSocketClient(L"localhost", port)
 	{
+	}
+
+	AsyncSocketClient::AsyncSocketClient(const WString& host, vint port)
+	{
+		CHECK_ERROR(IsValidSocketHost(host), L"AsyncSocketClient requires a hostname or an unbracketed IP address.");
 		CHECK_ERROR(1 <= port && port <= 65535, L"AsyncSocketClient requires a port in 1..65535.");
-		impl = new Impl(port);
+		impl = new Impl(host, port);
 	}
 
 	AsyncSocketClient::~AsyncSocketClient()
@@ -1832,7 +1873,7 @@ AsyncSocketClient
 
 	Ptr<IAsyncSocketClient> AsyncSocketClient::CreateSameEndpointClient()
 	{
-		return Ptr(new AsyncSocketClient(GetPort()));
+		return Ptr(new AsyncSocketClient(impl->GetHost(), GetPort()));
 	}
 
 	IAsyncSocketConnection* AsyncSocketClient::GetConnection()
@@ -1854,6 +1895,13 @@ AsyncSocketClient
 
 namespace vl::inter_process::async_tcp_socket
 {
+	bool IsSocketIpv6Address(const WString& host)
+	{
+		in6_addr address = {};
+		auto text = wtou8(host);
+		return inet_pton(AF_INET6, (const char*)text.Buffer(), &address) == 1;
+	}
+
 	Ptr<IAsyncSocketServer> CreateDefaultAsyncSocketServer(vint port)
 	{
 		return Ptr(new macos_socket::AsyncSocketServer(port));
@@ -1862,6 +1910,11 @@ namespace vl::inter_process::async_tcp_socket
 	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(vint port)
 	{
 		return Ptr(new macos_socket::AsyncSocketClient(port));
+	}
+
+	Ptr<IAsyncSocketClient> CreateDefaultAsyncSocketClient(const WString& host, vint port)
+	{
+		return Ptr(new macos_socket::AsyncSocketClient(host, port));
 	}
 }
 #endif
