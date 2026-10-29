@@ -1753,7 +1753,7 @@ namespace mini_http_api_test
 				auto authority = CreateSocketHttpAuthority(host, port);
 				client->HttpQuery(request, Func<void(Variant<windows_http::HttpResponse, windows_http::HttpError>)>([&](auto result)
 				{
-					if (auto response = result.TryGet<windows_http::HttpResponse>()) state->Expect(response->GetBodyUtf8() == authority, L"The serialized Host authority changed.");
+					if (auto response = result.template TryGet<windows_http::HttpResponse>()) state->Expect(response->GetBodyUtf8() == authority, L"The serialized Host authority changed.");
 					else state->Fail(L"A valid Host authority failed.");
 					state->AddResult(std::move(result));
 					completed.Signal();
@@ -2165,6 +2165,7 @@ namespace mini_http_api_test
 				TEST_ERROR(context->Respond(trailers));
 
 				auto acceptedResponse = CreateResponse(221, L"deferred-first");
+				context->SetCancellationCallback([state]() { state->Fail(L"An accepted response invoked its pending cancellation callback."); });
 				acceptedResponse->headers.Add(CreateRawNameAsciiHttpField(L"CoNtEnT-LeNgTh", L"14"));
 				acceptedResponse->headers.Add(CreateRawNameAsciiHttpField(L"CONTENT-LENGTH", L"14"));
 				auto accepted = context->Respond(acceptedResponse, Func<void(bool)>([state](bool succeeded)
@@ -2174,6 +2175,7 @@ namespace mini_http_api_test
 					state->eventCompletion.Signal();
 				}));
 				TEST_ASSERT(accepted);
+				context->SetCancellationCallback([state]() { state->Fail(L"A late cancellation registration replaced response completion."); });
 				assertInvalidConveniences();
 				TEST_ASSERT(!context->RespondStatus(299, L"Consumed"));
 				TEST_ASSERT(!context->RespondUtf8(299, L"Consumed", L"text/plain", L"second-response"));
@@ -2214,6 +2216,7 @@ namespace mini_http_api_test
 			auto cancelState = Ptr(new DeferredState(1));
 			auto clientStopState = Ptr(new DeferredState(2));
 			auto serverStopState = Ptr(new DeferredState(1));
+			atomic_vint cancellations = 0;
 			auto server = Ptr(new TestServerApi(CreateDefaultAsyncSocketServer(38907), L"/lifecycle", false, serverState));
 			server->SetHandler(Func<void(Ptr<SocketHttpRequestContext>)>([serverState, cancelState, clientStopState, serverStopState](Ptr<SocketHttpRequestContext> context)
 			{
@@ -2240,9 +2243,13 @@ namespace mini_http_api_test
 			TEST_ASSERT(cancelContext);
 			if (cancelContext)
 			{
+				cancelContext->SetCancellationCallback([&]() { cancellations++; });
 				TEST_ASSERT(cancelContext->Cancel());
 				TEST_ASSERT(!cancelContext->Cancel());
 				TEST_ASSERT(!cancelContext->Respond(CreateResponse(200, L"too-late")));
+				TEST_ASSERT(cancellations == 1);
+				cancelContext->SetCancellationCallback([&]() { cancellations++; });
+				TEST_ASSERT(cancellations == 2);
 			}
 			cancelState->Expect(cancelState->eventDone.WaitForTime(TransferTimeout), L"Explicit context cancellation did not fail the client query.");
 			cancelClient->Stop();
@@ -2257,7 +2264,14 @@ namespace mini_http_api_test
 			queuedRequest.query = L"/lifecycle/must-not-arrive";
 			SubmitQuery(clientStopClient, clientStopState, queuedRequest);
 			clientStopState->Expect(clientStopState->eventContext.WaitForTime(TransferTimeout), L"The client-stop context was not delivered.");
+			clientStopState->GetContext()->SetCancellationCallback([&]()
+			{
+				cancellations++;
+				clientStopState->eventCompletion.Signal();
+			});
 			clientStopClient->Stop();
+			TEST_ASSERT(clientStopState->eventCompletion.WaitForTime(TransferTimeout));
+			TEST_ASSERT(cancellations == 3);
 			clientStopState->stopReturned = 1;
 			clientStopState->Expect(clientStopState->eventDone.WaitForTime(TransferTimeout), L"SocketHttpClientApi::Stop did not complete all accepted callbacks.");
 
@@ -2267,7 +2281,11 @@ namespace mini_http_api_test
 			serverStopRequest.query = L"/lifecycle/server-stop";
 			SubmitQuery(serverStopClient, serverStopState, serverStopRequest);
 			serverStopState->Expect(serverStopState->eventContext.WaitForTime(TransferTimeout), L"The server-stop context was not delivered.");
+			serverStopState->GetContext()->SetCancellationCallback([&]() { cancellations++; });
 			server->Stop();
+			TEST_ASSERT(cancellations == 4);
+			serverStopState->GetContext()->SetCancellationCallback([&]() { cancellations++; });
+			TEST_ASSERT(cancellations == 4);
 			serverStopState->Expect(serverStopState->eventDone.WaitForTime(TransferTimeout), L"SocketHttpServerApi::Stop did not disconnect the retained request.");
 			serverStopClient->Stop();
 			serverStopState->stopReturned = 1;

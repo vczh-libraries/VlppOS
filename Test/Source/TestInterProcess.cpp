@@ -4490,6 +4490,70 @@ void RunSocketHttpFocusedTestCases()
 	});
 #endif
 
+	TEST_CASE(L"SocketHttp reports loss of a pending poll without requiring another server message")
+	{
+		for (bool promote : { false, true })
+		{
+			const vint port = promote ? 39661 : 39660;
+			const WString baseUrl = L"/VlppOSTestSocketHttpPendingPollLoss";
+			EventObject eventRegistered;
+			TEST_ASSERT(eventRegistered.CreateAutoUnsignal(false));
+			SocketHttpPollHookScope hooks({}, {}, [&](const WString&) { eventRegistered.Signal(); });
+			ExactMessageCallback callback(L"unused");
+			callback.promoteRecoverableErrors = promote;
+			auto server = Ptr(new SingleConnectionSocketHttpServer(async_tcp_socket::CreateDefaultAsyncSocketServer(port), baseUrl, &callback));
+			server->Start();
+			auto connectClient = CreateFocusedSocketHttpApi(port);
+			connectClient->WaitForServer();
+			auto connected = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(connectClient, L"GET", baseUrl + HttpServerUrl_Connect, WString::Empty, SocketHttpFocusedTimeout, connected);
+			TEST_ASSERT(connected->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(connected->StatusCode() == 200);
+			TEST_ASSERT(callback.eventInstalled.WaitForTime(SocketHttpFocusedTimeout));
+			auto body = connected->Body();
+			auto requestPath = baseUrl + body.Left(body.IndexOf(L';'));
+			connectClient->Stop();
+
+			auto firstPoll = CreateFocusedSocketHttpApi(port);
+			firstPoll->WaitForServer();
+			auto first = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(firstPoll, L"POST", requestPath, WString::Empty, 0, first);
+			TEST_ASSERT(eventRegistered.WaitForTime(SocketHttpFocusedTimeout));
+			auto replacementPoll = CreateFocusedSocketHttpApi(port);
+			replacementPoll->WaitForServer();
+			auto replacement = Ptr(new SocketHttpQueryState);
+			SubmitSocketHttpQuery(replacementPoll, L"POST", requestPath, WString::Empty, 0, replacement);
+			TEST_ASSERT(eventRegistered.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(first->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+			TEST_ASSERT(first->Failed());
+			TEST_ASSERT(callback.recoverableErrorCount == 0);
+			firstPoll->Stop();
+
+			replacementPoll->Stop();
+			TEST_ASSERT(callback.eventRecoverableError.WaitForTime(SocketHttpFocusedTimeout));
+			if (promote)
+			{
+				TEST_ASSERT(callback.eventDisconnected.WaitForTime(SocketHttpFocusedTimeout));
+				TEST_ASSERT(callback.disconnectedCount == 1);
+			}
+			else
+			{
+				auto nextPoll = CreateFocusedSocketHttpApi(port);
+				nextPoll->WaitForServer();
+				auto next = Ptr(new SocketHttpQueryState);
+				SubmitSocketHttpQuery(nextPoll, L"POST", requestPath, WString::Empty, 0, next);
+				TEST_ASSERT(eventRegistered.WaitForTime(SocketHttpFocusedTimeout));
+				callback.Connection()->SendString(L"after-poll-loss");
+				TEST_ASSERT(next->eventCompleted.WaitForTime(SocketHttpFocusedTimeout));
+				TEST_ASSERT(next->Body() == L"after-poll-loss");
+				TEST_ASSERT(callback.disconnectedCount == 0);
+				nextPoll->Stop();
+			}
+			TEST_ASSERT(callback.recoverableErrorCount == 1);
+			server->Stop();
+		}
+	});
+
 	TEST_CASE(L"SocketHttp failed poll delivery is requeued before a replacement poll")
 	{
 		const vint port = 39606;

@@ -569,7 +569,7 @@ namespace vl::inter_process::async_tcp_socket
 	class SocketHttpRequestContext::Impl : public Object
 	{
 	public:
-		enum class State { Pending, Sending, Completed, Cancelled };
+		enum class State { Pending, Sending, Completed, Failed, Cancelled };
 		CriticalSection					lock;
 		Ptr<ConnectionState>				connectionState;
 		Ptr<ApiRegistration>				registration;
@@ -592,12 +592,9 @@ namespace vl::inter_process::async_tcp_socket
 			{
 				if ((includeSending && state == State::Sending) || (includePending && state == State::Pending))
 				{
-					if (state == State::Sending)
-					{
-						callback = completion;
-						completion = {};
-					}
-					state = succeeded ? State::Completed : State::Cancelled;
+					callback = completion;
+					completion = {};
+					state = succeeded ? State::Completed : (state == State::Pending ? State::Cancelled : State::Failed);
 					won = true;
 				}
 			}
@@ -1264,6 +1261,22 @@ namespace vl::inter_process::async_tcp_socket
 			bytes.Count(),
 			body
 			);
+	}
+
+	void SocketHttpRequestContext::SetCancellationCallback(Func<void()> callback)
+	{
+		Func<void(bool)> completion;
+		if (callback) completion = [callback](bool) { callback(); };
+		bool cancelled = false;
+		CS_LOCK(impl->lock)
+		{
+			if (impl->state == Impl::State::Pending) impl->completion = completion;
+			else if (impl->state == Impl::State::Cancelled) cancelled = true;
+		}
+		if (cancelled && impl->registration->ReserveCompletion(completion))
+		{
+			impl->registration->InvokeReservedCompletion(completion, false);
+		}
 	}
 
 	bool SocketHttpRequestContext::Respond(Ptr<HttpResponse> response, Func<void(bool)> completion)
