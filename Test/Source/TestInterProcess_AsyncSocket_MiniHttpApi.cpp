@@ -1730,7 +1730,8 @@ namespace mini_http_api_test
 		TEST_CASE(L"SocketHttpClientApi validates its server and maps unsupported WinHTTP-shaped options to HttpError")
 		{
 			TEST_ERROR(CreateClientWithServer(38904, WString::Empty));
-			TEST_ERROR(CreateClientWithServer(38904, L"example.com"));
+			CreateClientWithServer(38904, L"example.com")->Stop();
+			CreateClientWithServer(38904, L"::1")->Stop();
 			TEST_ERROR(CreateClientWithServer(38904, L"localhost:38904"));
 			TEST_ERROR(CreateClientWithServer(38904, L"localhost/path"));
 			CreateClientWithServer(38904, L"LOCALHOST")->Stop();
