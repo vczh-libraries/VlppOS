@@ -5,6 +5,7 @@
 #include <Network/Network.h>
 #include <dispatch/dispatch.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
